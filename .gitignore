@@ -9,3 +9,8 @@ ancho_fijo-*.tar
 /tmp/
 /priv/plts/*.plt
 /priv/plts/*.plt.hash
+
+# Secretos. Elixir no carga .env solo, pero si el archivo existe no debe
+# viajar: una API key de Hex publica paquetes en tu nombre.
+.env
+.env.*
