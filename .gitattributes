@@ -1,0 +1,4 @@
+# Los fixtures son datos exactos: su encoding y sus terminadores de línea SON
+# el caso de prueba. Si git los normaliza, el fixture latin-1 deja de ser
+# latin-1 y el que no tiene terminador final gana uno.
+test/fixtures/* -text -diff
