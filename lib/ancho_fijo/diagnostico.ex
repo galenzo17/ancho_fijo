@@ -32,11 +32,34 @@ defmodule AnchoFijo.Diagnostico do
   * `:largo_de_linea` — la línea no mide lo que el layout declara.
   * `:encoding` — hay bytes que no corresponden al encoding declarado.
   * `:campo_invalido` — el contenido del campo no calza con su tipo.
+  * `:relleno_completado` — la línea llegó corta y el layout autorizó completar
+    el relleno faltante. Siempre de gravedad `:advertencia`.
   """
-  @type tipo :: :layout | :entrada | :largo_de_linea | :encoding | :campo_invalido
+  @type tipo ::
+          :layout
+          | :entrada
+          | :largo_de_linea
+          | :encoding
+          | :campo_invalido
+          | :relleno_completado
+
+  @typedoc """
+  Si el problema impide leer el dato o solo merece quedar anotado.
+
+  * `:error` — el dato no se pudo leer, o se leyó algo que no corresponde.
+  * `:advertencia` — se leyó un valor confiable, pero hubo que asumir algo para
+    llegar a él, y quien procesa el archivo debería saberlo.
+
+  La distinción es de dominio, no de severidad abstracta: una advertencia dice
+  "esto se resolvió con un supuesto". Si el supuesto era falso, el dato ya está
+  mal y nadie se enteró. Por eso una advertencia se reporta siempre, también en
+  modo `:estricto`, en vez de descartarse por no ser un error.
+  """
+  @type gravedad :: :error | :advertencia
 
   @type t :: %__MODULE__{
           tipo: tipo(),
+          gravedad: gravedad(),
           linea: pos_integer() | nil,
           campo: atom() | nil,
           posicion: {pos_integer(), pos_integer()} | nil,
@@ -47,6 +70,7 @@ defmodule AnchoFijo.Diagnostico do
         }
 
   defstruct tipo: :campo_invalido,
+            gravedad: :error,
             linea: nil,
             campo: nil,
             posicion: nil,
@@ -70,6 +94,7 @@ defmodule AnchoFijo.Diagnostico do
 
     %__MODULE__{
       tipo: Map.get(atributos, :tipo, :campo_invalido),
+      gravedad: Map.get(atributos, :gravedad, :error),
       linea: Map.get(atributos, :linea),
       campo: Map.get(atributos, :campo),
       posicion: Map.get(atributos, :posicion),
@@ -127,6 +152,40 @@ defmodule AnchoFijo.Diagnostico do
   @spec reporte([t()]) :: String.t()
   def reporte(diagnosticos) when is_list(diagnosticos) do
     Enum.map_join(diagnosticos, "\n", &mensaje/1)
+  end
+
+  @doc """
+  Separa una lista de diagnósticos en errores y advertencias, en ese orden.
+
+  Existe porque el modo `:tolerante` devuelve las dos gravedades en una sola
+  lista, y quien decide si el lote se procesa o se devuelve al emisor necesita
+  esa partición sin escribirla en cada llamada.
+
+      iex> alias AnchoFijo.Diagnostico
+      iex> {errores, advertencias} = Diagnostico.separar([
+      ...>   Diagnostico.nuevo(tipo: :campo_invalido, linea: 2),
+      ...>   Diagnostico.nuevo(tipo: :relleno_completado, gravedad: :advertencia, linea: 5)
+      ...> ])
+      iex> {Enum.map(errores, & &1.linea), Enum.map(advertencias, & &1.linea)}
+      {[2], [5]}
+  """
+  @spec separar([t()]) :: {[t()], [t()]}
+  def separar(diagnosticos) when is_list(diagnosticos) do
+    Enum.split_with(diagnosticos, &(&1.gravedad == :error))
+  end
+
+  @doc """
+  `true` si la lista no trae ningún diagnóstico de gravedad `:error`.
+
+      iex> alias AnchoFijo.Diagnostico
+      iex> Diagnostico.solo_advertencias?([Diagnostico.nuevo(gravedad: :advertencia)])
+      true
+      iex> Diagnostico.solo_advertencias?([Diagnostico.nuevo(tipo: :campo_invalido)])
+      false
+  """
+  @spec solo_advertencias?([t()]) :: boolean()
+  def solo_advertencias?(diagnosticos) when is_list(diagnosticos) do
+    Enum.all?(diagnosticos, &(&1.gravedad == :advertencia))
   end
 
   defp contexto(%__MODULE__{} = d) do

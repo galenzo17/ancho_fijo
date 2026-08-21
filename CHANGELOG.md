@@ -2,6 +2,26 @@
 
 Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
+## [No publicado]
+
+### Cambiado — rompe compatibilidad
+
+- `AnchoFijo.parsear/3` devuelve `{:ok, registros, diagnosticos}` también en modo
+  `:estricto`, donde antes devolvía `{:ok, registros}`. Al llegar a `:ok` en
+  estricto la lista solo puede traer advertencias: un error habría cortado.
+- `AnchoFijo.stream/3` y `AnchoFijo.Parser.parsear_linea/3` emiten
+  `{:ok, registro, advertencias}` donde antes emitían `{:ok, registro}`. Un
+  `match?({:ok, _}, resultado)` en el código llamador pasa a ser
+  `match?({:ok, _, _}, resultado)`.
+
+### Agregado
+
+- `AnchoFijo.Diagnostico` tiene `:gravedad`, `:error` (default) o
+  `:advertencia`. Una advertencia es una fila que sí se pudo leer, pero
+  asumiendo algo que quien procesa el archivo debería saber.
+- `AnchoFijo.Diagnostico.separar/1` parte una lista en `{errores, advertencias}`,
+  y `solo_advertencias?/1` responde si el lote se puede procesar tal cual.
+
 ## [0.1.0] — 2026-08-06
 
 Primera versión. Solo lectura.

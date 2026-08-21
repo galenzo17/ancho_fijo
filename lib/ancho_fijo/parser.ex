@@ -26,19 +26,35 @@ defmodule AnchoFijo.Parser do
 
   ## Los dos modos
 
+  Los dos devuelven la misma forma: `{:ok, registros, diagnosticos}`.
+
   `:estricto` (default) corta en la primera línea con problemas y devuelve
   `{:error, diagnosticos}`. Sirve para archivos que son contratos: una cartola
-  que no cuadra no se procesa a medias.
+  que no cuadra no se procesa a medias. Cuando llega a `:ok`, la lista de
+  diagnósticos solo puede traer advertencias: un error habría cortado.
 
-  `:tolerante` procesa todo y devuelve `{:ok, registros, diagnosticos}`. Existe
-  porque en producción una nómina de 10.000 filas con 3 malas debe reportar las
-  3, no botar el lote completo; y porque el operador que corrige el archivo
-  necesita la lista completa de errores, no el primero de una serie de treinta.
+  `:tolerante` procesa todo y devuelve las filas buenas junto con los
+  diagnósticos de las malas. Existe porque en producción una nómina de 10.000
+  filas con 3 malas debe reportar las 3, no botar el lote completo; y porque el
+  operador que corrige el archivo necesita la lista completa de errores, no el
+  primero de una serie de treinta.
 
   Nótese que el modo tolerante devuelve `:ok`, no `:error`: un lote con filas
   malas separadas de las buenas es un resultado, no una falla. `{:error, _}`
   queda para lo que impide procesar cualquier cosa —layout inválido, archivo
   ilegible—, donde no hay nada que rescatar.
+
+  ## Errores y advertencias
+
+  La tercera posición de `{:ok, registros, diagnosticos}` mezcla las dos
+  gravedades de `AnchoFijo.Diagnostico`: un `:error` es una fila que no se pudo
+  leer, una `:advertencia` es una fila que sí se leyó pero asumiendo algo.
+
+  Una advertencia no tiene fila propia en `registros`, la tiene **además**: el
+  registro está ahí, con su valor. Para separarlas, `Diagnostico.separar/1`.
+
+  En modo `:estricto` un error aborta el archivo y las advertencias de las líneas
+  ya leídas se descartan con él: no hay resultado parcial que anotar.
 
   ## Una línea, un diagnóstico por causa
 
@@ -63,8 +79,7 @@ defmodule AnchoFijo.Parser do
 
   @type registro :: %{optional(atom()) => Campo.valor()}
   @type resultado ::
-          {:ok, [registro()]}
-          | {:ok, [registro()], [Diagnostico.t()]}
+          {:ok, [registro()], [Diagnostico.t()]}
           | {:error, [Diagnostico.t()]}
 
   @doc """
@@ -72,7 +87,7 @@ defmodule AnchoFijo.Parser do
 
       iex> layout = AnchoFijo.Layout.nuevo!(campos: [[nombre: :sigla, largo: 3], [nombre: :saldo, largo: 6, tipo: :entero]])
       iex> AnchoFijo.Parser.parsear(layout, "CLP001234\\nUSD000567\\n")
-      {:ok, [%{sigla: "CLP", saldo: 1234}, %{sigla: "USD", saldo: 567}]}
+      {:ok, [%{sigla: "CLP", saldo: 1234}, %{sigla: "USD", saldo: 567}], []}
 
   En modo estricto, la primera línea mala corta el proceso:
 
@@ -96,13 +111,15 @@ defmodule AnchoFijo.Parser do
   @doc """
   Versión lazy de `parsear/3`, para archivos que no caben en memoria.
 
-  Devuelve un `Stream` de `{:ok, registro}` o `{:error, diagnosticos}`, una
-  entrada por línea con contenido. La decisión de qué hacer con los errores es
-  del consumidor, que es la única forma honesta de ser lazy: acumular todos los
-  diagnósticos de un archivo de 2 GB para devolverlos al final anula el punto.
+  Devuelve un `Stream` de `{:ok, registro, advertencias}` o
+  `{:error, diagnosticos}`, una entrada por línea con contenido. La decisión de
+  qué hacer con los errores es del consumidor, que es la única forma honesta de
+  ser lazy: acumular todos los diagnósticos de un archivo de 2 GB para
+  devolverlos al final anula el punto. Las advertencias viajan pegadas a su
+  registro por la misma razón: no hay dónde juntarlas.
 
       iex> layout = AnchoFijo.Layout.nuevo!(campos: [[nombre: :codigo, largo: 3, tipo: :entero]])
-      iex> AnchoFijo.Parser.stream(layout, "001\\n002\\nXYZ\\n") |> Enum.count(&match?({:ok, _}, &1))
+      iex> AnchoFijo.Parser.stream(layout, "001\\n002\\nXYZ\\n") |> Enum.count(&match?({:ok, _, _}, &1))
       2
 
   Para replicar el modo estricto sobre un stream, corte usted mismo:
@@ -110,7 +127,7 @@ defmodule AnchoFijo.Parser do
       iex> layout = AnchoFijo.Layout.nuevo!(campos: [[nombre: :codigo, largo: 3, tipo: :entero]])
       iex> AnchoFijo.Parser.stream(layout, "001\\n002\\nXYZ\\n004\\n")
       ...> |> Enum.reduce_while([], fn
-      ...>   {:ok, registro}, acumulado -> {:cont, [registro | acumulado]}
+      ...>   {:ok, registro, _advertencias}, acumulado -> {:cont, [registro | acumulado]}
       ...>   {:error, _diagnosticos}, acumulado -> {:halt, Enum.reverse(acumulado)}
       ...> end)
       [%{codigo: 1}, %{codigo: 2}]
@@ -142,7 +159,7 @@ defmodule AnchoFijo.Parser do
 
       iex> layout = AnchoFijo.Layout.nuevo!(campos: [[nombre: :a, largo: 2], [nombre: :b, largo: 3, tipo: :entero]])
       iex> AnchoFijo.Parser.parsear_linea(layout, "XY007", 1)
-      {:ok, %{a: "XY", b: 7}}
+      {:ok, %{a: "XY", b: 7}, []}
 
   El caso más común: un archivo latin-1 leído con el encoding por default.
 
@@ -152,11 +169,12 @@ defmodule AnchoFijo.Parser do
       "línea 3, campo :nombre (posiciones 1-5): se esperaban bytes válidos en utf8, llegaron el byte 0xC9 en la posición 4; el byte 0xC9 no es UTF-8 válido pero sí es un carácter latin-1; declare encoding: :latin1 en el layout"
   """
   @spec parsear_linea(Layout.t(), binary(), pos_integer()) ::
-          {:ok, registro()} | {:error, [Diagnostico.t()]}
+          {:ok, registro(), [Diagnostico.t()]} | {:error, [Diagnostico.t()]}
   def parsear_linea(%Layout{} = layout, cruda, numero) do
     with {:ok, linea} <- preparar(layout, cruda, numero),
-         :ok <- validar_largo(layout, linea, numero) do
-      extraer_campos(layout, linea, numero)
+         {:ok, linea, advertencias} <- ajustar_largo(layout, linea, numero),
+         {:ok, registro} <- extraer_campos(layout, linea, numero) do
+      {:ok, registro, advertencias}
     end
   end
 
@@ -194,18 +212,24 @@ defmodule AnchoFijo.Parser do
 
   defp filtrar_vacias(numeradas, _false), do: numeradas
 
+  # En estricto un error aborta el archivo completo y las advertencias de las
+  # líneas ya leídas se descartan: no hay resultado parcial que anotar. Las
+  # advertencias solo viajan cuando el archivo entero se pudo leer.
   defp procesar(numeradas, layout, :estricto) do
     resultado =
-      Enum.reduce_while(numeradas, [], fn {linea, numero}, registros ->
+      Enum.reduce_while(numeradas, {[], []}, fn {linea, numero}, {registros, advertencias} ->
         case parsear_linea(layout, linea, numero) do
-          {:ok, registro} -> {:cont, [registro | registros]}
-          {:error, diagnosticos} -> {:halt, {:error, diagnosticos}}
+          {:ok, registro, nuevas} ->
+            {:cont, {[registro | registros], apilar(nuevas, advertencias)}}
+
+          {:error, diagnosticos} ->
+            {:halt, {:error, diagnosticos}}
         end
       end)
 
     case resultado do
       {:error, diagnosticos} -> {:error, diagnosticos}
-      registros -> {:ok, Enum.reverse(registros)}
+      {registros, advertencias} -> {:ok, Enum.reverse(registros), Enum.reverse(advertencias)}
     end
   end
 
@@ -213,8 +237,8 @@ defmodule AnchoFijo.Parser do
     {registros, diagnosticos} =
       Enum.reduce(numeradas, {[], []}, fn {linea, numero}, {registros, diagnosticos} ->
         case parsear_linea(layout, linea, numero) do
-          {:ok, registro} -> {[registro | registros], diagnosticos}
-          {:error, nuevos} -> {registros, Enum.reverse(nuevos) ++ diagnosticos}
+          {:ok, registro, nuevas} -> {[registro | registros], apilar(nuevas, diagnosticos)}
+          {:error, nuevos} -> {registros, apilar(nuevos, diagnosticos)}
         end
       end)
 
@@ -232,6 +256,9 @@ defmodule AnchoFijo.Parser do
        )
      ]}
   end
+
+  defp apilar([], acumulados), do: acumulados
+  defp apilar(nuevos, acumulados), do: Enum.reverse(nuevos) ++ acumulados
 
   defp preparar(%Layout{unidad: :bytes}, cruda, _numero), do: {:ok, cruda}
 
@@ -254,11 +281,11 @@ defmodule AnchoFijo.Parser do
     end
   end
 
-  defp validar_largo(%Layout{} = layout, linea, numero) do
+  defp ajustar_largo(%Layout{} = layout, linea, numero) do
     encontrado = medida(layout, linea)
 
     if encontrado == layout.largo do
-      :ok
+      {:ok, linea, []}
     else
       {:error, [desajuste_de_largo(layout, encontrado, numero)]}
     end

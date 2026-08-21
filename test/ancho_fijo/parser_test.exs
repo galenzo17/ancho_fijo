@@ -8,7 +8,7 @@ defmodule AnchoFijo.ParserTest do
 
   describe "archivo correcto" do
     test "parsea las tres filas del fixture" do
-      {:ok, registros} = Parser.parsear(layout_nomina(), leer("nomina_correcta.txt"))
+      {:ok, registros, []} = Parser.parsear(layout_nomina(), leer("nomina_correcta.txt"))
 
       assert registros == [
                %{
@@ -33,13 +33,13 @@ defmodule AnchoFijo.ParserTest do
     end
 
     test "lee desde una ruta de archivo" do
-      {:ok, registros} = Parser.parsear(layout_nomina(), ruta("nomina_correcta.txt"))
+      {:ok, registros, []} = Parser.parsear(layout_nomina(), ruta("nomina_correcta.txt"))
 
       assert length(registros) == 3
     end
 
     test "el archivo sin terminador final no pierde la última fila" do
-      {:ok, registros} =
+      {:ok, registros, []} =
         Parser.parsear(layout_nomina(), leer("nomina_sin_terminador_final.txt"))
 
       assert length(registros) == 2
@@ -47,7 +47,7 @@ defmodule AnchoFijo.ParserTest do
     end
 
     test "el archivo latin-1 declarado como tal transcodifica los nombres" do
-      {:ok, registros} =
+      {:ok, registros, []} =
         Parser.parsear(layout_nomina(encoding: :latin1), leer("nomina_latin1.txt"))
 
       assert Enum.map(registros, & &1.beneficiario) == ["JOSÉ MUÑOZ PEÑA", "MARÍA ROJAS ÑAÑEZ"]
@@ -156,7 +156,7 @@ defmodule AnchoFijo.ParserTest do
       contenido = "ENCABEZADO\n" <> "AAA111\nBBB222\n"
       layout = [campos: [[nombre: :sigla, largo: 3], [nombre: :numero, largo: 3, tipo: :entero]]]
 
-      {:ok, registros} = Parser.parsear(layout, contenido, saltar: 1)
+      {:ok, registros, []} = Parser.parsear(layout, contenido, saltar: 1)
 
       assert registros == [%{sigla: "AAA", numero: 111}, %{sigla: "BBB", numero: 222}]
     end
@@ -201,7 +201,7 @@ defmodule AnchoFijo.ParserTest do
           campos: [[nombre: :nombre, largo: 10], [nombre: :monto, largo: 4, tipo: :entero]]
         )
 
-      {:ok, registros} = Parser.parsear(layout, "JOSÉ MUÑOZ0100\nJUAN PEREZ0200\n")
+      {:ok, registros, []} = Parser.parsear(layout, "JOSÉ MUÑOZ0100\nJUAN PEREZ0200\n")
 
       assert registros == [%{nombre: "JOSÉ MUÑOZ", monto: 100}, %{nombre: "JUAN PEREZ", monto: 200}]
     end
@@ -226,7 +226,7 @@ defmodule AnchoFijo.ParserTest do
         |> Parser.stream(leer("nomina_fila_corta.txt"))
         |> Enum.to_list()
 
-      assert Enum.count(resultados, &match?({:ok, _registro}, &1)) == 2
+      assert Enum.count(resultados, &match?({:ok, _registro, _advertencias}, &1)) == 2
       assert Enum.count(resultados, &match?({:error, _diagnosticos}, &1)) == 1
     end
 
@@ -248,7 +248,7 @@ defmodule AnchoFijo.ParserTest do
         |> Enum.to_list()
 
       assert length(resultados) == 3
-      assert Enum.all?(resultados, &match?({:ok, _registro}, &1))
+      assert Enum.all?(resultados, &match?({:ok, _registro, _advertencias}, &1))
     end
 
     test "recorta el terminador de cada línea del File.Stream" do
@@ -257,7 +257,7 @@ defmodule AnchoFijo.ParserTest do
         |> Parser.stream(File.stream!(ruta("nomina_correcta.txt")))
         |> Enum.to_list()
 
-      assert {:ok, %{rut: "12345678-9"}} = hd(resultados)
+      assert {:ok, %{rut: "12345678-9"}, []} = hd(resultados)
     end
 
     test "un archivo ilegible es el primer elemento del stream, no una excepción" do

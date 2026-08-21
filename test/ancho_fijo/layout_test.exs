@@ -151,7 +151,7 @@ defmodule AnchoFijo.LayoutTest do
 
       assert [advertencia] = layout.advertencias
       assert advertencia.causa_probable =~ "4 posiciones sin declarar"
-      assert {:ok, [%{a: "AAAAA", b: "BBBBB"}]} = AnchoFijo.parsear(layout, "AAAAA----BBBBB")
+      assert {:ok, [%{a: "AAAAA", b: "BBBBB"}], []} = AnchoFijo.parsear(layout, "AAAAA----BBBBB")
     end
 
     test "advierte cuando el primer campo no empieza en 1" do

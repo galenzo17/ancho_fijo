@@ -29,7 +29,7 @@ defmodule AnchoFijo do
       ...>   ]
       ...> )
       iex> AnchoFijo.parsear(layout, "12345678-9JUAN PEREZ  0012345620240131\\n")
-      {:ok, [%{rut: "12345678-9", beneficiario: "JUAN PEREZ", monto: {123456, 2}, fecha_pago: ~D[2024-01-31]}]}
+      {:ok, [%{rut: "12345678-9", beneficiario: "JUAN PEREZ", monto: {123456, 2}, fecha_pago: ~D[2024-01-31]}], []}
 
   Y cuando no lo es, el error dice qué pasó:
 
@@ -58,6 +58,11 @@ defmodule AnchoFijo do
 
   Toda falla es un `AnchoFijo.Diagnostico` con línea, campo, qué se esperaba, qué
   llegó y una causa probable. No existe `{:error, :invalid}` en este paquete.
+
+  `parsear/3` devuelve siempre `{:ok, registros, diagnosticos}`: la tercera
+  posición trae los errores de las filas que no se pudieron leer y las
+  advertencias de las que sí, pero asumiendo algo. `Diagnostico.separar/1` las
+  parte en dos.
 
   ## Alcance de 0.1
 
@@ -103,10 +108,10 @@ defmodule AnchoFijo do
       ...>   [campos: [[nombre: :moneda, largo: 3], [nombre: :saldo, largo: 8, tipo: :decimal, precision: 2]]],
       ...>   "CLP00123456\\n"
       ...> )
-      {:ok, [%{moneda: "CLP", saldo: {123456, 2}}]}
+      {:ok, [%{moneda: "CLP", saldo: {123456, 2}}], []}
 
-  En modo `:tolerante` devuelve tres elementos: las filas buenas y los
-  diagnósticos de las malas.
+  En modo `:tolerante` la tercera posición trae los diagnósticos de las filas
+  que no se pudieron leer, y las buenas siguen en la primera.
 
       iex> layout = AnchoFijo.Layout.nuevo!(campos: [[nombre: :codigo, largo: 3, tipo: :entero]])
       iex> {:ok, registros, [diagnostico]} = AnchoFijo.parsear(layout, "001\\nAB2\\n003\\n", modo: :tolerante)
@@ -123,12 +128,12 @@ defmodule AnchoFijo do
   @doc """
   Igual que `parsear/3` pero lazy, para archivos que no caben en memoria.
 
-  Devuelve un `Stream` de `{:ok, registro}` o `{:error, diagnosticos}`, un
-  elemento por línea con contenido.
+  Devuelve un `Stream` de `{:ok, registro, advertencias}` o
+  `{:error, diagnosticos}`, un elemento por línea con contenido.
 
       iex> layout = AnchoFijo.Layout.nuevo!(campos: [[nombre: :codigo, largo: 3, tipo: :entero]])
       iex> AnchoFijo.stream(layout, "001\\n002\\n003\\n") |> Enum.take(2)
-      [ok: %{codigo: 1}, ok: %{codigo: 2}]
+      [{:ok, %{codigo: 1}, []}, {:ok, %{codigo: 2}, []}]
 
   Acepta un `File.Stream` construido por el llamador, que es la forma de leer un
   archivo de gigabytes sin cargarlo:
@@ -136,7 +141,7 @@ defmodule AnchoFijo do
       "cartola.txt"
       |> File.stream!()
       |> then(&AnchoFijo.stream(layout, &1))
-      |> Stream.filter(&match?({:ok, _}, &1))
+      |> Stream.filter(&match?({:ok, _, _}, &1))
       |> Enum.count()
 
   Ver `AnchoFijo.Parser.stream/3` para el detalle.

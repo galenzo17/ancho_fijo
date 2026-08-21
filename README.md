@@ -125,7 +125,8 @@ AnchoFijo.parsear(layout, "nomina.txt")
 #  [
 #    %{rut: "12345678-9", beneficiario: "JOSÉ MUÑOZ PEÑA", monto: {125000, 2}, fecha: ~D[2024-01-15]},
 #    %{rut: "98765432-1", beneficiario: "MARÍA ROJAS ÑAÑEZ", monto: {9990050, 2}, fecha: ~D[2024-01-15]}
-#  ]}
+#  ],
+#  []}
 ```
 
 Las posiciones se omitieron: cada campo se encadena al anterior. Cuando el anexo
@@ -133,6 +134,10 @@ las declara ("posiciones 61 a 72"), se ponen explícitas y son 1-based, igual qu
 en el anexo.
 
 ### Los dos modos
+
+Los dos devuelven `{:ok, registros, diagnosticos}`. La tercera posición trae los
+errores de las filas que no se pudieron leer y las advertencias de las que sí,
+pero asumiendo algo; `AnchoFijo.Diagnostico.separar/1` las parte en dos.
 
 Estricto (el default) corta en la primera línea con problemas:
 
@@ -161,21 +166,26 @@ las buenas es un resultado, no una falla. `{:error, _}` queda para lo que impide
 procesar cualquier cosa —layout inválido, archivo ilegible— donde no hay nada que
 rescatar.
 
+En estricto la lista solo puede traer advertencias: un error habría cortado. Y
+un error corta también con las advertencias de las líneas ya leídas, que se van
+con él: no hay resultado parcial que anotar.
+
 ### Archivos grandes
 
 ```elixir
 "cartola.txt"
 |> File.stream!()
 |> then(&AnchoFijo.stream(layout, &1))
-|> Stream.filter(&match?({:ok, _}, &1))
-|> Stream.map(fn {:ok, registro} -> registro.monto end)
+|> Stream.filter(&match?({:ok, _, _}, &1))
+|> Stream.map(fn {:ok, registro, _advertencias} -> registro.monto end)
 |> Enum.reduce(0, fn {unidades, _precision}, total -> total + unidades end)
 ```
 
-`stream/3` emite `{:ok, registro}` o `{:error, diagnosticos}` por línea. Qué
-hacer con los errores es decisión del consumidor: acumular todos los
+`stream/3` emite `{:ok, registro, advertencias}` o `{:error, diagnosticos}` por
+línea. Qué hacer con los errores es decisión del consumidor: acumular todos los
 diagnósticos de un archivo de 2 GB para devolverlos al final anularía el punto de
-ser lazy.
+ser lazy. Las advertencias viajan pegadas a su registro por la misma razón: no
+hay dónde juntarlas.
 
 ## Tipos de campo
 
@@ -251,10 +261,18 @@ los campos que vienen después, y reportar los doce diagnósticos derivados
 esconde el único que importa. El costo: en modo tolerante no se ve el detalle
 de los campos de una fila con largo malo.
 
-**El modo tolerante devuelve `{:ok, registros, diagnosticos}`.** Rompe la
-simetría con `parsear/3` en modo estricto, que devuelve dos elementos. Se
-prefirió la asimetría a mentir sobre la semántica: un lote procesado
-parcialmente no es un error.
+**Los dos modos devuelven `{:ok, registros, diagnosticos}`.** El modo estricto
+también, aunque al llegar a `:ok` la lista solo pueda traer advertencias. La
+alternativa —dos elementos en estricto, tres en tolerante— obliga al llamador a
+saber en qué modo llamó para saber qué desestructurar, y deja las advertencias
+sin dónde ir en el modo que se usa justamente para archivos que son contratos.
+Una advertencia que se descarta por no ser un error es un supuesto que nadie
+revisó.
+
+**Una advertencia no reemplaza a su registro, lo acompaña.** El registro está en
+`registros` con su valor, y el diagnóstico de gravedad `:advertencia` dice qué
+se asumió para llegar a él. Un error, en cambio, no deja registro: no hay valor
+que entregar.
 
 **Se rechazan los caracteres de control en ambos encodings.** El rango
 0x80–0x9F es control en latin-1 pero trae comillas y guiones en Windows-1252.

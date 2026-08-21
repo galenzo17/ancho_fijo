@@ -9,7 +9,7 @@ defmodule AnchoFijo.PropiedadesTest do
   describe "round-trip" do
     property "un registro válido serializado y vuelto a parsear es el mismo registro" do
       check all(%{layout: layout, linea: linea, registro: registro} <- layout_con_registro()) do
-        assert AnchoFijo.parsear(layout, linea) == {:ok, [registro]}
+        assert AnchoFijo.parsear(layout, linea) == {:ok, [registro], []}
       end
     end
 
@@ -26,7 +26,7 @@ defmodule AnchoFijo.PropiedadesTest do
             ) do
         contenido = String.duplicate(linea <> "\n", repeticiones)
 
-        assert {:ok, registros} = AnchoFijo.parsear(layout, contenido)
+        assert {:ok, registros, []} = AnchoFijo.parsear(layout, contenido)
         assert registros == List.duplicate(registro, repeticiones)
       end
     end
@@ -41,7 +41,7 @@ defmodule AnchoFijo.PropiedadesTest do
       check all(%{layout: layout, linea: linea, registro: registro} <- layout_con_registro()) do
         resultados = layout |> AnchoFijo.stream(linea <> "\n") |> Enum.to_list()
 
-        assert resultados == [{:ok, registro}]
+        assert resultados == [{:ok, registro, []}]
       end
     end
   end
@@ -137,7 +137,7 @@ defmodule AnchoFijo.PropiedadesTest do
 
         case AnchoFijo.parsear(layout, mutada) do
           {:error, diagnosticos} -> assert diagnosticos != []
-          {:ok, [otro]} -> assert otro == registro
+          {:ok, [otro], _advertencias} -> assert otro == registro
         end
       end
     end
