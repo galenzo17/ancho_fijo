@@ -179,6 +179,61 @@ defmodule AnchoFijo.CampoTest do
     end
   end
 
+  describe ":rut" do
+    test "normaliza a cuerpo-DV sin puntos ni ceros a la izquierda" do
+      assert extraer([nombre: :a, largo: 13, tipo: :rut], "0000123456785") == {:ok, "12345678-5"}
+      assert extraer([nombre: :a, largo: 12, tipo: :rut], "12.345.678-5") == {:ok, "12345678-5"}
+      assert extraer([nombre: :a, largo: 10, tipo: :rut], "12345678-5") == {:ok, "12345678-5"}
+    end
+
+    test "un DV que no cuadra es diagnóstico con el DV esperado y causa probable" do
+      {:error, diagnostico} = extraer([nombre: :a, largo: 10, tipo: :rut], "12345678-9")
+
+      assert diagnostico.tipo == :campo_invalido
+      assert diagnostico.esperado =~ "para ese cuerpo corresponde 5"
+      assert diagnostico.recibido == ~s("12345678-9")
+      assert diagnostico.causa_probable =~ "posible error de digitación o campo corrido"
+    end
+
+    test "un RUT con letras es diagnóstico de formato" do
+      {:error, diagnostico} = extraer([nombre: :a, largo: 10, tipo: :rut], "1234567A-9")
+
+      assert diagnostico.esperado == "un RUT con dígito verificador"
+      assert diagnostico.causa_probable =~ "se esperaban dígitos"
+    end
+
+    test "dv: :no_validar deja pasar el DV malo" do
+      assert extraer([nombre: :a, largo: 10, tipo: :rut, dv: :no_validar], "12345678-9") ==
+               {:ok, "12345678-9"}
+    end
+
+    test "dv: :ausente lee solo el cuerpo" do
+      assert extraer([nombre: :a, largo: 10, tipo: :rut, dv: :ausente], "0012345678") ==
+               {:ok, "12345678"}
+
+      {:error, diagnostico} =
+        extraer([nombre: :a, largo: 10, tipo: :rut, dv: :ausente], "12345678-5")
+
+      assert diagnostico.esperado == "el cuerpo de un RUT, sin dígito verificador"
+    end
+
+    test "en blanco con :opcional es nil, sin :opcional sugiere la opción" do
+      assert extraer([nombre: :a, largo: 10, tipo: :rut, opcional: true], "          ") ==
+               {:ok, nil}
+
+      {:error, diagnostico} = extraer([nombre: :a, largo: 10, tipo: :rut], "          ")
+      assert diagnostico.causa_probable =~ "declare opcional: true"
+    end
+
+    test ":dv solo aplica a :rut y rechaza valores desconocidos" do
+      {:error, [diagnostico]} = Campo.nuevo(nombre: :a, largo: 10, dv: :ausente)
+      assert diagnostico.esperado == ":dv solo en campos :rut"
+
+      {:error, [diagnostico]} = Campo.nuevo(nombre: :a, largo: 10, tipo: :rut, dv: :quizas)
+      assert diagnostico.esperado == ":dv en [:validar, :no_validar, :ausente]"
+    end
+  end
+
   describe "encoding" do
     test "transcodifica latin-1 a UTF-8" do
       assert extraer([nombre: :a, largo: 6], <<74, 79, 83, 201, 32, 32>>, encoding: :latin1) ==

@@ -46,6 +46,32 @@ defmodule AnchoFijo.PropiedadesTest do
     end
   end
 
+  describe "rut" do
+    property "toda representación de un RUT válido normaliza al canónico sin diagnóstico" do
+      check all(
+              %{canonico: canonico, representaciones: representaciones} <- rut_valido(),
+              texto <- member_of(representaciones)
+            ) do
+        assert AnchoFijo.Rut.normalizar(texto) == {:ok, canonico}
+
+        campo = Campo.nuevo!(nombre: :rut, posicion: 1, largo: byte_size(texto), tipo: :rut)
+        assert Campo.extraer(campo, texto) == {:ok, canonico}
+      end
+    end
+
+    property "cambiar el DV de un RUT válido siempre se detecta" do
+      check all(
+              %{canonico: canonico, dv: dv} <- rut_valido(),
+              otro <- member_of(Enum.map(0..9, &Integer.to_string/1) ++ ["K"]),
+              otro != dv
+            ) do
+        mutado = String.slice(canonico, 0..-2//1) <> otro
+
+        assert {:error, {:dv, ^dv, ^otro}} = AnchoFijo.Rut.normalizar(mutado)
+      end
+    end
+  end
+
   describe "mutaciones detectadas" do
     property "acortar una línea válida siempre produce un diagnóstico de largo" do
       check all(
