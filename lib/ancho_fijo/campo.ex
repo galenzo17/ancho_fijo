@@ -38,7 +38,7 @@ defmodule AnchoFijo.Campo do
   | `:entero` | `integer()` |
   | `:decimal` | `{unidades, precision}`, p. ej. `{123456, 2}` para `1234.56` |
   | `:fecha` | `Date.t()` |
-  | `:rut` | `String.t()` canónico, `"12345678-5"` |
+  | `:rut` | `String.t()` canónico, `"12345678-5"`; solo el cuerpo, `"12345678"`, con `dv: :ausente` |
 
   Un `:decimal` nunca se convierte a float. Se devuelve como par
   `{unidades_minimas, precision}` —centavos y escala— porque un monto que pasa

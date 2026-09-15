@@ -195,7 +195,7 @@ hay dónde juntarlas.
 | `:entero` | `integer()` | `:opcional` |
 | `:decimal` | `{unidades, precision}` | `:precision` (obligatoria), `:separador` |
 | `:fecha` | `Date.t()` | `:formato` (obligatorio), `:opcional` |
-| `:rut` | `String.t()` canónico, `"12345678-5"` | `:dv`, `:opcional` |
+| `:rut` | `String.t()` canónico, `"12345678-5"`; solo el cuerpo con `dv: :ausente` | `:dv`, `:opcional` |
 
 Un monto de `0000125000` con `precision: 2` se lee como `{125000, 2}`: 125.000
 unidades mínimas con escala 2, es decir 1.250,00. Nunca hay un float en el
