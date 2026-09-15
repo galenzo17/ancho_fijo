@@ -394,6 +394,26 @@ defmodule AnchoFijo.ParserTest do
       assert {:error, [_]} = Parser.parsear(layout.([]), "000123\n")
     end
 
+    test "un hueco entre campos también es relleno reponible" do
+      # Posiciones explícitas: código 1-4, hueco 5-10 sin declarar, glosa 11-20.
+      layout =
+        AnchoFijo.Layout.nuevo!(
+          relleno_final: :tolerar,
+          campos: [
+            [nombre: :codigo, posicion: 1, largo: 4, tipo: :entero],
+            [nombre: :glosa, posicion: 11, largo: 10]
+          ]
+        )
+
+      # Faltan 16: los 10 de la glosa más los 6 del hueco. El código no se toca.
+      assert {:ok, [%{codigo: 1, glosa: ""}], [advertencia]} = Parser.parsear(layout, "0001\n")
+      assert advertencia.causa_probable =~ "se completaron 16 bytes"
+
+      # Faltan 17: el último byte es del código.
+      assert {:error, [diagnostico]} = Parser.parsear(layout, "000\n")
+      assert diagnostico.causa_probable =~ "solo 16 son relleno reponible"
+    end
+
     test "un campo numérico corto no se completa ni con relleno declarado detrás" do
       layout =
         AnchoFijo.Layout.nuevo!(

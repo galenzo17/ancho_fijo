@@ -44,7 +44,7 @@ que siguen:
 - Sección "Líneas cortas por relleno recortado" en el README, con el caso
   `unidad: :caracteres`. Entrada en el CHANGELOG y salida de la lista de
   candidatos a 0.2.
-- Suite: 233 verdes, credo estricto y dialyzer limpios.
+- Suite: 234 verdes, credo estricto y dialyzer limpios.
 
 ## Decisiones tomadas
 
@@ -92,3 +92,18 @@ que siguen:
 8. **El fixture entra al generador.** `generar.exs` lo reproduce byte a byte:
    el `.gitattributes` protege los fixtures de la normalización de git, pero
    el generador es la única forma de saber cómo se construyeron.
+
+9. **Los huecos entre campos también son reponibles.** Lo señaló la revisión
+   automática del PR y es correcto: un layout con posiciones explícitas puede
+   dejar posiciones sin declarar entre dos campos, y nadie las lee, igual que
+   el relleno después del último campo. La zona los suma al pasar de un campo
+   al anterior, y solo un campo con dato la cierra. Un hueco no fija el
+   carácter de relleno: se completa con el que tenga la zona.
+
+10. **Lo que la revisión pidió y no se hizo.** El mismo revisor pidió completar
+    solo cuando haya "evidencia" de que el sufijo faltante es relleno y no
+    dato. Esa evidencia no existe: una línea corta no trae los bytes que le
+    faltan, y `"PA"` recortado de `"PA    "` es indistinguible de `"PA"`
+    truncado de `"PABCDE"`. Por eso la opción es opt-in, por eso solo aplica a
+    `:texto`, y por eso cada línea completada deja una advertencia. Es el
+    trade-off que la issue pedía y está escrito en el README.

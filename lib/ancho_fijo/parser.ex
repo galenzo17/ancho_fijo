@@ -314,10 +314,10 @@ defmodule AnchoFijo.Parser do
   end
 
   # Cuántas unidades del final de la línea son relleno reponible, y con qué
-  # carácter. La zona empieza en el final y crece hacia atrás: primero el
-  # relleno que el layout no declara (nadie lo lee), después los campos de
-  # atrás hacia adelante mientras sean `:texto` con el mismo carácter de
-  # relleno.
+  # carácter. La zona empieza en el final y crece hacia atrás: primero lo que
+  # el layout no declara (el relleno después del último campo, y los huecos
+  # entre campos: nadie los lee), después los campos de atrás hacia adelante
+  # mientras sean `:texto` con el mismo carácter de relleno.
   #
   # Solo `:texto`, y sin mirar su `:trim`: un emisor que recorta espacios
   # finales produce una línea corta exactamente cuando el original terminaba
@@ -329,22 +329,44 @@ defmodule AnchoFijo.Parser do
   # Un `:texto` que queda entero en blanco sí cuenta: `Campo.extraer/3` lo lee
   # como `""` o `nil`, que es lo mismo que habría dado la línea completa.
   defp zona_tolerable(%Layout{campos: campos, largo: largo, unidad: unidad}) do
-    no_declarado = largo - Campo.fin(List.last(campos))
-    inicial = if no_declarado > 0, do: {no_declarado, " "}, else: {0, nil}
+    inicial = %{unidades: 0, caracter: nil, inicio_siguiente: largo + 1, cerrada: false}
 
-    {unidades, caracter} =
+    zona =
       campos
       |> Enum.reverse()
-      |> Enum.reduce_while(inicial, fn campo, {acumulado, caracter} = zona ->
+      |> Enum.reduce_while(inicial, fn campo, zona ->
+        zona = sumar_no_declarado(zona, Campo.fin(campo))
+
         cond do
-          campo.tipo != :texto -> {:halt, zona}
-          not reponible?(campo.relleno, unidad) -> {:halt, zona}
-          caracter in [nil, campo.relleno] -> {:cont, {acumulado + campo.largo, campo.relleno}}
-          true -> {:halt, zona}
+          campo.tipo != :texto -> {:halt, cerrar(zona)}
+          not reponible?(campo.relleno, unidad) -> {:halt, cerrar(zona)}
+          zona.caracter in [nil, campo.relleno] -> {:cont, sumar_campo(zona, campo)}
+          true -> {:halt, cerrar(zona)}
         end
       end)
+      |> case do
+        # Ningún campo cortó la zona: lo que haya antes del primero
+        # tampoco lo lee nadie.
+        %{cerrada: false} = zona -> sumar_no_declarado(zona, 0)
+        zona -> zona
+      end
 
-    {unidades, caracter || " "}
+    {zona.unidades, zona.caracter || " "}
+  end
+
+  defp cerrar(zona), do: %{zona | cerrada: true}
+
+  defp sumar_no_declarado(zona, fin_del_campo) do
+    %{zona | unidades: zona.unidades + (zona.inicio_siguiente - fin_del_campo - 1)}
+  end
+
+  defp sumar_campo(zona, %Campo{} = campo) do
+    %{
+      zona
+      | unidades: zona.unidades + campo.largo,
+        caracter: campo.relleno,
+        inicio_siguiente: campo.posicion
+    }
   end
 
   # Con `unidad: :bytes` la línea todavía está en su encoding original y el
