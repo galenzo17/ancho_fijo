@@ -21,6 +21,11 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   asumiendo algo que quien procesa el archivo debería saber.
 - `AnchoFijo.Diagnostico.separar/1` parte una lista en `{errores, advertencias}`,
   y `solo_advertencias?/1` responde si el lote se puede procesar tal cual.
+- Tipo `:rut` en `AnchoFijo.Campo`, que normaliza las variantes de presentación
+  (puntos, guion, ceros a la izquierda, `k` o `K`) a `"12345678-5"` y valida el
+  dígito verificador por módulo 11. `dv: :no_validar` y `dv: :ausente` son las
+  salidas explícitas. `AnchoFijo.Rut` expone `normalizar/2`, `valido?/1` y
+  `digito_verificador/1`.
 
 ## [0.1.0] — 2026-08-06
 

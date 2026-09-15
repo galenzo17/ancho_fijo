@@ -195,11 +195,20 @@ hay dónde juntarlas.
 | `:entero` | `integer()` | `:opcional` |
 | `:decimal` | `{unidades, precision}` | `:precision` (obligatoria), `:separador` |
 | `:fecha` | `Date.t()` | `:formato` (obligatorio), `:opcional` |
+| `:rut` | `String.t()` canónico, `"12345678-5"`; solo el cuerpo con `dv: :ausente` | `:dv`, `:opcional` |
 
 Un monto de `0000125000` con `precision: 2` se lee como `{125000, 2}`: 125.000
 unidades mínimas con escala 2, es decir 1.250,00. Nunca hay un float en el
 camino. Un monto que pasó por punto flotante deja de cuadrar con la contabilidad
 del banco y nadie sabe dónde se perdió el peso.
+
+`:rut` normaliza lo que llegue —`12.345.678-5`, `123456785`, `0000123456785`,
+con `k` o `K`— a `"12345678-5"` y valida el dígito verificador por módulo 11.
+Un RUT con el DV malo parsea perfecto y el banco lo rechaza días después: por
+eso la validación es parte del tipo y no una opción que hay que acordarse de
+activar. Las dos salidas son explícitas: `dv: :no_validar` para recibir el dato
+y decidir después, y `dv: :ausente` para los formatos que traen el cuerpo sin
+DV.
 
 `:formato` no tiene default a propósito. Adivinar si `01022024` es el 1 de
 febrero o el 2 de enero es exactamente el error silencioso que esta librería
