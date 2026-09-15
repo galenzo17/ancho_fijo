@@ -134,6 +134,18 @@ defmodule AnchoFijo.LayoutTest do
 
       assert diagnostico.causa_probable =~ "sería ignorada en silencio"
     end
+
+    test "rechaza un :relleno_final que no reconoce" do
+      {:error, [diagnostico]} =
+        Layout.nuevo(campos: [[nombre: :a, largo: 4]], relleno_final: :completar)
+
+      assert diagnostico.tipo == :layout
+      assert diagnostico.esperado == ":relleno_final en [:estricto, :tolerar]"
+    end
+
+    test "el default de :relleno_final es :estricto" do
+      assert Layout.nuevo!(campos: [[nombre: :a, largo: 4]]).relleno_final == :estricto
+    end
   end
 
   describe "advertencias" do

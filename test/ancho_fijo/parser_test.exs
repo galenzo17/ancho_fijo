@@ -273,4 +273,235 @@ defmodule AnchoFijo.ParserTest do
       assert_raise AnchoFijo.Error, fn -> Parser.stream([campos: []], "AAA") end
     end
   end
+
+  describe "relleno final tolerado" do
+    test "sin la opción, la glosa recortada es un error de largo" do
+      {:error, [diagnostico]} =
+        Parser.parsear(layout_glosa(), leer("nomina_glosa_recortada.txt"))
+
+      assert diagnostico.tipo == :largo_de_linea
+      assert diagnostico.linea == 1
+    end
+
+    test "con la opción, completa el relleno y lee las tres filas" do
+      {:ok, registros, advertencias} =
+        Parser.parsear(
+          layout_glosa(relleno_final: :tolerar),
+          leer("nomina_glosa_recortada.txt")
+        )
+
+      assert Enum.map(registros, & &1.glosa) == [
+               "PAGO NOMINA ENERO",
+               "ANTICIPO",
+               "REEMBOLSO GASTOS MENORES OK"
+             ]
+
+      assert Enum.map(registros, & &1.monto) == [{125_000, 2}, {9_990_050, 2}, {45, 2}]
+      assert length(advertencias) == 2
+    end
+
+    test "la línea que ya venía completa no genera advertencia" do
+      {:ok, _registros, advertencias} =
+        Parser.parsear(
+          layout_glosa(relleno_final: :tolerar),
+          leer("nomina_glosa_recortada.txt")
+        )
+
+      assert Enum.map(advertencias, & &1.linea) == [1, 2]
+    end
+
+    test "la advertencia dice cuántas unidades se completaron y en qué línea" do
+      {:ok, _registros, [primera | _]} =
+        Parser.parsear(
+          layout_glosa(relleno_final: :tolerar),
+          leer("nomina_glosa_recortada.txt")
+        )
+
+      assert primera.gravedad == :advertencia
+      assert primera.tipo == :relleno_completado
+
+      assert Diagnostico.mensaje(primera) ==
+               "línea 1: se esperaban 60 bytes, llegaron 47; se completaron 13 bytes de " <>
+                 "relleno al final de la línea; el emisor recorta los espacios finales y " <>
+                 "el layout lo tolera"
+    end
+
+    test "las advertencias no impiden procesar el lote" do
+      {:ok, registros, diagnosticos} =
+        Parser.parsear(
+          layout_glosa(relleno_final: :tolerar),
+          leer("nomina_glosa_recortada.txt")
+        )
+
+      assert Diagnostico.solo_advertencias?(diagnosticos)
+      assert {[], [_, _]} = Diagnostico.separar(diagnosticos)
+      assert length(registros) == 3
+    end
+
+    test "el faltante que alcanza al monto sigue siendo error" do
+      linea = "12345678-92024011500000012\n"
+
+      {:error, [diagnostico]} = Parser.parsear(layout_glosa(relleno_final: :tolerar), linea)
+
+      assert diagnostico.tipo == :largo_de_linea
+      assert diagnostico.causa_probable =~ "solo 30 son relleno reponible"
+    end
+
+    test "la fecha final truncada sigue siendo error, aunque falte un solo byte" do
+      # layout_nomina termina en :fecha: ahí el ancho es el dato, no relleno.
+      {:error, [diagnostico]} =
+        Parser.parsear(layout_nomina(relleno_final: :tolerar), leer("nomina_fila_corta.txt"))
+
+      assert diagnostico.tipo == :largo_de_linea
+      assert diagnostico.linea == 2
+    end
+
+    test "una línea más larga que el layout sigue siendo error" do
+      linea = "12345678-920240115000000125000" <> String.duplicate("X", 31) <> "\n"
+
+      {:error, [diagnostico]} = Parser.parsear(layout_glosa(relleno_final: :tolerar), linea)
+
+      assert diagnostico.tipo == :largo_de_linea
+      assert diagnostico.recibido == "61"
+    end
+
+    test "el stream también tolera, y la advertencia viaja con su registro" do
+      resultados =
+        layout_glosa(relleno_final: :tolerar)
+        |> Parser.stream(leer("nomina_glosa_recortada.txt"))
+        |> Enum.to_list()
+
+      assert [{:ok, %{glosa: "PAGO NOMINA ENERO"}, [advertencia]} | _] = resultados
+      assert advertencia.tipo == :relleno_completado
+      assert Enum.count(resultados, &match?({:ok, _, []}, &1)) == 1
+    end
+  end
+
+  describe "zona tolerable" do
+    test "el relleno no declarado al final de la línea se puede completar" do
+      layout = fn opts ->
+        AnchoFijo.Layout.nuevo!(
+          Keyword.merge(
+            [largo: 10, campos: [[nombre: :codigo, largo: 6, tipo: :entero]]],
+            opts
+          )
+        )
+      end
+
+      assert {:ok, [%{codigo: 123}], [_advertencia]} =
+               Parser.parsear(layout.(relleno_final: :tolerar), "000123\n")
+
+      assert {:error, [_]} = Parser.parsear(layout.([]), "000123\n")
+    end
+
+    test "un hueco entre campos también es relleno reponible" do
+      # Posiciones explícitas: código 1-4, hueco 5-10 sin declarar, glosa 11-20.
+      layout =
+        AnchoFijo.Layout.nuevo!(
+          relleno_final: :tolerar,
+          campos: [
+            [nombre: :codigo, posicion: 1, largo: 4, tipo: :entero],
+            [nombre: :glosa, posicion: 11, largo: 10]
+          ]
+        )
+
+      # Faltan 16: los 10 de la glosa más los 6 del hueco. El código no se toca.
+      assert {:ok, [%{codigo: 1, glosa: ""}], [advertencia]} = Parser.parsear(layout, "0001\n")
+      assert advertencia.causa_probable =~ "se completaron 16 bytes"
+
+      # Faltan 17: el último byte es del código.
+      assert {:error, [diagnostico]} = Parser.parsear(layout, "000\n")
+      assert diagnostico.causa_probable =~ "solo 16 son relleno reponible"
+    end
+
+    test "un campo numérico corto no se completa ni con relleno declarado detrás" do
+      layout =
+        AnchoFijo.Layout.nuevo!(
+          largo: 10,
+          relleno_final: :tolerar,
+          campos: [[nombre: :codigo, largo: 6, tipo: :entero]]
+        )
+
+      # Faltan 5: los 4 de relleno no declarado alcanzan, el quinto es del código.
+      assert {:error, [diagnostico]} = Parser.parsear(layout, "00012\n")
+      assert diagnostico.causa_probable =~ "solo 4 son relleno reponible"
+    end
+
+    test "la zona se detiene cuando cambia el carácter de relleno" do
+      layout =
+        AnchoFijo.Layout.nuevo!(
+          relleno_final: :tolerar,
+          campos: [
+            [nombre: :codigo, largo: 4, tipo: :entero],
+            [nombre: :sucursal, largo: 6, relleno: "-"],
+            [nombre: :glosa, largo: 10]
+          ]
+        )
+
+      assert {:ok, [%{glosa: "PAGO"}], [_]} = Parser.parsear(layout, "0001SUC---PAGO\n")
+      assert {:error, [_]} = Parser.parsear(layout, "0001SUC\n")
+    end
+
+    test "completa con el carácter de relleno del campo, no con espacios" do
+      layout =
+        AnchoFijo.Layout.nuevo!(
+          relleno_final: :tolerar,
+          campos: [
+            [nombre: :codigo, largo: 4, tipo: :entero],
+            [nombre: :glosa, largo: 8, relleno: "*"]
+          ]
+        )
+
+      assert {:ok, [%{glosa: "PAGO"}], [_]} = Parser.parsear(layout, "0001PAGO\n")
+    end
+
+    test "con unidad :bytes, un relleno que no es ASCII no se repone" do
+      # "·" ocupa dos bytes en UTF-8 y uno en latin-1: duplicarlo tantas veces
+      # como bytes faltan no reconstruye la línea, así que la zona se detiene.
+      layout =
+        AnchoFijo.Layout.nuevo!(
+          relleno_final: :tolerar,
+          campos: [
+            [nombre: :codigo, largo: 4, tipo: :entero],
+            [nombre: :glosa, largo: 8, relleno: "·"]
+          ]
+        )
+
+      assert {:error, [diagnostico]} = Parser.parsear(layout, "0001PAGO\n")
+      assert diagnostico.causa_probable =~ "solo 0 son relleno reponible"
+    end
+
+    test "un :texto que queda entero en blanco también es relleno" do
+      layout =
+        AnchoFijo.Layout.nuevo!(
+          relleno_final: :tolerar,
+          campos: [
+            [nombre: :codigo, largo: 4, tipo: :entero],
+            [nombre: :glosa, largo: 8],
+            [nombre: :observacion, largo: 6, opcional: true]
+          ]
+        )
+
+      assert {:ok, [%{glosa: "PAGO", observacion: nil}], [_]} =
+               Parser.parsear(layout, "0001PAGO\n")
+    end
+
+    test "con unidad :caracteres cuenta caracteres, no bytes" do
+      layout =
+        AnchoFijo.Layout.nuevo!(
+          unidad: :caracteres,
+          relleno_final: :tolerar,
+          campos: [
+            [nombre: :monto, largo: 4, tipo: :entero],
+            [nombre: :beneficiario, largo: 12]
+          ]
+        )
+
+      assert {:ok, [%{beneficiario: "JOSÉ MUÑOZ"}], [advertencia]} =
+               Parser.parsear(layout, "0100JOSÉ MUÑOZ\n")
+
+      assert advertencia.recibido == "14"
+      assert advertencia.causa_probable =~ "se completaron 2 caracteres"
+    end
+  end
 end
