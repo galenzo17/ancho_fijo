@@ -21,6 +21,10 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   asumiendo algo que quien procesa el archivo debería saber.
 - `AnchoFijo.Diagnostico.separar/1` parte una lista en `{errores, advertencias}`,
   y `solo_advertencias?/1` responde si el lote se puede procesar tal cual.
+- `signo: :final` en campos `:entero` y `:decimal`, para los formatos heredados
+  de mainframe que escriben `0125000-`. El default `:inicial` no cambia. Un
+  signo en el extremo que el layout no declara produce un diagnóstico que dice
+  qué declarar, en vez de "caracteres no numéricos".
 
 ## [0.1.0] — 2026-08-06
 
@@ -79,6 +83,5 @@ Ninguno de estos está implementado. Quedan anotados como lo que sigue:
 - **Relleno faltante tolerado.** Archivos donde el emisor recorta los espacios
   finales y la última línea llega corta. Hoy es un diagnóstico de largo; podría
   ser una opción de layout que complete la línea y lo registre como advertencia.
-- **Signo al final del campo.** El `123-` de los formatos heredados de mainframe.
 - **Más encodings.** cp1252 y las variantes de EBCDIC que aparecen en
   integraciones con sistemas antiguos.

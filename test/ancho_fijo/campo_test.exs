@@ -71,6 +71,95 @@ defmodule AnchoFijo.CampoTest do
     end
   end
 
+  describe "signo al final" do
+    test "un decimal con signo al final se lee negativo, sin float en el camino" do
+      assert extraer(
+               [nombre: :a, largo: 8, tipo: :decimal, precision: 2, signo: :final],
+               "0125000-"
+             ) == {:ok, {-125_000, 2}}
+    end
+
+    test "un entero con signo al final se lee negativo" do
+      assert extraer([nombre: :a, largo: 7, tipo: :entero, signo: :final], "000123-") ==
+               {:ok, -123}
+    end
+
+    test "sin signo es positivo: el espacio del positivo implícito ya se recortó" do
+      assert extraer([nombre: :a, largo: 7, tipo: :entero, signo: :final], "000123 ") ==
+               {:ok, 123}
+    end
+
+    test "un campo en blanco con :opcional sigue siendo nil" do
+      assert extraer(
+               [nombre: :a, largo: 7, tipo: :entero, signo: :final, opcional: true],
+               "       "
+             ) ==
+               {:ok, nil}
+    end
+
+    test "signo duplicado es diagnóstico con causa probable, no valor basura" do
+      {:error, diagnostico} =
+        extraer([nombre: :a, largo: 8, tipo: :entero, signo: :final], "-001250-")
+
+      assert diagnostico.tipo == :campo_invalido
+      assert diagnostico.esperado == "el signo después de los dígitos, como 1250-"
+      assert diagnostico.recibido == ~s("-001250-")
+      assert is_binary(diagnostico.causa_probable) and diagnostico.causa_probable != ""
+    end
+
+    test "el + explícito al final se acepta" do
+      assert extraer([nombre: :a, largo: 7, tipo: :entero, signo: :final], "000123+") ==
+               {:ok, 123}
+    end
+
+    test "con :final, el signo adelante sugiere declarar signo: :inicial" do
+      {:error, diagnostico} =
+        extraer([nombre: :a, largo: 8, tipo: :decimal, precision: 2, signo: :final], "-0125000")
+
+      assert diagnostico.esperado == "el signo después de los dígitos, como 1250-"
+      assert diagnostico.causa_probable =~ "declare signo: :inicial"
+    end
+
+    test "dos signos al final también es diagnóstico" do
+      {:error, diagnostico} =
+        extraer([nombre: :a, largo: 6, tipo: :entero, signo: :final], "1250--")
+
+      assert diagnostico.causa_probable =~ "duplicado"
+    end
+
+    test "un signo sin dígitos es diagnóstico con causa, no un cero" do
+      {:error, diagnostico} = extraer([nombre: :a, largo: 4, tipo: :entero, signo: :final], "   -")
+
+      assert diagnostico.causa_probable == "el campo trae solo el signo, sin dígitos"
+    end
+
+    test "un signo al final con separador explícito escala igual que con signo adelante" do
+      assert extraer(
+               [
+                 nombre: :a,
+                 largo: 10,
+                 tipo: :decimal,
+                 precision: 2,
+                 separador: :coma,
+                 signo: :final
+               ],
+               "   1234,5-"
+             ) == {:ok, {-123_450, 2}}
+    end
+
+    test "con el default :inicial, un signo al final sugiere declarar signo: :final" do
+      {:error, diagnostico} = extraer([nombre: :a, largo: 8, tipo: :entero], "0125000-")
+
+      assert diagnostico.esperado == "el signo antes de los dígitos, como -1250"
+      assert diagnostico.causa_probable =~ "declare signo: :final"
+    end
+
+    test "con :inicial, el signo adelante sigue funcionando igual que antes" do
+      assert extraer([nombre: :a, largo: 8, tipo: :decimal, precision: 2], "-0125000") ==
+               {:ok, {-125_000, 2}}
+    end
+  end
+
   describe ":decimal" do
     test "con separador implícito el campo ya viene en unidades mínimas" do
       assert extraer([nombre: :a, largo: 10, tipo: :decimal, precision: 2], "0000125000") ==
@@ -250,6 +339,23 @@ defmodule AnchoFijo.CampoTest do
 
     test "rechaza un relleno de más de un carácter" do
       assert {:error, [_diagnostico]} = Campo.nuevo(nombre: :a, largo: 2, relleno: "00")
+    end
+
+    test "rechaza un :signo que no reconoce" do
+      {:error, [diagnostico]} = Campo.nuevo(nombre: :a, largo: 4, tipo: :entero, signo: :atras)
+
+      assert diagnostico.esperado == ":signo en [:inicial, :final]"
+    end
+
+    test ":signo solo aplica a :entero y :decimal" do
+      {:error, [diagnostico]} = Campo.nuevo(nombre: :a, largo: 4, signo: :final)
+
+      assert diagnostico.esperado == ":signo solo en campos :entero o :decimal"
+      assert diagnostico.causa_probable =~ "sería ignorada en silencio"
+    end
+
+    test "el default de :signo es :inicial" do
+      assert Campo.nuevo!(nombre: :a, largo: 4, tipo: :entero).signo == :inicial
     end
 
     test "rango/1 y fin/1 son 1-based e inclusivos" do
