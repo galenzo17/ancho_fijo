@@ -284,12 +284,76 @@ defmodule AnchoFijo.Parser do
   defp ajustar_largo(%Layout{} = layout, linea, numero) do
     encontrado = medida(layout, linea)
 
-    if encontrado == layout.largo do
-      {:ok, linea, []}
-    else
-      {:error, [desajuste_de_largo(layout, encontrado, numero)]}
+    cond do
+      encontrado == layout.largo ->
+        {:ok, linea, []}
+
+      encontrado < layout.largo and layout.relleno_final == :tolerar ->
+        completar_relleno(layout, linea, encontrado, numero)
+
+      true ->
+        {:error, [desajuste_de_largo(layout, encontrado, numero)]}
     end
   end
+
+  # Una línea corta se completa solo si lo que falta es relleno: el tramo
+  # faltante tiene que caber entero en la zona tolerable del final de la línea.
+  # Si alcanza a un campo que no es relleno, completar no repone el dato, lo
+  # inventa, y eso es exactamente el error silencioso que este paquete existe
+  # para impedir.
+  defp completar_relleno(%Layout{} = layout, linea, encontrado, numero) do
+    faltan = layout.largo - encontrado
+    {tolerables, caracter} = zona_tolerable(layout)
+
+    if faltan <= tolerables do
+      {:ok, linea <> String.duplicate(caracter, faltan),
+       [relleno_completado(layout, encontrado, faltan, numero)]}
+    else
+      {:error, [relleno_insuficiente(layout, encontrado, faltan, tolerables, numero)]}
+    end
+  end
+
+  # Cuántas unidades del final de la línea son relleno reponible, y con qué
+  # carácter. La zona empieza en el final y crece hacia atrás: primero el
+  # relleno que el layout no declara (nadie lo lee), después los campos de
+  # atrás hacia adelante mientras sean `:texto` con el mismo carácter de
+  # relleno.
+  #
+  # Solo `:texto`, y sin mirar su `:trim`: un emisor que recorta espacios
+  # finales produce una línea corta exactamente cuando el original terminaba
+  # en relleno, y reponerlo reconstruye el original byte a byte. En un
+  # `:entero`, un `:decimal` o una `:fecha` el final de la línea son dígitos:
+  # si faltan, la explicación probable es un dato truncado, no relleno
+  # recortado, y completar con espacios lo taparía.
+  #
+  # Un `:texto` que queda entero en blanco sí cuenta: `Campo.extraer/3` lo lee
+  # como `""` o `nil`, que es lo mismo que habría dado la línea completa.
+  defp zona_tolerable(%Layout{campos: campos, largo: largo, unidad: unidad}) do
+    no_declarado = largo - Campo.fin(List.last(campos))
+    inicial = if no_declarado > 0, do: {no_declarado, " "}, else: {0, nil}
+
+    {unidades, caracter} =
+      campos
+      |> Enum.reverse()
+      |> Enum.reduce_while(inicial, fn campo, {acumulado, caracter} = zona ->
+        cond do
+          campo.tipo != :texto -> {:halt, zona}
+          not reponible?(campo.relleno, unidad) -> {:halt, zona}
+          caracter in [nil, campo.relleno] -> {:cont, {acumulado + campo.largo, campo.relleno}}
+          true -> {:halt, zona}
+        end
+      end)
+
+    {unidades, caracter || " "}
+  end
+
+  # Con `unidad: :bytes` la línea todavía está en su encoding original y el
+  # faltante se mide en bytes, así que solo un relleno ASCII —un byte, igual en
+  # latin-1 y en UTF-8— se puede reponer con `String.duplicate/2` sin que la
+  # cuenta se desvíe. Con `:caracteres` la línea ya es UTF-8 y cualquier
+  # carácter sirve.
+  defp reponible?(relleno, :bytes), do: byte_size(relleno) == 1
+  defp reponible?(_relleno, :caracteres), do: true
 
   defp medida(%Layout{unidad: :caracteres}, linea), do: String.length(linea)
   defp medida(%Layout{unidad: :bytes}, linea), do: byte_size(linea)
@@ -303,6 +367,36 @@ defmodule AnchoFijo.Parser do
       esperado: "#{layout.largo} #{unidad}",
       recibido: encontrado,
       causa_probable: causa_de_largo(encontrado, layout.largo)
+    )
+  end
+
+  defp relleno_completado(%Layout{} = layout, encontrado, faltan, numero) do
+    unidad = Campo.nombre_unidad(layout.unidad)
+
+    Diagnostico.nuevo(
+      tipo: :relleno_completado,
+      gravedad: :advertencia,
+      linea: numero,
+      esperado: "#{layout.largo} #{unidad}",
+      recibido: encontrado,
+      causa_probable:
+        "se completaron #{faltan} #{unidad} de relleno al final de la línea; " <>
+          "el emisor recorta los espacios finales y el layout lo tolera"
+    )
+  end
+
+  defp relleno_insuficiente(%Layout{} = layout, encontrado, faltan, tolerables, numero) do
+    unidad = Campo.nombre_unidad(layout.unidad)
+
+    Diagnostico.nuevo(
+      tipo: :largo_de_linea,
+      linea: numero,
+      esperado: "#{layout.largo} #{unidad}",
+      recibido: encontrado,
+      causa_probable:
+        "faltan #{faltan} #{unidad} y solo #{tolerables} son relleno reponible: " <>
+          "el tramo que falta alcanza a un campo cuyo ancho es parte del dato, " <>
+          "así que completarlo lo inventaría"
     )
   end
 

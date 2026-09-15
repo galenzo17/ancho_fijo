@@ -25,4 +25,24 @@ defmodule AnchoFijo.Fixtures do
       )
     )
   end
+
+  @doc false
+  # Layout con la glosa al final, que es donde los formatos reales ponen el
+  # campo de ancho variable: 60 posiciones, las últimas 30 rellenas de espacios.
+  def layout_glosa(opts \\ []) do
+    AnchoFijo.Layout.nuevo!(
+      Keyword.merge(
+        [
+          nombre: "nómina con glosa final",
+          campos: [
+            [nombre: :rut, largo: 10],
+            [nombre: :fecha, largo: 8, tipo: :fecha, formato: :aaaammdd],
+            [nombre: :monto, largo: 12, tipo: :decimal, precision: 2],
+            [nombre: :glosa, largo: 30]
+          ]
+        ],
+        opts
+      )
+    )
+  end
 end

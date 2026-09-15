@@ -187,6 +187,50 @@ diagnósticos de un archivo de 2 GB para devolverlos al final anularía el punto
 ser lazy. Las advertencias viajan pegadas a su registro por la misma razón: no
 hay dónde juntarlas.
 
+### Líneas cortas por relleno recortado
+
+Hay emisores que recortan los espacios finales de cada línea, o solo de la
+última. Con el layout tal cual, esa línea es un diagnóstico de largo y la fila se
+bota. Si el formato termina en un campo de texto —una glosa, una referencia—,
+lo que falta es relleno, no dato, y se puede declarar:
+
+```elixir
+layout = AnchoFijo.Layout.nuevo!(
+  relleno_final: :tolerar,
+  campos: [
+    [nombre: :rut, largo: 10],
+    [nombre: :fecha, largo: 8, tipo: :fecha, formato: :aaaammdd],
+    [nombre: :monto, largo: 12, tipo: :decimal, precision: 2],
+    [nombre: :glosa, largo: 30]
+  ]
+)
+
+{:ok, registros, advertencias} = AnchoFijo.parsear(layout, "nomina.txt")
+
+Enum.map(advertencias, &AnchoFijo.Diagnostico.mensaje/1)
+# ["línea 1: se esperaban 60 bytes, llegaron 47; se completaron 13 bytes de relleno
+#   al final de la línea; el emisor recorta los espacios finales y el layout lo tolera"]
+```
+
+La línea se completa con el carácter de relleno del campo y queda una
+advertencia por cada línea completada, con cuántas unidades faltaban. La regla
+es estrecha a propósito: se tolera **relleno** faltante, no bytes faltantes. La
+zona reponible empieza al final de la línea y crece hacia atrás mientras
+encuentre relleno no declarado o campos `:texto` con el mismo carácter de
+relleno. Un `:entero`, un `:decimal` o una `:fecha` la cortan: ahí el ancho es
+el dato, y una línea corta que los alcanza sigue siendo un error de largo,
+aunque falte un solo byte. El diagnóstico dice cuántas unidades faltaban y
+cuántas eran reponibles.
+
+Sin la opción, nada cambia: el default es `:estricto`.
+
+Con `unidad: :caracteres` la cuenta es en caracteres y la línea se completa
+después de transcodificar, así que `"JOSÉ MUÑOZ"` en una glosa de 12 se
+completa con 2 caracteres, no con los 0 que sugeriría contar bytes. Con
+`unidad: :bytes` solo se repone un relleno ASCII: un carácter de más de un byte
+repetido tantas veces como bytes faltan no reconstruye la línea, y ese campo no
+entra en la zona reponible.
+
 ## Tipos de campo
 
 | tipo | valor devuelto | opciones |

@@ -54,9 +54,22 @@ defmodule AnchoFijo.Layout do
       (keyword lists, mapas o structs ya construidos).
     * `:encoding` — `:utf8` (default) o `:latin1`.
     * `:unidad` — `:bytes` (default) o `:caracteres`. Ver más abajo.
+    * `:relleno_final` — `:estricto` (default) o `:tolerar`. Ver más abajo.
     * `:largo` — largo total esperado por línea. Si se omite, se infiere del
       último campo.
     * `:nombre` — etiqueta libre para identificar el layout en logs.
+
+  ## Líneas cortas por relleno recortado
+
+  Hay emisores que recortan los espacios finales de cada línea, o solo de la
+  última. Con el default `:estricto` esa línea es un diagnóstico de largo y la
+  fila se bota. Con `relleno_final: :tolerar`, si lo que falta cabe completo en
+  el relleno del final de la línea, se completa y queda una advertencia.
+
+  La condición es estrecha a propósito: se tolera **relleno** faltante, no bytes
+  faltantes. Si el tramo que falta alcanza a un campo que no es relleno —un
+  monto con ceros a la izquierda, una fecha— sigue siendo error, porque
+  completar con espacios ahí no repone el dato: lo inventa.
 
   ## Bytes o caracteres
 
@@ -72,6 +85,7 @@ defmodule AnchoFijo.Layout do
 
   @encodings [:utf8, :latin1]
   @unidades [:bytes, :caracteres]
+  @rellenos_finales [:estricto, :tolerar]
 
   @type t :: %__MODULE__{
           nombre: String.t() | nil,
@@ -79,6 +93,7 @@ defmodule AnchoFijo.Layout do
           largo: pos_integer(),
           encoding: :utf8 | :latin1,
           unidad: :bytes | :caracteres,
+          relleno_final: :estricto | :tolerar,
           advertencias: [Diagnostico.t()]
         }
 
@@ -87,6 +102,7 @@ defmodule AnchoFijo.Layout do
             largo: nil,
             encoding: :utf8,
             unidad: :bytes,
+            relleno_final: :estricto,
             advertencias: []
 
   @doc """
@@ -202,15 +218,27 @@ defmodule AnchoFijo.Layout do
     encoding = Map.get(atributos, :encoding, :utf8)
     unidad = Map.get(atributos, :unidad, :bytes)
 
+    relleno_final = Map.get(atributos, :relleno_final, :estricto)
+
     diagnosticos =
       Enum.concat([
         validar_en(encoding, @encodings, :encoding),
-        validar_en(unidad, @unidades, :unidad)
+        validar_en(unidad, @unidades, :unidad),
+        validar_en(relleno_final, @rellenos_finales, :relleno_final)
       ])
 
     case diagnosticos do
-      [] -> {:ok, %{encoding: encoding, unidad: unidad, nombre: Map.get(atributos, :nombre)}}
-      diagnosticos -> {:error, diagnosticos}
+      [] ->
+        {:ok,
+         %{
+           encoding: encoding,
+           unidad: unidad,
+           relleno_final: relleno_final,
+           nombre: Map.get(atributos, :nombre)
+         }}
+
+      diagnosticos ->
+        {:error, diagnosticos}
     end
   end
 
