@@ -21,6 +21,12 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   asumiendo algo que quien procesa el archivo debería saber.
 - `AnchoFijo.Diagnostico.separar/1` parte una lista en `{errores, advertencias}`,
   y `solo_advertencias?/1` responde si el lote se puede procesar tal cual.
+- `relleno_final: :tolerar` en `AnchoFijo.Layout`. Una línea más corta que el
+  largo declarado se completa con el carácter de relleno cuando lo que falta
+  cae entero en relleno no declarado o en campos `:texto` finales, y queda una
+  advertencia `:relleno_completado` que dice cuántas unidades se completaron.
+  Si el faltante alcanza a un `:entero`, `:decimal` o `:fecha`, sigue siendo un
+  error de largo. El default `:estricto` no cambia nada.
 - `signo: :final` en campos `:entero` y `:decimal`, para los formatos heredados
   de mainframe que escriben `0125000-`. El default `:inicial` no cambia. Un
   signo en el extremo que el layout no declara produce un diagnóstico que dice
@@ -80,8 +86,5 @@ Ninguno de estos está implementado. Quedan anotados como lo que sigue:
 - **Escritura y serialización.** Generar archivos de ancho fijo desde el mismo
   layout que los lee. Requiere decidir el comportamiento cuando un valor no cabe
   en el campo: truncar, fallar o rellenar.
-- **Relleno faltante tolerado.** Archivos donde el emisor recorta los espacios
-  finales y la última línea llega corta. Hoy es un diagnóstico de largo; podría
-  ser una opción de layout que complete la línea y lo registre como advertencia.
 - **Más encodings.** cp1252 y las variantes de EBCDIC que aparecen en
   integraciones con sistemas antiguos.

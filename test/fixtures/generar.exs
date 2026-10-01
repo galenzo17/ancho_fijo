@@ -57,6 +57,30 @@ escribir.(
   ])
 )
 
+# Layout con la glosa al final, 60 posiciones:
+#   rut    1-10   texto
+#   fecha  11-18  fecha AAAAMMDD
+#   monto  19-30  decimal con 2 decimales implícitos
+#   glosa  31-60  texto
+#
+# El emisor recorta los espacios finales de cada línea, así que las dos
+# primeras llegan cortas. La tercera llena la glosa completa y llega entera.
+fila_glosa = fn rut, fecha, monto, glosa ->
+  String.pad_trailing(rut, 10) <>
+    fecha <>
+    String.pad_leading(monto, 12, "0") <>
+    String.pad_trailing(glosa, 30)
+end
+
+escribir.(
+  "nomina_glosa_recortada.txt",
+  lineas.([
+    String.trim_trailing(fila_glosa.("12345678-9", "20240115", "125000", "PAGO NOMINA ENERO")),
+    String.trim_trailing(fila_glosa.("98765432-1", "20240115", "9990050", "ANTICIPO")),
+    fila_glosa.("11111111-1", "20240116", "45", "REEMBOLSO GASTOS MENORES OK   ")
+  ])
+)
+
 # El que "es de ancho fijo" y salió de un Excel.
 escribir.("nomina_en_realidad_csv.csv", """
 rut;beneficiario;monto;fecha
