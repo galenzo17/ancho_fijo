@@ -29,7 +29,53 @@ defmodule AnchoFijo.Generadores do
   end
 
   defp campo do
-    one_of([texto(), entero(), decimal(), fecha()])
+    one_of([texto(), entero(), decimal(), fecha(), rut()])
+  end
+
+  @doc false
+  # Un RUT válido con todas las presentaciones que llegan en archivos reales.
+  # Devuelve %{cuerpo: entero, canonico: "12345678-5", representaciones: [..]}.
+  def rut_valido do
+    gen all(cuerpo <- integer(1_000_000..99_999_999)) do
+      dv = AnchoFijo.Rut.digito_verificador(cuerpo)
+      digitos = Integer.to_string(cuerpo)
+
+      %{
+        cuerpo: cuerpo,
+        dv: dv,
+        canonico: digitos <> "-" <> dv,
+        representaciones: [
+          digitos <> "-" <> dv,
+          digitos <> dv,
+          digitos <> "-" <> String.downcase(dv),
+          con_puntos(digitos) <> "-" <> dv,
+          String.pad_leading(digitos <> dv, 12, "0")
+        ]
+      }
+    end
+  end
+
+  defp rut do
+    gen all(
+          %{canonico: canonico, representaciones: representaciones} <- rut_valido(),
+          texto <- member_of(representaciones)
+        ) do
+      %{
+        definicion: [largo: byte_size(texto), tipo: :rut],
+        tipo: :rut,
+        esperado: canonico,
+        texto: texto
+      }
+    end
+  end
+
+  defp con_puntos(digitos) do
+    digitos
+    |> String.reverse()
+    |> String.graphemes()
+    |> Enum.chunk_every(3)
+    |> Enum.map_join(".", &Enum.join/1)
+    |> String.reverse()
   end
 
   defp texto do

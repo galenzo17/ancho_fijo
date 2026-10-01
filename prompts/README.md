@@ -32,3 +32,4 @@ como quedó.
 | [0003](0003-crear-el-repo.md) | Crear el repositorio, privado | `git init`, repo privado en GitHub, `.gitattributes` |
 | [0004](0004-env-vars-y-publicacion-en-hex.md) | Env vars, `.env` y publicar en Hex | `.env` ignorado, repo público, `0.1.0` en Hex |
 | [0005](0005-relleno-final-tolerado.md) | Issue #3: relleno final tolerado, una issue por PR | `relleno_final: :tolerar`, advertencia `:relleno_completado`, fixture |
+| [0007](0007-tipo-rut.md) | Issue #5: tipo `:rut` | `AnchoFijo.Rut`, tipo `:rut` con `dv:`, generador y propiedades |
