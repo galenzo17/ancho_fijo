@@ -27,6 +27,10 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   advertencia `:relleno_completado` que dice cuántas unidades se completaron.
   Si el faltante alcanza a un `:entero`, `:decimal` o `:fecha`, sigue siendo un
   error de largo. El default `:estricto` no cambia nada.
+- `signo: :final` en campos `:entero` y `:decimal`, para los formatos heredados
+  de mainframe que escriben `0125000-`. El default `:inicial` no cambia. Un
+  signo en el extremo que el layout no declara produce un diagnóstico que dice
+  qué declarar, en vez de "caracteres no numéricos".
 
 ## [0.1.0] — 2026-08-06
 
@@ -82,6 +86,5 @@ Ninguno de estos está implementado. Quedan anotados como lo que sigue:
 - **Escritura y serialización.** Generar archivos de ancho fijo desde el mismo
   layout que los lee. Requiere decidir el comportamiento cuando un valor no cabe
   en el campo: truncar, fallar o rellenar.
-- **Signo al final del campo.** El `123-` de los formatos heredados de mainframe.
 - **Más encodings.** cp1252 y las variantes de EBCDIC que aparecen en
   integraciones con sistemas antiguos.

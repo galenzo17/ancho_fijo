@@ -49,13 +49,13 @@ defmodule AnchoFijo.Generadores do
   defp entero do
     gen all(
           largo <- integer(1..9),
-          valor <- integer(0..(Integer.pow(10, largo) - 1))
+          {signo, magnitud, texto} <- numero_con_signo(largo)
         ) do
       %{
-        definicion: [largo: largo, tipo: :entero],
+        definicion: [largo: largo, tipo: :entero, signo: signo],
         tipo: :entero,
-        esperado: valor,
-        texto: String.pad_leading(Integer.to_string(valor), largo, "0")
+        esperado: magnitud,
+        texto: texto
       }
     end
   end
@@ -64,14 +64,45 @@ defmodule AnchoFijo.Generadores do
     gen all(
           largo <- integer(1..12),
           precision <- integer(0..min(4, largo)),
-          unidades <- integer(0..(Integer.pow(10, largo) - 1))
+          {signo, unidades, texto} <- numero_con_signo(largo)
         ) do
       %{
-        definicion: [largo: largo, tipo: :decimal, precision: precision],
+        definicion: [largo: largo, tipo: :decimal, precision: precision, signo: signo],
         tipo: :decimal,
         esperado: {unidades, precision},
-        texto: String.pad_leading(Integer.to_string(unidades), largo, "0")
+        texto: texto
       }
+    end
+  end
+
+  # Un número que cabe en `largo`, con el signo donde el layout lo declare.
+  # Con un solo dígito de ancho no hay lugar para el signo: siempre positivo.
+  # Los formatos de mainframe escriben el positivo con un espacio al final, y
+  # eso también se genera, porque es lo que el trim tiene que absorber.
+  defp numero_con_signo(1) do
+    gen all(valor <- integer(0..9)) do
+      {:inicial, valor, Integer.to_string(valor)}
+    end
+  end
+
+  defp numero_con_signo(largo) do
+    gen all(
+          signo <- member_of([:inicial, :final]),
+          negativo? <- boolean(),
+          magnitud <- integer(0..(Integer.pow(10, largo - 1) - 1))
+        ) do
+      digitos = String.pad_leading(Integer.to_string(magnitud), largo - 1, "0")
+      valor = if negativo?, do: -magnitud, else: magnitud
+
+      texto =
+        case {signo, negativo?} do
+          {:inicial, true} -> "-" <> digitos
+          {:inicial, false} -> "0" <> digitos
+          {:final, true} -> digitos <> "-"
+          {:final, false} -> digitos <> " "
+        end
+
+      {signo, valor, texto}
     end
   end
 
