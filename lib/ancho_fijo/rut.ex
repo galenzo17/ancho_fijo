@@ -41,6 +41,7 @@ defmodule AnchoFijo.Rut do
   @type motivo :: {:formato, String.t()} | {:dv, String.t(), String.t()}
 
   @modos [:validar, :no_validar, :ausente]
+  @cuerpo_maximo 99_999_999
 
   @doc """
   Modos aceptados para el dígito verificador.
@@ -141,13 +142,22 @@ defmodule AnchoFijo.Rut do
     end
   end
 
+  # Un cuerpo tiene a lo más 8 dígitos significativos. Sin esa cota, un DV
+  # pegado sin guion pasaría como parte del cuerpo con :ausente, y un campo
+  # corrido que arrastra dígitos del vecino tendría 1 en 11 de cuadrar por
+  # casualidad con :validar. La guarda de dígitos deja a :ausente con la misma
+  # gramática que los otros modos: Integer.parse/1 aceptaría "+12345678".
   defp cuerpo(digitos) do
-    case Integer.parse(digitos) do
-      {0, ""} -> {:error, {:formato, "el cuerpo del RUT es cero"}}
-      {cuerpo, ""} when cuerpo > 0 -> {:ok, cuerpo}
-      _otra_cosa -> {:error, {:formato, descripcion_formato()}}
-    end
+    if Regex.match?(~r/\A\d+\z/, digitos),
+      do: acotar(String.to_integer(digitos)),
+      else: {:error, {:formato, descripcion_formato()}}
   end
+
+  defp acotar(0), do: {:error, {:formato, "el cuerpo del RUT es cero"}}
+  defp acotar(cuerpo) when cuerpo <= @cuerpo_maximo, do: {:ok, cuerpo}
+
+  defp acotar(_cuerpo),
+    do: {:error, {:formato, "el cuerpo del RUT tiene más de 8 dígitos"}}
 
   defp verificar(_cuerpo, _dv, :no_validar), do: :ok
 

@@ -60,6 +60,26 @@ defmodule AnchoFijo.RutTest do
       assert {:error, {:formato, _}} = Rut.normalizar("12345678K", :ausente)
     end
 
+    test "con :ausente, un DV pegado sin guion excede el cuerpo y es error de formato" do
+      assert Rut.normalizar("0000123456785", :ausente) ==
+               {:error, {:formato, "el cuerpo del RUT tiene más de 8 dígitos"}}
+    end
+
+    test "con :ausente, el signo no pasa como parte del cuerpo" do
+      assert {:error, {:formato, _}} = Rut.normalizar("+12345678", :ausente)
+      assert {:error, {:formato, _}} = Rut.normalizar("-12345678", :ausente)
+    end
+
+    test "un cuerpo de más de 8 dígitos es error de formato aunque el DV cuadre" do
+      cuerpo = 123_456_789
+      texto = "#{cuerpo}-#{Rut.digito_verificador(cuerpo)}"
+
+      assert Rut.normalizar(texto) ==
+               {:error, {:formato, "el cuerpo del RUT tiene más de 8 dígitos"}}
+
+      assert Rut.normalizar("000012345678-5") == {:ok, "12345678-5"}
+    end
+
     test "letras que no son K, guion sin DV y cuerpo en cero son errores de formato" do
       assert {:error, {:formato, _}} = Rut.normalizar("1234567A-9")
       assert {:error, {:formato, _}} = Rut.normalizar("12345678-")

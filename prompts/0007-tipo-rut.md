@@ -61,15 +61,20 @@ El mismo `/loop` que gobierna toda la serie, sin prompt nuevo para esta issue:
 
 4. **Qué se tolera al leer.** Puntos, guion opcional, ceros a la izquierda,
    espacios en los bordes, `k` minúscula. No se tolera: letras que no sean K,
-   un guion sin DV, el cuerpo en cero. Con `:ausente`, un DV pegado al cuerpo
-   es error de formato: si el layout dice que no hay DV y hay uno, el layout
-   está mal o el campo está corrido.
+   un guion sin DV, el cuerpo en cero, un cuerpo de más de 8 dígitos
+   significativos, un signo. Con `:ausente`, un DV pegado al cuerpo es error
+   de formato: si el layout dice que no hay DV y hay uno, el layout está mal o
+   el campo está corrido. La cota de 8 dígitos es la que hace detectable el DV
+   pegado sin guion, y la que impide que un campo corrido que arrastra dígitos
+   del vecino cuadre por casualidad, 1 vez en 11.
 
 5. **El generador usa la misma función que el parser, y por eso hay tabla.**
-   El round-trip solo prueba consistencia: una implementación equivocada del
-   módulo 11 se validaría a sí misma. Los casos de tabla de `rut_test.exs`,
-   incluidos el que da K, el que da 0 y uno de nueve dígitos que obliga a la
-   serie a dar la vuelta, son los que anclan la corrección.
+   El generador cubre cuerpos de 1 a 8 dígitos, así que el relleno con ceros
+   también se ejercita en los cortos. El round-trip solo prueba consistencia:
+   una implementación equivocada del módulo 11 se validaría a sí misma. Los
+   casos de tabla de `rut_test.exs`, incluidos el que da K, el que da 0 y uno
+   de nueve dígitos que obliga a la serie a dar la vuelta, son los que anclan
+   la corrección.
 
 6. **`Rut.modos/0` es público** para que `Campo` valide la opción sin
    duplicar la lista. Costó una función pública más; la alternativa era un

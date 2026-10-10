@@ -36,7 +36,7 @@ defmodule AnchoFijo.Generadores do
   # Un RUT válido con todas las presentaciones que llegan en archivos reales.
   # Devuelve %{cuerpo: entero, canonico: "12345678-5", representaciones: [..]}.
   def rut_valido do
-    gen all(cuerpo <- integer(1_000_000..99_999_999)) do
+    gen all(cuerpo <- integer(1..99_999_999)) do
       dv = AnchoFijo.Rut.digito_verificador(cuerpo)
       digitos = Integer.to_string(cuerpo)
 
