@@ -236,8 +236,8 @@ entra en la zona reponible.
 | tipo | valor devuelto | opciones |
 | --- | --- | --- |
 | `:texto` | `String.t()` en UTF-8 | `:trim`, `:relleno`, `:opcional` |
-| `:entero` | `integer()` | `:opcional` |
-| `:decimal` | `{unidades, precision}` | `:precision` (obligatoria), `:separador` |
+| `:entero` | `integer()` | `:opcional`, `:signo` |
+| `:decimal` | `{unidades, precision}` | `:precision` (obligatoria), `:separador`, `:signo` |
 | `:fecha` | `Date.t()` | `:formato` (obligatorio), `:opcional` |
 | `:rut` | `String.t()` canónico, `"12345678-5"`; solo el cuerpo con `dv: :ausente` | `:dv`, `:opcional` |
 
@@ -245,6 +245,12 @@ Un monto de `0000125000` con `precision: 2` se lee como `{125000, 2}`: 125.000
 unidades mínimas con escala 2, es decir 1.250,00. Nunca hay un float en el
 camino. Un monto que pasó por punto flotante deja de cuadrar con la contabilidad
 del banco y nadie sabe dónde se perdió el peso.
+
+`:signo` es `:inicial` por default: `-0125000`. Los formatos heredados de
+mainframe escriben el signo después de los dígitos, `0125000-`, y para leerlos
+se declara `signo: :final`. Un signo donde el layout no lo espera no es un
+"carácter no numérico": el diagnóstico dice que el signo está en el otro
+extremo y qué declarar. El *overpunch* EBCDIC (`12K` por -123) queda fuera.
 
 `:rut` normaliza lo que llegue —`12.345.678-5`, `123456785`, `0000123456785`,
 con `k` o `K`— a `"12345678-5"` y valida el dígito verificador por módulo 11.

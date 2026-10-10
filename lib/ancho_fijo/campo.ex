@@ -26,6 +26,9 @@ defmodule AnchoFijo.Campo do
     * `:precision` — obligatorio en `:decimal`. Cantidad de decimales que el
       formato declara.
     * `:separador` — en `:decimal`: `:implicito` (default), `:punto` o `:coma`.
+    * `:signo` — en `:entero` y `:decimal`: `:inicial` (default) o `:final`.
+      Con `:final` el signo va después de los dígitos, `0125000-`, como en los
+      formatos heredados de mainframe.
     * `:formato` — obligatorio en `:fecha`: `:aaaammdd` o `:ddmmaaaa`.
     * `:dv` — en `:rut`: `:validar` (default), `:no_validar` o `:ausente`. Ver
       `AnchoFijo.Rut`.
@@ -53,6 +56,7 @@ defmodule AnchoFijo.Campo do
   @tipos [:texto, :entero, :decimal, :fecha, :rut]
   @formatos_fecha [:aaaammdd, :ddmmaaaa]
   @separadores [:implicito, :punto, :coma]
+  @signos [:inicial, :final]
   @trims [:ambos, :izquierda, :derecha, false, true]
 
   @type tipo :: :texto | :entero | :decimal | :fecha | :rut
@@ -68,6 +72,7 @@ defmodule AnchoFijo.Campo do
           relleno: String.t(),
           precision: non_neg_integer() | nil,
           separador: :implicito | :punto | :coma,
+          signo: :inicial | :final,
           formato: :aaaammdd | :ddmmaaaa | nil,
           dv: Rut.dv()
         }
@@ -81,6 +86,7 @@ defmodule AnchoFijo.Campo do
             relleno: " ",
             precision: nil,
             separador: :implicito,
+            signo: :inicial,
             formato: nil,
             dv: :validar
 
@@ -177,6 +183,11 @@ defmodule AnchoFijo.Campo do
       {:ok, "JOSÉ"}
 
       iex> alias AnchoFijo.Campo
+      iex> campo = Campo.nuevo!(nombre: :saldo, posicion: 1, largo: 8, tipo: :decimal, precision: 2, signo: :final)
+      iex> Campo.extraer(campo, "0125000-")
+      {:ok, {-125000, 2}}
+
+      iex> alias AnchoFijo.Campo
       iex> campo = Campo.nuevo!(nombre: :fecha, posicion: 1, largo: 8, tipo: :fecha, formato: :aaaammdd)
       iex> {:error, diagnostico} = Campo.extraer(campo, "20240230", linea: 4)
       iex> AnchoFijo.Diagnostico.mensaje(diagnostico)
@@ -205,6 +216,7 @@ defmodule AnchoFijo.Campo do
       :relleno,
       :precision,
       :separador,
+      :signo,
       :formato,
       :dv
     ])
@@ -288,7 +300,11 @@ defmodule AnchoFijo.Campo do
   end
 
   defp validar_opciones_de_tipo(%__MODULE__{tipo: :decimal} = campo) do
-    validar_precision(campo) ++ validar_separador(campo)
+    validar_precision(campo) ++ validar_separador(campo) ++ validar_signo(campo)
+  end
+
+  defp validar_opciones_de_tipo(%__MODULE__{tipo: :entero} = campo) do
+    validar_signo(campo)
   end
 
   defp validar_opciones_de_tipo(%__MODULE__{tipo: :fecha} = campo) do
@@ -328,6 +344,12 @@ defmodule AnchoFijo.Campo do
     [falla(nombre, ":separador en #{inspect(@separadores)}", separador, nil)]
   end
 
+  defp validar_signo(%__MODULE__{signo: signo}) when signo in @signos, do: []
+
+  defp validar_signo(%__MODULE__{nombre: nombre, signo: signo}) do
+    [falla(nombre, ":signo en #{inspect(@signos)}", signo, nil)]
+  end
+
   # No hay default para :formato a propósito. Adivinar si 01022024 es el 1 de
   # febrero o el 2 de enero es justamente el error silencioso que esta librería
   # existe para impedir: la definición tiene que decirlo.
@@ -356,19 +378,19 @@ defmodule AnchoFijo.Campo do
   # arrastra todas las claves y no está declarando nada.
   defp validar_opciones_ajenas(%__MODULE__{tipo: tipo, nombre: nombre}, atributos) do
     [
-      {:precision, :decimal, nil},
-      {:separador, :decimal, :implicito},
-      {:formato, :fecha, nil},
-      {:dv, :rut, :validar}
+      {:precision, [:decimal], nil},
+      {:separador, [:decimal], :implicito},
+      {:signo, [:entero, :decimal], :inicial},
+      {:formato, [:fecha], nil},
+      {:dv, [:rut], :validar}
     ]
-    |> Enum.filter(fn {opcion, propietario, default} ->
-      tipo != propietario and Map.get(atributos, opcion, default) != default
+    |> Enum.filter(fn {opcion, propietarios, default} ->
+      tipo not in propietarios and Map.get(atributos, opcion, default) != default
     end)
-    |> Enum.map(fn {opcion, propietario, _default} -> {opcion, propietario} end)
-    |> Enum.map(fn {opcion, propietario} ->
+    |> Enum.map(fn {opcion, propietarios, _default} ->
       falla(
         nombre,
-        "#{inspect(opcion)} solo en campos #{inspect(propietario)}",
+        "#{inspect(opcion)} solo en campos #{Enum.map_join(propietarios, " o ", &inspect/1)}",
         "un campo #{inspect(tipo)}",
         "la opción no aplica a este tipo y sería ignorada en silencio"
       )
@@ -459,11 +481,14 @@ defmodule AnchoFijo.Campo do
   defp convertir(%__MODULE__{} = campo, "", contexto), do: vacio(campo, contexto)
 
   defp convertir(%__MODULE__{tipo: :entero} = campo, texto, contexto) do
-    case Integer.parse(texto) do
-      {numero, ""} ->
-        {:ok, numero}
+    with {:ok, signo, digitos} <- separar_signo(texto, campo),
+         true <- solo_digitos?(digitos) do
+      {:ok, signo * String.to_integer(digitos)}
+    else
+      {:error, causa} ->
+        {:error, error_de_signo(campo, texto, causa, contexto)}
 
-      _no_entero ->
+      false ->
         {:error,
          diagnostico(campo, contexto,
            esperado: "#{campo.largo} posiciones con un número entero",
@@ -474,12 +499,13 @@ defmodule AnchoFijo.Campo do
   end
 
   defp convertir(%__MODULE__{tipo: :decimal} = campo, texto, contexto) do
-    {signo, digitos} = separar_signo(texto)
-
-    case unidades(digitos, campo) do
-      {:ok, unidades} -> {:ok, {signo * unidades, campo.precision}}
+    with {:ok, signo, digitos} <- separar_signo(texto, campo),
+         {:ok, unidades} <- unidades(digitos, campo) do
+      {:ok, {signo * unidades, campo.precision}}
+    else
       {:error, {:exceso, fraccion}} -> {:error, exceso_de_decimales(campo, fraccion, contexto)}
       {:error, :formato} -> {:error, error_decimal(campo, texto, contexto)}
+      {:error, causa} -> {:error, error_de_signo(campo, texto, causa, contexto)}
     end
   end
 
@@ -514,9 +540,80 @@ defmodule AnchoFijo.Campo do
       else: armar_fecha(campo, texto, contexto)
   end
 
-  defp separar_signo("-" <> resto), do: {-1, resto}
-  defp separar_signo("+" <> resto), do: {1, resto}
-  defp separar_signo(texto), do: {1, texto}
+  # Separa el signo de los dígitos según dónde lo declara el layout. Devuelve
+  # `{:ok, 1 | -1, digitos}` o `{:error, causa}` cuando el signo está donde no
+  # debería: ahí el dato no es ilegible, es de otro formato, y el diagnóstico
+  # tiene que decirlo en vez de reportar "caracteres no numéricos".
+  defp separar_signo(texto, %__MODULE__{signo: :inicial}) do
+    {signo, resto} =
+      case texto do
+        "-" <> resto -> {-1, resto}
+        "+" <> resto -> {1, resto}
+        resto -> {1, resto}
+      end
+
+    if signo_al_final?(resto) do
+      {:error,
+       "el signo viene al final del campo; si el formato es heredado de mainframe, " <>
+         "declare signo: :final"}
+    else
+      {:ok, signo, resto}
+    end
+  end
+
+  # Los formatos de mainframe escriben `0125000-` para -1.250,00 y `0125000 `
+  # para el positivo: el espacio ya se lo llevó `limpiar/2`, así que un campo
+  # sin signo es positivo. El `+` explícito también se acepta porque algunos
+  # emisores lo mandan y rechazarlo no protege de nada.
+  defp separar_signo(texto, %__MODULE__{signo: :final}) do
+    {signo, resto} = quitar_signo_final(texto)
+
+    case causa_de_signo_final(texto, resto) do
+      nil -> {:ok, signo, resto}
+      causa -> {:error, causa}
+    end
+  end
+
+  defp quitar_signo_final(texto) do
+    case String.last(texto) do
+      "-" -> {-1, String.slice(texto, 0..-2//1)}
+      "+" -> {1, String.slice(texto, 0..-2//1)}
+      _digito -> {1, texto}
+    end
+  end
+
+  defp causa_de_signo_final(texto, resto) do
+    cond do
+      resto == "" ->
+        "el campo trae solo el signo, sin dígitos"
+
+      String.starts_with?(resto, ["-", "+"]) and signo_al_final?(texto) ->
+        "hay un signo en cada extremo del campo; el archivo no respeta el formato declarado"
+
+      String.starts_with?(resto, ["-", "+"]) ->
+        "el signo viene antes de los dígitos; si el formato no es heredado de mainframe, " <>
+          "declare signo: :inicial"
+
+      signo_al_final?(resto) ->
+        "el signo viene duplicado al final del campo"
+
+      true ->
+        nil
+    end
+  end
+
+  defp signo_al_final?(texto), do: String.ends_with?(texto, ["-", "+"])
+
+  defp error_de_signo(%__MODULE__{} = campo, texto, causa, contexto) do
+    diagnostico(campo, contexto,
+      esperado: descripcion_signo(campo.signo),
+      recibido: inspect(texto),
+      causa_probable: causa
+    )
+  end
+
+  defp descripcion_signo(:inicial), do: "el signo antes de los dígitos, como -1250"
+  defp descripcion_signo(:final), do: "el signo después de los dígitos, como 1250-"
 
   # Con separador implícito el campo entero ya viene en unidades mínimas: el
   # anexo dice "10 posiciones, 2 decimales" y el archivo trae 0000125000 para
