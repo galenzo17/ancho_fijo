@@ -16,7 +16,7 @@ defmodule AnchoFijo.Campo do
     * `:largo` — entero positivo, obligatorio.
     * `:posicion` — entero positivo, 1-based. Si se omite, `AnchoFijo.Layout`
       la calcula encadenando el campo anterior.
-    * `:tipo` — `:texto` (default), `:entero`, `:decimal` o `:fecha`.
+    * `:tipo` — `:texto` (default), `:entero`, `:decimal`, `:fecha` o `:rut`.
     * `:opcional` — si es `true`, un campo en blanco (o en ceros, para fechas)
       se lee como `nil` en vez de producir un diagnóstico. Default `false`.
     * `:trim` — `:ambos` (default), `:izquierda`, `:derecha` o `false`. Solo
@@ -30,6 +30,8 @@ defmodule AnchoFijo.Campo do
       Con `:final` el signo va después de los dígitos, `0125000-`, como en los
       formatos heredados de mainframe.
     * `:formato` — obligatorio en `:fecha`: `:aaaammdd` o `:ddmmaaaa`.
+    * `:dv` — en `:rut`: `:validar` (default), `:no_validar` o `:ausente`. Ver
+      `AnchoFijo.Rut`.
 
   ## Tipos y valores devueltos
 
@@ -39,6 +41,7 @@ defmodule AnchoFijo.Campo do
   | `:entero` | `integer()` |
   | `:decimal` | `{unidades, precision}`, p. ej. `{123456, 2}` para `1234.56` |
   | `:fecha` | `Date.t()` |
+  | `:rut` | `String.t()` canónico, `"12345678-5"`; solo el cuerpo, `"12345678"`, con `dv: :ausente` |
 
   Un `:decimal` nunca se convierte a float. Se devuelve como par
   `{unidades_minimas, precision}` —centavos y escala— porque un monto que pasa
@@ -47,15 +50,16 @@ defmodule AnchoFijo.Campo do
   """
 
   alias AnchoFijo.Diagnostico
+  alias AnchoFijo.Rut
   alias AnchoFijo.Transcodificacion
 
-  @tipos [:texto, :entero, :decimal, :fecha]
+  @tipos [:texto, :entero, :decimal, :fecha, :rut]
   @formatos_fecha [:aaaammdd, :ddmmaaaa]
   @separadores [:implicito, :punto, :coma]
   @signos [:inicial, :final]
   @trims [:ambos, :izquierda, :derecha, false, true]
 
-  @type tipo :: :texto | :entero | :decimal | :fecha
+  @type tipo :: :texto | :entero | :decimal | :fecha | :rut
   @type valor :: String.t() | integer() | {integer(), non_neg_integer()} | Date.t() | nil
 
   @type t :: %__MODULE__{
@@ -69,7 +73,8 @@ defmodule AnchoFijo.Campo do
           precision: non_neg_integer() | nil,
           separador: :implicito | :punto | :coma,
           signo: :inicial | :final,
-          formato: :aaaammdd | :ddmmaaaa | nil
+          formato: :aaaammdd | :ddmmaaaa | nil,
+          dv: Rut.dv()
         }
 
   defstruct nombre: nil,
@@ -82,7 +87,8 @@ defmodule AnchoFijo.Campo do
             precision: nil,
             separador: :implicito,
             signo: :inicial,
-            formato: nil
+            formato: nil,
+            dv: :validar
 
   @typedoc """
   Contexto de lectura que aporta el layout: cómo medir, cómo decodificar y en
@@ -211,7 +217,8 @@ defmodule AnchoFijo.Campo do
       :precision,
       :separador,
       :signo,
-      :formato
+      :formato,
+      :dv
     ])
     |> Map.update(:trim, :ambos, fn
       true -> :ambos
@@ -304,7 +311,17 @@ defmodule AnchoFijo.Campo do
     validar_formato(campo) ++ validar_largo_de_fecha(campo)
   end
 
+  defp validar_opciones_de_tipo(%__MODULE__{tipo: :rut} = campo) do
+    validar_dv(campo)
+  end
+
   defp validar_opciones_de_tipo(_campo), do: []
+
+  defp validar_dv(%__MODULE__{dv: dv} = campo) do
+    if dv in Rut.modos(),
+      do: [],
+      else: [falla(campo.nombre, ":dv en #{inspect(Rut.modos())}", dv, nil)]
+  end
 
   defp validar_precision(%__MODULE__{precision: precision})
        when is_integer(precision) and precision >= 0,
@@ -364,7 +381,8 @@ defmodule AnchoFijo.Campo do
       {:precision, [:decimal], nil},
       {:separador, [:decimal], :implicito},
       {:signo, [:entero, :decimal], :inicial},
-      {:formato, [:fecha], nil}
+      {:formato, [:fecha], nil},
+      {:dv, [:rut], :validar}
     ]
     |> Enum.filter(fn {opcion, propietarios, default} ->
       tipo not in propietarios and Map.get(atributos, opcion, default) != default
@@ -488,6 +506,31 @@ defmodule AnchoFijo.Campo do
       {:error, {:exceso, fraccion}} -> {:error, exceso_de_decimales(campo, fraccion, contexto)}
       {:error, :formato} -> {:error, error_decimal(campo, texto, contexto)}
       {:error, causa} -> {:error, error_de_signo(campo, texto, causa, contexto)}
+    end
+  end
+
+  defp convertir(%__MODULE__{tipo: :rut} = campo, texto, contexto) do
+    case Rut.normalizar(texto, campo.dv) do
+      {:ok, rut} ->
+        {:ok, rut}
+
+      {:error, {:dv, esperado, _recibido}} ->
+        {:error,
+         diagnostico(campo, contexto,
+           esperado:
+             "un RUT cuyo dígito verificador cuadre; para ese cuerpo corresponde #{esperado}",
+           recibido: inspect(texto),
+           causa_probable:
+             "el dígito verificador no cuadra: posible error de digitación o campo corrido"
+         )}
+
+      {:error, {:formato, detalle}} ->
+        {:error,
+         diagnostico(campo, contexto,
+           esperado: descripcion_rut(campo.dv),
+           recibido: inspect(texto),
+           causa_probable: detalle
+         )}
     end
   end
 
@@ -708,6 +751,9 @@ defmodule AnchoFijo.Campo do
       true -> "el día no existe en ese mes"
     end
   end
+
+  defp descripcion_rut(:ausente), do: "el cuerpo de un RUT, sin dígito verificador"
+  defp descripcion_rut(_con_dv), do: "un RUT con dígito verificador"
 
   defp descripcion_formato(:aaaammdd), do: "AAAAMMDD"
   defp descripcion_formato(:ddmmaaaa), do: "DDMMAAAA"

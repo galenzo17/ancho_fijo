@@ -31,6 +31,11 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   de mainframe que escriben `0125000-`. El default `:inicial` no cambia. Un
   signo en el extremo que el layout no declara produce un diagnóstico que dice
   qué declarar, en vez de "caracteres no numéricos".
+- Tipo `:rut` en `AnchoFijo.Campo`, que normaliza las variantes de presentación
+  (puntos, guion, ceros a la izquierda, `k` o `K`) a `"12345678-5"` y valida el
+  dígito verificador por módulo 11. `dv: :no_validar` y `dv: :ausente` son las
+  salidas explícitas. `AnchoFijo.Rut` expone `normalizar/2`, `valido?/1` y
+  `digito_verificador/1`.
 
 ## [0.1.0] — 2026-08-06
 
