@@ -4,7 +4,21 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+### Cambiado
+
+- `parsear/3` parte y numera las líneas de a una en vez de materializar la
+  lista completa antes de procesar la primera: en modo `:estricto` sobre un
+  archivo de 100 MB con la primera fila mala en la línea 1000, de 0,46 s y
+  390 MB de heap a 0,02 s y nada medible.
+- Conversión de campos sin regex (`solo_digitos?`, fechas en ceros) y
+  validación UTF-8 con `String.valid?/1` por delante: una línea de cuatro
+  campos pasa de 3,2 µs a 1,9 µs, y `stream/3` sobre 100 MB de 7,7 s a
+  5,2 s.
+
 ### Infraestructura
+
+- `bench/generar.exs` y `bench/parseo.exs`: fixture grande, Benchee y un
+  medidor de memoria pico por proceso. Resultados en `bench/README.md`.
 
 - CI en GitHub Actions: la suite corre en Elixir 1.14, 1.16, 1.18 y 1.20 con
   warnings como errores; formato, credo, dialyzer (con el PLT en caché) y

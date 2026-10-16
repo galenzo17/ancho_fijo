@@ -11,6 +11,8 @@ defmodule AnchoFijo.MixProject do
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
+      # Los .exs de test/fixtures son scripts, no tests (Elixir 1.20 avisa).
+      test_ignore_filters: [~r"^test/fixtures/"],
       deps: deps(),
       description: description(),
       package: package(),
@@ -34,6 +36,7 @@ defmodule AnchoFijo.MixProject do
   defp deps do
     [
       {:stream_data, "~> 1.1", only: [:dev, :test]},
+      {:benchee, "~> 1.3", only: :dev, runtime: false},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}

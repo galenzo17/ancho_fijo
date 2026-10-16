@@ -182,6 +182,12 @@ con él: no hay resultado parcial que anotar.
 |> Enum.reduce(0, fn {unidades, _precision}, total -> total + unidades end)
 ```
 
+Medido sobre un archivo de 100 MB (dos millones de líneas): `stream/3` lo
+recorre en 5 segundos con un pico de heap de 34 KB, que no depende del
+tamaño del archivo; `parsear/3` en modo tolerante tarda el doble y retiene
+1,2 GB, porque devuelve los dos millones de registros. Los números, la
+máquina y el script están en `bench/README.md`.
+
 `stream/3` emite `{:ok, registro, advertencias}` o `{:error, diagnosticos}` por
 línea. Qué hacer con los errores es decisión del consumidor: acumular todos los
 diagnósticos de un archivo de 2 GB para devolverlos al final anularía el punto de

@@ -101,8 +101,8 @@ defmodule AnchoFijo.Parser do
     with {:ok, layout} <- Layout.coercer(layout),
          {:ok, contenido} <- Entrada.leer(entrada, opts) do
       contenido
-      |> Entrada.dividir()
-      |> Enum.with_index(1)
+      |> Entrada.dividir_lazy()
+      |> Stream.with_index(1)
       |> seleccionar(opts)
       |> procesar(layout, Keyword.get(opts, :modo, :estricto))
     end
@@ -202,15 +202,9 @@ defmodule AnchoFijo.Parser do
 
   defp seleccionar(numeradas, opts) do
     numeradas
-    |> Enum.drop(Keyword.get(opts, :saltar, 0))
-    |> filtrar_vacias(Keyword.get(opts, :omitir_vacias, true))
+    |> Stream.drop(Keyword.get(opts, :saltar, 0))
+    |> descartar_vacias(Keyword.get(opts, :omitir_vacias, true))
   end
-
-  defp filtrar_vacias(numeradas, true) do
-    Enum.reject(numeradas, fn {linea, _numero} -> linea == "" end)
-  end
-
-  defp filtrar_vacias(numeradas, _false), do: numeradas
 
   # En estricto un error aborta el archivo completo y las advertencias de las
   # líneas ya leídas se descartan: no hay resultado parcial que anotar. Las
