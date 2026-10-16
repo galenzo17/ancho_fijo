@@ -133,11 +133,28 @@ defmodule AnchoFijo.Entrada do
   defp descripcion_motivo(:eisdir), do: "la ruta es un directorio, no un archivo"
   defp descripcion_motivo(motivo), do: "error del sistema de archivos: #{inspect(motivo)}"
 
+  # El término no se inspecciona entero: una lista de líneas o un mapa con
+  # datos terminarían en el mensaje, y el mensaje termina en el log.
+  @doc false
+  @spec describir(term()) :: String.t()
+  def describir(termino) when is_integer(termino), do: "un entero"
+  def describir(termino) when is_float(termino), do: "un float"
+  def describir(nil), do: "nil"
+  def describir(termino) when is_boolean(termino), do: "un booleano"
+  def describir(termino) when is_atom(termino), do: "un átomo"
+  def describir(termino) when is_binary(termino), do: "un binario de #{byte_size(termino)} bytes"
+  def describir(termino) when is_list(termino), do: "una lista de #{length(termino)} elementos"
+  def describir(termino) when is_struct(termino), do: "un %#{inspect(termino.__struct__)}{}"
+  def describir(termino) when is_map(termino), do: "un mapa de #{map_size(termino)} claves"
+  def describir(termino) when is_tuple(termino), do: "una tupla de #{tuple_size(termino)}"
+  def describir(termino) when is_function(termino), do: "una función"
+  def describir(_termino), do: "un término de otro tipo"
+
   defp no_es_entrada(entrada) do
     Diagnostico.nuevo(
       tipo: :entrada,
       esperado: "un binario con el contenido, una ruta a un archivo o un enumerable de líneas",
-      recibido: inspect(entrada),
+      recibido: describir(entrada),
       causa_probable: "el argumento de entrada no es de un tipo que se pueda leer"
     )
   end

@@ -4,6 +4,21 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+### Agregado
+
+- `sensible: true` en los campos del layout (`:rut` lo es por default). Los
+  diagnósticos de un campo sensible muestran la forma del valor y no el valor
+  en `Diagnostico.mensaje/1`, `reporte/1`, `to_string/1` e `inspect/1`;
+  `mensaje/2` y `reporte/2` con `revelar: true` muestran el valor.
+  `Diagnostico.forma/1` describe un valor sin revelarlo y
+  `Diagnostico.marcar_sensible/2` marca un diagnóstico.
+- `AnchoFijo.Diagnostico` tiene `:sensible` y `:redactado`.
+
+### Cambiado
+
+- Un diagnóstico `:entrada` por un argumento que no es binario describe el
+  tipo del argumento ("una lista de 3 elementos") en vez de imprimirlo.
+
 ### Infraestructura
 
 - CI en GitHub Actions: la suite corre en Elixir 1.14, 1.16, 1.18 y 1.20 con
