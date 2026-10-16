@@ -34,6 +34,10 @@ defmodule AnchoFijo.Diagnostico do
   * `:campo_invalido` — el contenido del campo no calza con su tipo.
   * `:relleno_completado` — la línea llegó corta y el layout autorizó completar
     el relleno faltante. Siempre de gravedad `:advertencia`.
+  * `:estructura` — en un `AnchoFijo.Multiregistro`: un discriminador
+    desconocido, un registro fuera de orden, repetido o faltante.
+  * `:control` — en un `AnchoFijo.Multiregistro`: un total del trailer que
+    no cuadra con los detalles.
   """
   @type tipo ::
           :layout
@@ -42,6 +46,8 @@ defmodule AnchoFijo.Diagnostico do
           | :encoding
           | :campo_invalido
           | :relleno_completado
+          | :estructura
+          | :control
 
   @typedoc """
   Si el problema impide leer el dato o solo merece quedar anotado.
@@ -217,11 +223,11 @@ defmodule AnchoFijo.Diagnostico do
   defp nucleo(%__MODULE__{esperado: nil, recibido: recibido}), do: "se recibió #{recibido}"
 
   defp nucleo(%__MODULE__{tipo: tipo, esperado: esperado, recibido: nil})
-       when tipo in [:entrada, :layout],
+       when tipo in [:entrada, :layout, :estructura, :control],
        do: "se esperaba #{esperado}"
 
   defp nucleo(%__MODULE__{tipo: tipo, esperado: esperado, recibido: recibido})
-       when tipo in [:entrada, :layout],
+       when tipo in [:entrada, :layout, :estructura, :control],
        do: "se esperaba #{esperado}, llegó #{recibido}"
 
   defp nucleo(%__MODULE__{esperado: esperado, recibido: nil}), do: "se esperaban #{esperado}"

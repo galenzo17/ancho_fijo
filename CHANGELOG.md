@@ -4,6 +4,17 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+### Agregado
+
+- `AnchoFijo.Multiregistro`: archivos con header, detalle y trailer. Un
+  discriminador por posición, un layout por tipo con cantidad (`:uno`,
+  `:opcional`, `:varios`, `:al_menos_uno`) y orden, y controles cruzados
+  (`cuenta:` y `suma:`) del trailer contra los detalles. `parsear/3` y
+  `stream/3` lo aceptan en lugar del layout; los registros vuelven como
+  `{tipo, mapa}` en el orden del archivo y `agrupar/2` los junta por tipo.
+  Diagnósticos nuevos `:estructura` y `:control`.
+- Fixture `nomina_multiregistro.txt`.
+
 ### Infraestructura
 
 - CI en GitHub Actions: la suite corre en Elixir 1.14, 1.16, 1.18 y 1.20 con

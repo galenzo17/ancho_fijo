@@ -65,7 +65,12 @@ defmodule AnchoFijo.MixProject do
       source_ref: "v#{@version}",
       extras: ["README.md", "CHANGELOG.md", "LICENSE"],
       groups_for_modules: [
-        "Definición del formato": [AnchoFijo.Layout, AnchoFijo.Campo, AnchoFijo.Rut],
+        "Definición del formato": [
+          AnchoFijo.Layout,
+          AnchoFijo.Campo,
+          AnchoFijo.Rut,
+          AnchoFijo.Multiregistro
+        ],
         Diagnóstico: [AnchoFijo.Detector, AnchoFijo.Diagnostico],
         Lectura: [AnchoFijo.Parser, AnchoFijo.Transcodificacion]
       ]

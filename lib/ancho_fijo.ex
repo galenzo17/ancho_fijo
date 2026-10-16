@@ -64,15 +64,17 @@ defmodule AnchoFijo do
   advertencias de las que sí, pero asumiendo algo. `Diagnostico.separar/1` las
   parte en dos.
 
-  ## Alcance de 0.1
+  ## Header, detalle y trailer
 
-  Solo lectura. Sin escritura de archivos y sin multiregistro
-  (header/detalle/trailer): ver el `CHANGELOG.md`.
+  Un archivo con varios tipos de registro se describe con
+  `AnchoFijo.Multiregistro`, y `parsear/3` y `stream/3` lo aceptan en lugar
+  del layout.
   """
 
   alias AnchoFijo.Detector
   alias AnchoFijo.Diagnostico
   alias AnchoFijo.Layout
+  alias AnchoFijo.Multiregistro
   alias AnchoFijo.Parser
 
   @doc """
@@ -122,8 +124,14 @@ defmodule AnchoFijo do
 
   Ver `AnchoFijo.Parser` para las opciones y la diferencia entre los modos.
   """
-  @spec parsear(Layout.t() | Enumerable.t(), term(), keyword()) :: Parser.resultado()
-  defdelegate parsear(layout, entrada, opts \\ []), to: Parser
+  @spec parsear(Layout.t() | Multiregistro.t() | Enumerable.t(), term(), keyword()) ::
+          Parser.resultado() | {:ok, [Multiregistro.registro()], [Diagnostico.t()]}
+  def parsear(layout, entrada, opts \\ [])
+
+  def parsear(%Multiregistro{} = multi, entrada, opts),
+    do: Multiregistro.parsear(multi, entrada, opts)
+
+  def parsear(layout, entrada, opts), do: Parser.parsear(layout, entrada, opts)
 
   @doc """
   Igual que `parsear/3` pero lazy, para archivos que no caben en memoria.
@@ -146,6 +154,11 @@ defmodule AnchoFijo do
 
   Ver `AnchoFijo.Parser.stream/3` para el detalle.
   """
-  @spec stream(Layout.t() | Enumerable.t(), term(), keyword()) :: Enumerable.t()
-  defdelegate stream(layout, entrada, opts \\ []), to: Parser
+  @spec stream(Layout.t() | Multiregistro.t() | Enumerable.t(), term(), keyword()) :: Enumerable.t()
+  def stream(layout, entrada, opts \\ [])
+
+  def stream(%Multiregistro{} = multi, entrada, opts),
+    do: Multiregistro.stream(multi, entrada, opts)
+
+  def stream(layout, entrada, opts), do: Parser.stream(layout, entrada, opts)
 end
