@@ -2,7 +2,7 @@
 
 Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
-## [No publicado]
+## [0.2.0] — 2026-10-16
 
 ### Cambiado — rompe compatibilidad
 
