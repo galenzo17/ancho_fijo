@@ -52,6 +52,27 @@ defmodule AnchoFijo.Entrada do
   @spec dividir(binary()) :: [binary()]
   def dividir(binario), do: String.split(binario, ["\r\n", "\n", "\r"])
 
+  # Las mismas piezas que `dividir/1`, pero de a una: `parsear/3` en modo
+  # estricto corta en la primera línea mala, y partir y numerar dos millones
+  # de líneas para mirar mil es lo que lo hacía ocupar cuatro veces el
+  # archivo. Cada pieza es un sub-binario del original, sin copia.
+  @spec dividir_lazy(binary()) :: Enumerable.t()
+  def dividir_lazy(binario) do
+    patron = :binary.compile_pattern(["\r\n", "\n", "\r"])
+    tamano = byte_size(binario)
+
+    Stream.unfold(0, fn
+      nil ->
+        nil
+
+      desde ->
+        case :binary.match(binario, patron, scope: {desde, tamano - desde}) do
+          {hasta, largo} -> {binary_part(binario, desde, hasta - desde), hasta + largo}
+          :nomatch -> {binary_part(binario, desde, tamano - desde), nil}
+        end
+    end)
+  end
+
   @spec sin_terminador(binary()) :: binary()
   def sin_terminador(linea) do
     linea |> String.trim_trailing("\n") |> String.trim_trailing("\r")

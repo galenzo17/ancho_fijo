@@ -678,7 +678,12 @@ defmodule AnchoFijo.Campo do
 
   # Un campo :fecha en blanco y uno en ceros son la misma cosa en la práctica:
   # el sistema emisor no tenía el dato. Los formatos bancarios usan ambos.
-  defp fecha_nula?(texto), do: texto == "" or texto =~ ~r/\A0+\z/
+  defp fecha_nula?(""), do: true
+  defp fecha_nula?(texto), do: solo_el_byte?(texto, ?0)
+
+  defp solo_el_byte?(<<byte, resto::binary>>, byte), do: solo_el_byte?(resto, byte)
+  defp solo_el_byte?("", _byte), do: true
+  defp solo_el_byte?(_otro, _byte), do: false
 
   defp fecha_vacia(%__MODULE__{opcional: true}, _texto, _contexto), do: {:ok, nil}
 
@@ -771,7 +776,14 @@ defmodule AnchoFijo.Campo do
      )}
   end
 
-  defp solo_digitos?(texto), do: texto != "" and Regex.match?(~r/\A\d+\z/, texto)
+  # Un recorrido de bytes y no un regex: se llama dos o tres veces por campo
+  # numérico y el regex costaba más que todo el resto de la conversión.
+  defp solo_digitos?(""), do: false
+  defp solo_digitos?(texto), do: digitos?(texto)
+
+  defp digitos?(<<byte, resto::binary>>) when byte in ?0..?9, do: digitos?(resto)
+  defp digitos?(""), do: true
+  defp digitos?(_otro), do: false
 
   defp diagnostico(%__MODULE__{} = campo, contexto, atributos) do
     atributos
