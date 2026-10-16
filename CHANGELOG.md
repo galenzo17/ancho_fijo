@@ -4,6 +4,23 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+### Agregado
+
+- Behaviour `AnchoFijo.Tipo` con `opciones/0`, `validar/1`, `leer/3` y el
+  opcional `escribir/2`. Los cinco tipos internos son implementaciones
+  (`AnchoFijo.Tipo.Texto`, `.Entero`, `.Decimal`, `.Fecha`, `.Rut`) y un
+  layout acepta `tipo: MiApp.Hora` con un módulo propio; sus opciones quedan
+  en `campo.opciones`. Un módulo que no existe o no implementa el behaviour
+  es un diagnóstico `:layout`. `Tipo.diagnostico/3`, `Tipo.vacio/2` y
+  `Tipo.falla/4` para que los diagnósticos propios sean indistinguibles.
+- `AnchoFijo.Campo` tiene `:modulo` (el tipo resuelto) y `:opciones`, y
+  `Campo.texto?/1`.
+
+### Cambiado
+
+- Una opción de campo que ningún tipo conoce (`precison: 2`) es un
+  diagnóstico `:layout`, en vez de ignorarse.
+
 ### Infraestructura
 
 - CI en GitHub Actions: la suite corre en Elixir 1.14, 1.16, 1.18 y 1.20 con

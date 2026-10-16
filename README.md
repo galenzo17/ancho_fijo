@@ -265,6 +265,48 @@ DV.
 febrero o el 2 de enero es exactamente el error silencioso que esta librería
 existe para impedir: un campo `:fecha` sin `:formato` es un layout inválido.
 
+## Tipos propios
+
+Los cinco tipos son implementaciones del behaviour `AnchoFijo.Tipo`, y un
+tipo que solo tiene sentido para un usuario —`:hora`, `:codigo_sucursal`, el
+enum de "tipo de movimiento" de su banco— se agrega sin tocar la librería:
+un módulo con `opciones/0`, `validar/1` y `leer/3`, y `tipo: MiApp.Hora` en
+el layout.
+
+```elixir
+defmodule MiApp.Hora do
+  @behaviour AnchoFijo.Tipo
+  alias AnchoFijo.Tipo
+
+  @impl true
+  def opciones, do: []
+
+  @impl true
+  def validar(campo), do: if(campo.largo == 4, do: [], else: [Tipo.falla(campo, "un :largo de 4", campo.largo, nil)])
+
+  @impl true
+  def leer("", campo, contexto), do: {:error, Tipo.vacio(campo, contexto)}
+
+  def leer(<<h::binary-2, m::binary-2>>, campo, contexto) do
+    case Time.new(String.to_integer(h), String.to_integer(m), 0) do
+      {:ok, hora} -> {:ok, hora}
+      _ -> {:error, Tipo.diagnostico(campo, contexto, esperado: "una hora HHMM", recibido: inspect(h <> m))}
+    end
+  end
+end
+
+[nombre: :hora_pago, largo: 4, tipo: MiApp.Hora]
+```
+
+`validar/1` corre al construir el layout, no al parsear: un `:fecha` sin
+`:formato` sigue siendo un layout inválido, y un tipo propio puede exigir lo
+mismo. Los diagnósticos que produce con `Tipo.diagnostico/3` son
+indistinguibles de los internos. Que el módulo implemente el behaviour se
+verifica también al construir el layout, con `Code.ensure_loaded?/1` por
+delante: un módulo que no existe o no implementa los callbacks es un
+diagnóstico `:layout`, no un `UndefinedFunctionError` en la línea 40.000. El
+ejemplo completo, con una opción propia, está en `AnchoFijo.Tipo`.
+
 ## El layout se valida antes de ver el archivo
 
 ```elixir
