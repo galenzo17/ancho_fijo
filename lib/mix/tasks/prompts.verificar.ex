@@ -290,17 +290,16 @@ defmodule Mix.Tasks.Prompts.Verificar do
 
   defp filas_del_indice(readme) do
     if File.exists?(readme) do
-      readme
-      |> File.read!()
-      |> String.split("\n")
-      |> Enum.flat_map(fn linea ->
-        case Regex.run(@patron_fila_indice, linea) do
-          [_todo, numero, enlace] -> [{numero, enlace}]
-          nil -> []
-        end
-      end)
+      readme |> File.read!() |> String.split("\n") |> Enum.flat_map(&fila_del_indice/1)
     else
       :sin_readme
+    end
+  end
+
+  defp fila_del_indice(linea) do
+    case Regex.run(@patron_fila_indice, linea) do
+      [_todo, numero, enlace] -> [{numero, enlace}]
+      nil -> []
     end
   end
 
