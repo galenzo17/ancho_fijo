@@ -16,7 +16,9 @@ defmodule AnchoFijo.Campo do
     * `:largo` — entero positivo, obligatorio.
     * `:posicion` — entero positivo, 1-based. Si se omite, `AnchoFijo.Layout`
       la calcula encadenando el campo anterior.
-    * `:tipo` — `:texto` (default), `:entero`, `:decimal`, `:fecha` o `:rut`.
+    * `:tipo` — `:texto` (default), `:entero`, `:decimal`, `:fecha`, `:rut`,
+      o un módulo que implemente `AnchoFijo.Tipo` para un tipo propio. Las
+      opciones propias de ese tipo quedan en `:opciones`.
     * `:opcional` — si es `true`, un campo en blanco (o en ceros, para fechas)
       se lee como `nil` en vez de producir un diagnóstico. Default `false`.
     * `:trim` — `:ambos` (default), `:izquierda`, `:derecha` o `false`. Solo
@@ -51,15 +53,21 @@ defmodule AnchoFijo.Campo do
 
   alias AnchoFijo.Diagnostico
   alias AnchoFijo.Rut
+  alias AnchoFijo.Tipo
   alias AnchoFijo.Transcodificacion
 
-  @tipos [:texto, :entero, :decimal, :fecha, :rut]
-  @formatos_fecha [:aaaammdd, :ddmmaaaa]
-  @separadores [:implicito, :punto, :coma]
-  @signos [:inicial, :final]
+  @comunes [:nombre, :posicion, :largo, :tipo, :opcional, :trim, :relleno]
+  @de_tipos_internos [
+    precision: nil,
+    separador: :implicito,
+    signo: :inicial,
+    formato: nil,
+    dv: :validar
+  ]
   @trims [:ambos, :izquierda, :derecha, false, true]
 
-  @type tipo :: :texto | :entero | :decimal | :fecha | :rut
+  @typedoc "Un átomo de los tipos internos o un módulo que implementa `AnchoFijo.Tipo`."
+  @type tipo :: :texto | :entero | :decimal | :fecha | :rut | module()
   @type valor :: String.t() | integer() | {integer(), non_neg_integer()} | Date.t() | nil
 
   @type t :: %__MODULE__{
@@ -74,7 +82,9 @@ defmodule AnchoFijo.Campo do
           separador: :implicito | :punto | :coma,
           signo: :inicial | :final,
           formato: :aaaammdd | :ddmmaaaa | nil,
-          dv: Rut.dv()
+          dv: Rut.dv(),
+          modulo: module() | nil,
+          opciones: map()
         }
 
   defstruct nombre: nil,
@@ -88,7 +98,9 @@ defmodule AnchoFijo.Campo do
             separador: :implicito,
             signo: :inicial,
             formato: nil,
-            dv: :validar
+            dv: :validar,
+            modulo: nil,
+            opciones: %{}
 
   @typedoc """
   Contexto de lectura que aporta el layout: cómo medir, cómo decodificar y en
@@ -107,7 +119,7 @@ defmodule AnchoFijo.Campo do
   problema encontrado en la definición.
 
       iex> AnchoFijo.Campo.nuevo(nombre: :rut, largo: 10)
-      {:ok, %AnchoFijo.Campo{nombre: :rut, largo: 10, tipo: :texto}}
+      {:ok, %AnchoFijo.Campo{nombre: :rut, largo: 10, tipo: :texto, modulo: AnchoFijo.Tipo.Texto}}
 
       iex> {:error, [diagnostico]} = AnchoFijo.Campo.nuevo(nombre: :monto, largo: 12, tipo: :decimal)
       iex> AnchoFijo.Diagnostico.mensaje(diagnostico)
@@ -118,10 +130,25 @@ defmodule AnchoFijo.Campo do
     atributos = Map.new(atributos)
     campo = struct(%__MODULE__{}, normalizar(atributos))
 
-    case validar(campo, atributos) do
-      [] -> {:ok, campo}
-      diagnosticos -> {:error, diagnosticos}
+    case Tipo.resolver(campo.tipo) do
+      {:ok, modulo} ->
+        campo = %{campo | modulo: modulo, opciones: opciones_propias(modulo, atributos)}
+
+        case validar(campo, atributos) do
+          [] -> {:ok, campo}
+          diagnosticos -> {:error, diagnosticos}
+        end
+
+      {:error, esperado} ->
+        {:error, validar_sin_tipo(campo) ++ [falla(campo.nombre, esperado, campo.tipo, nil)]}
     end
+  end
+
+  # Las opciones propias de un tipo externo viven en `:opciones`; las de los
+  # tipos internos son campos del struct y no se duplican acá.
+  defp opciones_propias(modulo, atributos) do
+    propias = modulo.opciones() -- Keyword.keys(@de_tipos_internos)
+    Map.take(atributos, propias)
   end
 
   @doc """
@@ -137,6 +164,18 @@ defmodule AnchoFijo.Campo do
       {:error, diagnosticos} -> raise AnchoFijo.Error, diagnosticos
     end
   end
+
+  @doc """
+  Si el campo es de tipo `:texto`, el único cuyo relleno se puede reponer y
+  cuyo recorte se configura con `:trim`.
+
+      iex> AnchoFijo.Campo.texto?(AnchoFijo.Campo.nuevo!(nombre: :a, largo: 2))
+      true
+      iex> AnchoFijo.Campo.texto?(AnchoFijo.Campo.nuevo!(nombre: :a, largo: 2, tipo: :entero))
+      false
+  """
+  @spec texto?(t()) :: boolean()
+  def texto?(%__MODULE__{modulo: modulo}), do: modulo == Tipo.Texto
 
   @doc """
   Rango de posiciones que ocupa el campo, 1-based e inclusivo en ambos extremos.
@@ -204,38 +243,38 @@ defmodule AnchoFijo.Campo do
     end
   end
 
+  # Un campo en blanco con `opcional: true` es `nil` para todos los tipos; sin
+  # `:opcional`, el texto vacío llega al tipo y él decide.
+  defp convertir(%__MODULE__{opcional: true}, "", _contexto), do: {:ok, nil}
+
+  defp convertir(%__MODULE__{modulo: modulo} = campo, texto, contexto),
+    do: modulo.leer(texto, campo, contexto)
+
   defp normalizar(atributos) do
     atributos
-    |> Map.take([
-      :nombre,
-      :posicion,
-      :largo,
-      :tipo,
-      :opcional,
-      :trim,
-      :relleno,
-      :precision,
-      :separador,
-      :signo,
-      :formato,
-      :dv
-    ])
+    |> Map.take(@comunes ++ Keyword.keys(@de_tipos_internos))
     |> Map.update(:trim, :ambos, fn
       true -> :ambos
       otro -> otro
     end)
   end
 
-  defp validar(%__MODULE__{} = campo, atributos) do
+  defp validar(%__MODULE__{modulo: modulo} = campo, atributos) do
+    Enum.concat([
+      validar_sin_tipo(campo),
+      modulo.validar(campo),
+      validar_opciones_ajenas(campo, atributos)
+    ])
+  end
+
+  # Lo que se valida aunque el tipo no haya resuelto, para reportar todo junto.
+  defp validar_sin_tipo(%__MODULE__{} = campo) do
     Enum.concat([
       validar_nombre(campo),
       validar_largo(campo),
       validar_posicion(campo),
-      validar_tipo(campo),
       validar_trim(campo),
-      validar_relleno(campo),
-      validar_opciones_de_tipo(campo),
-      validar_opciones_ajenas(campo, atributos)
+      validar_relleno(campo)
     ])
   end
 
@@ -277,12 +316,6 @@ defmodule AnchoFijo.Campo do
     ]
   end
 
-  defp validar_tipo(%__MODULE__{tipo: tipo}) when tipo in @tipos, do: []
-
-  defp validar_tipo(%__MODULE__{nombre: nombre, tipo: tipo}) do
-    [falla(nombre, "un :tipo en #{inspect(@tipos)}", tipo, nil)]
-  end
-
   defp validar_trim(%__MODULE__{trim: trim}) when trim in @trims, do: []
 
   defp validar_trim(%__MODULE__{nombre: nombre, trim: trim}) do
@@ -299,103 +332,52 @@ defmodule AnchoFijo.Campo do
     [falla(nombre, "un :relleno binario de un carácter", relleno, nil)]
   end
 
-  defp validar_opciones_de_tipo(%__MODULE__{tipo: :decimal} = campo) do
-    validar_precision(campo) ++ validar_separador(campo) ++ validar_signo(campo)
-  end
-
-  defp validar_opciones_de_tipo(%__MODULE__{tipo: :entero} = campo) do
-    validar_signo(campo)
-  end
-
-  defp validar_opciones_de_tipo(%__MODULE__{tipo: :fecha} = campo) do
-    validar_formato(campo) ++ validar_largo_de_fecha(campo)
-  end
-
-  defp validar_opciones_de_tipo(%__MODULE__{tipo: :rut} = campo) do
-    validar_dv(campo)
-  end
-
-  defp validar_opciones_de_tipo(_campo), do: []
-
-  defp validar_dv(%__MODULE__{dv: dv} = campo) do
-    if dv in Rut.modos(),
-      do: [],
-      else: [falla(campo.nombre, ":dv en #{inspect(Rut.modos())}", dv, nil)]
-  end
-
-  defp validar_precision(%__MODULE__{precision: precision})
-       when is_integer(precision) and precision >= 0,
-       do: []
-
-  defp validar_precision(%__MODULE__{nombre: nombre, precision: precision}) do
-    [
-      falla(
-        nombre,
-        ":precision declarada para un campo :decimal",
-        precision,
-        "sin precisión no se sabe si 1234 son 12,34 o 1234,00"
-      )
-    ]
-  end
-
-  defp validar_separador(%__MODULE__{separador: separador}) when separador in @separadores, do: []
-
-  defp validar_separador(%__MODULE__{nombre: nombre, separador: separador}) do
-    [falla(nombre, ":separador en #{inspect(@separadores)}", separador, nil)]
-  end
-
-  defp validar_signo(%__MODULE__{signo: signo}) when signo in @signos, do: []
-
-  defp validar_signo(%__MODULE__{nombre: nombre, signo: signo}) do
-    [falla(nombre, ":signo en #{inspect(@signos)}", signo, nil)]
-  end
-
-  # No hay default para :formato a propósito. Adivinar si 01022024 es el 1 de
-  # febrero o el 2 de enero es justamente el error silencioso que esta librería
-  # existe para impedir: la definición tiene que decirlo.
-  defp validar_formato(%__MODULE__{formato: formato}) when formato in @formatos_fecha, do: []
-
-  defp validar_formato(%__MODULE__{nombre: nombre, formato: formato}) do
-    [
-      falla(
-        nombre,
-        ":formato en #{inspect(@formatos_fecha)}",
-        formato,
-        "el orden de una fecha no se adivina: hay que declararlo"
-      )
-    ]
-  end
-
-  defp validar_largo_de_fecha(%__MODULE__{largo: largo}) when is_integer(largo) and largo >= 8,
-    do: []
-
-  defp validar_largo_de_fecha(%__MODULE__{nombre: nombre, largo: largo}) do
-    [falla(nombre, "un :largo de al menos 8 para una fecha", largo, nil)]
-  end
-
   # Se reclama por una opción declarada de verdad, no por la clave presente en
-  # nil: quien construye la definición desde otro campo con `Map.from_struct/1`
-  # arrastra todas las claves y no está declarando nada.
-  defp validar_opciones_ajenas(%__MODULE__{tipo: tipo, nombre: nombre}, atributos) do
-    [
-      {:precision, [:decimal], nil},
-      {:separador, [:decimal], :implicito},
-      {:signo, [:entero, :decimal], :inicial},
-      {:formato, [:fecha], nil},
-      {:dv, [:rut], :validar}
-    ]
-    |> Enum.filter(fn {opcion, propietarios, default} ->
-      tipo not in propietarios and Map.get(atributos, opcion, default) != default
-    end)
-    |> Enum.map(fn {opcion, propietarios, _default} ->
+  # su default: quien construye la definición desde otro campo con
+  # `Map.from_struct/1` arrastra todas las claves y no está declarando nada.
+  # Una opción que ningún tipo conoce también se reclama: `precison: 2` mal
+  # escrito no puede pasar en silencio.
+  defp validar_opciones_ajenas(%__MODULE__{modulo: modulo, nombre: nombre} = campo, atributos) do
+    propias = modulo.opciones()
+
+    internas =
+      @de_tipos_internos
+      |> Enum.filter(fn {opcion, default} ->
+        opcion not in propias and Map.get(atributos, opcion, default) != default
+      end)
+      |> Enum.map(fn {opcion, _default} -> opcion end)
+
+    conocidas =
+      @comunes ++ propias ++ Keyword.keys(@de_tipos_internos) ++ [:__struct__, :modulo, :opciones]
+
+    desconocidas = atributos |> Map.keys() |> Enum.reject(&(&1 in conocidas))
+
+    Enum.map(internas, fn opcion ->
       falla(
         nombre,
-        "#{inspect(opcion)} solo en campos #{Enum.map_join(propietarios, " o ", &inspect/1)}",
-        "un campo #{inspect(tipo)}",
+        "#{inspect(opcion)} solo en campos #{Enum.map_join(propietarios(opcion), " o ", &inspect/1)}",
+        "un campo #{inspect(campo.tipo)}",
         "la opción no aplica a este tipo y sería ignorada en silencio"
       )
-    end)
+    end) ++
+      Enum.map(desconocidas, fn opcion ->
+        falla(
+          nombre,
+          "opciones de #{inspect(campo.tipo)}: #{describir_opciones(propias)}",
+          opcion,
+          "la opción no existe para este tipo y sería ignorada en silencio"
+        )
+      end)
   end
+
+  defp propietarios(opcion) do
+    Tipo.internos()
+    |> Enum.filter(fn {_atomo, modulo} -> opcion in modulo.opciones() end)
+    |> Enum.map(fn {atomo, _modulo} -> atomo end)
+  end
+
+  defp describir_opciones([]), do: "ninguna además de las comunes"
+  defp describir_opciones(propias), do: Enum.map_join(propias, ", ", &inspect/1)
 
   defp falla(nombre, esperado, recibido, causa) do
     Diagnostico.nuevo(
@@ -462,7 +444,7 @@ defmodule AnchoFijo.Campo do
     )
   end
 
-  defp limpiar(texto, %__MODULE__{tipo: :texto} = campo) do
+  defp limpiar(texto, %__MODULE__{modulo: Tipo.Texto} = campo) do
     case campo.trim do
       :ambos -> texto |> String.trim_leading(campo.relleno) |> String.trim_trailing(campo.relleno)
       :izquierda -> String.trim_leading(texto, campo.relleno)
@@ -474,304 +456,6 @@ defmodule AnchoFijo.Campo do
   # En los tipos no textuales el relleno nunca es dato: un monto viene con
   # ceros o espacios a la izquierda según el humor del sistema emisor.
   defp limpiar(texto, _campo), do: String.trim(texto)
-
-  defp convertir(%__MODULE__{tipo: :texto, opcional: true}, "", _contexto), do: {:ok, nil}
-  defp convertir(%__MODULE__{tipo: :texto}, texto, _contexto), do: {:ok, texto}
-
-  defp convertir(%__MODULE__{} = campo, "", contexto), do: vacio(campo, contexto)
-
-  defp convertir(%__MODULE__{tipo: :entero} = campo, texto, contexto) do
-    with {:ok, signo, digitos} <- separar_signo(texto, campo),
-         true <- solo_digitos?(digitos) do
-      {:ok, signo * String.to_integer(digitos)}
-    else
-      {:error, causa} ->
-        {:error, error_de_signo(campo, texto, causa, contexto)}
-
-      false ->
-        {:error,
-         diagnostico(campo, contexto,
-           esperado: "#{campo.largo} posiciones con un número entero",
-           recibido: inspect(texto),
-           causa_probable: "hay caracteres no numéricos o el campo está corrido"
-         )}
-    end
-  end
-
-  defp convertir(%__MODULE__{tipo: :decimal} = campo, texto, contexto) do
-    with {:ok, signo, digitos} <- separar_signo(texto, campo),
-         {:ok, unidades} <- unidades(digitos, campo) do
-      {:ok, {signo * unidades, campo.precision}}
-    else
-      {:error, {:exceso, fraccion}} -> {:error, exceso_de_decimales(campo, fraccion, contexto)}
-      {:error, :formato} -> {:error, error_decimal(campo, texto, contexto)}
-      {:error, causa} -> {:error, error_de_signo(campo, texto, causa, contexto)}
-    end
-  end
-
-  defp convertir(%__MODULE__{tipo: :rut} = campo, texto, contexto) do
-    case Rut.normalizar(texto, campo.dv) do
-      {:ok, rut} ->
-        {:ok, rut}
-
-      {:error, {:dv, esperado, _recibido}} ->
-        {:error,
-         diagnostico(campo, contexto,
-           esperado:
-             "un RUT cuyo dígito verificador cuadre; para ese cuerpo corresponde #{esperado}",
-           recibido: inspect(texto),
-           causa_probable:
-             "el dígito verificador no cuadra: posible error de digitación o campo corrido"
-         )}
-
-      {:error, {:formato, detalle}} ->
-        {:error,
-         diagnostico(campo, contexto,
-           esperado: descripcion_rut(campo.dv),
-           recibido: inspect(texto),
-           causa_probable: detalle
-         )}
-    end
-  end
-
-  defp convertir(%__MODULE__{tipo: :fecha} = campo, texto, contexto) do
-    if fecha_nula?(texto),
-      do: fecha_vacia(campo, texto, contexto),
-      else: armar_fecha(campo, texto, contexto)
-  end
-
-  # Separa el signo de los dígitos según dónde lo declara el layout. Devuelve
-  # `{:ok, 1 | -1, digitos}` o `{:error, causa}` cuando el signo está donde no
-  # debería: ahí el dato no es ilegible, es de otro formato, y el diagnóstico
-  # tiene que decirlo en vez de reportar "caracteres no numéricos".
-  defp separar_signo(texto, %__MODULE__{signo: :inicial}) do
-    {signo, resto} =
-      case texto do
-        "-" <> resto -> {-1, resto}
-        "+" <> resto -> {1, resto}
-        resto -> {1, resto}
-      end
-
-    if signo_al_final?(resto) do
-      {:error,
-       "el signo viene al final del campo; si el formato es heredado de mainframe, " <>
-         "declare signo: :final"}
-    else
-      {:ok, signo, resto}
-    end
-  end
-
-  # Los formatos de mainframe escriben `0125000-` para -1.250,00 y `0125000 `
-  # para el positivo: el espacio ya se lo llevó `limpiar/2`, así que un campo
-  # sin signo es positivo. El `+` explícito también se acepta porque algunos
-  # emisores lo mandan y rechazarlo no protege de nada.
-  defp separar_signo(texto, %__MODULE__{signo: :final}) do
-    {signo, resto} = quitar_signo_final(texto)
-
-    case causa_de_signo_final(texto, resto) do
-      nil -> {:ok, signo, resto}
-      causa -> {:error, causa}
-    end
-  end
-
-  defp quitar_signo_final(texto) do
-    case String.last(texto) do
-      "-" -> {-1, String.slice(texto, 0..-2//1)}
-      "+" -> {1, String.slice(texto, 0..-2//1)}
-      _digito -> {1, texto}
-    end
-  end
-
-  defp causa_de_signo_final(texto, resto) do
-    cond do
-      resto == "" ->
-        "el campo trae solo el signo, sin dígitos"
-
-      String.starts_with?(resto, ["-", "+"]) and signo_al_final?(texto) ->
-        "hay un signo en cada extremo del campo; el archivo no respeta el formato declarado"
-
-      String.starts_with?(resto, ["-", "+"]) ->
-        "el signo viene antes de los dígitos; si el formato no es heredado de mainframe, " <>
-          "declare signo: :inicial"
-
-      signo_al_final?(resto) ->
-        "el signo viene duplicado al final del campo"
-
-      true ->
-        nil
-    end
-  end
-
-  defp signo_al_final?(texto), do: String.ends_with?(texto, ["-", "+"])
-
-  defp error_de_signo(%__MODULE__{} = campo, texto, causa, contexto) do
-    diagnostico(campo, contexto,
-      esperado: descripcion_signo(campo.signo),
-      recibido: inspect(texto),
-      causa_probable: causa
-    )
-  end
-
-  defp descripcion_signo(:inicial), do: "el signo antes de los dígitos, como -1250"
-  defp descripcion_signo(:final), do: "el signo después de los dígitos, como 1250-"
-
-  # Con separador implícito el campo entero ya viene en unidades mínimas: el
-  # anexo dice "10 posiciones, 2 decimales" y el archivo trae 0000125000 para
-  # 1.250,00. Escalarlo otra vez multiplicaría los montos por cien, que es la
-  # clase de error que nadie nota hasta el cierre de mes.
-  defp unidades(digitos, %__MODULE__{separador: :implicito}) do
-    if solo_digitos?(digitos), do: {:ok, String.to_integer(digitos)}, else: {:error, :formato}
-  end
-
-  defp unidades(digitos, %__MODULE__{separador: separador, precision: precision}) do
-    case String.split(digitos, caracter_separador(separador)) do
-      [entera] -> escalar(entera, "", precision)
-      [entera, fraccion] -> escalar(entera, fraccion, precision)
-      _varios -> {:error, :formato}
-    end
-  end
-
-  defp caracter_separador(:punto), do: "."
-  defp caracter_separador(:coma), do: ","
-
-  defp escalar(entera, fraccion, precision) do
-    entera = if entera == "", do: "0", else: entera
-
-    cond do
-      not solo_digitos?(entera) -> {:error, :formato}
-      fraccion != "" and not solo_digitos?(fraccion) -> {:error, :formato}
-      String.length(fraccion) > precision -> {:error, {:exceso, fraccion}}
-      true -> {:ok, String.to_integer(entera <> String.pad_trailing(fraccion, precision, "0"))}
-    end
-  end
-
-  defp exceso_de_decimales(%__MODULE__{precision: precision} = campo, fraccion, contexto) do
-    diagnostico(campo, contexto,
-      esperado: "a lo más #{precision} decimales",
-      recibido: "#{String.length(fraccion)} (#{inspect(fraccion)})",
-      causa_probable: "la precisión declarada en el layout es menor que la del archivo"
-    )
-  end
-
-  defp error_decimal(%__MODULE__{} = campo, texto, contexto) do
-    diagnostico(campo, contexto,
-      esperado: descripcion_decimal(campo),
-      recibido: inspect(texto),
-      causa_probable: causa_decimal(campo.separador)
-    )
-  end
-
-  defp descripcion_decimal(%__MODULE__{separador: :implicito, largo: largo, precision: precision}) do
-    "#{largo} dígitos con #{precision} decimales implícitos"
-  end
-
-  defp descripcion_decimal(%__MODULE__{separador: separador, precision: precision}) do
-    "un número con #{separador} decimal y a lo más #{precision} decimales"
-  end
-
-  defp causa_decimal(:implicito) do
-    "el monto trae un separador decimal explícito o un carácter no numérico; " <>
-      "si el archivo usa punto o coma, declare separador: :punto o :coma"
-  end
-
-  defp causa_decimal(_separador), do: "hay caracteres no numéricos o más de un separador"
-
-  # Un campo :fecha en blanco y uno en ceros son la misma cosa en la práctica:
-  # el sistema emisor no tenía el dato. Los formatos bancarios usan ambos.
-  defp fecha_nula?(texto), do: texto == "" or texto =~ ~r/\A0+\z/
-
-  defp fecha_vacia(%__MODULE__{opcional: true}, _texto, _contexto), do: {:ok, nil}
-
-  defp fecha_vacia(%__MODULE__{} = campo, texto, contexto) do
-    {:error,
-     diagnostico(campo, contexto,
-       esperado: "una fecha en formato #{descripcion_formato(campo.formato)}",
-       recibido: inspect(texto),
-       causa_probable:
-         "el emisor usa blancos o ceros para 'sin fecha'; declare opcional: true si es esperable"
-     )}
-  end
-
-  defp armar_fecha(%__MODULE__{} = campo, texto, contexto) do
-    with 8 <- String.length(texto),
-         {:ok, anio, mes, dia} <- desarmar_fecha(texto, campo.formato),
-         {:ok, fecha} <- Date.new(anio, mes, dia) do
-      {:ok, fecha}
-    else
-      _invalida -> {:error, error_fecha(campo, texto, contexto)}
-    end
-  end
-
-  defp desarmar_fecha(texto, :aaaammdd) do
-    with {:ok, anio} <- tramo(texto, 0, 4),
-         {:ok, mes} <- tramo(texto, 4, 2),
-         {:ok, dia} <- tramo(texto, 6, 2),
-         do: {:ok, anio, mes, dia}
-  end
-
-  defp desarmar_fecha(texto, :ddmmaaaa) do
-    with {:ok, dia} <- tramo(texto, 0, 2),
-         {:ok, mes} <- tramo(texto, 2, 2),
-         {:ok, anio} <- tramo(texto, 4, 4),
-         do: {:ok, anio, mes, dia}
-  end
-
-  defp tramo(texto, desde, largo) do
-    trozo = binary_part(texto, desde, largo)
-
-    case Integer.parse(trozo) do
-      {numero, ""} -> {:ok, numero}
-      _no_numerico -> :error
-    end
-  end
-
-  defp error_fecha(%__MODULE__{} = campo, texto, contexto) do
-    diagnostico(campo, contexto,
-      esperado: "una fecha válida en formato #{descripcion_formato(campo.formato)}",
-      recibido: inspect(texto),
-      causa_probable: causa_fecha(texto, campo.formato)
-    )
-  end
-
-  defp causa_fecha(texto, formato) do
-    if String.length(texto) == 8 and Regex.match?(~r/\A\d{8}\z/, texto) do
-      causa_fecha_numerica(texto, formato)
-    else
-      "se esperaban 8 dígitos; el campo puede estar corrido o traer separadores"
-    end
-  end
-
-  defp causa_fecha_numerica(texto, formato) do
-    {:ok, anio, mes, dia} = desarmar_fecha(texto, formato)
-
-    cond do
-      mes < 1 or mes > 12 -> "el mes #{mes} no existe: puede que el formato sea el inverso"
-      dia < 1 -> "el día viene en cero"
-      anio == 0 -> "el año viene en cero"
-      true -> "el día no existe en ese mes"
-    end
-  end
-
-  defp descripcion_rut(:ausente), do: "el cuerpo de un RUT, sin dígito verificador"
-  defp descripcion_rut(_con_dv), do: "un RUT con dígito verificador"
-
-  defp descripcion_formato(:aaaammdd), do: "AAAAMMDD"
-  defp descripcion_formato(:ddmmaaaa), do: "DDMMAAAA"
-  defp descripcion_formato(otro), do: inspect(otro)
-
-  defp vacio(%__MODULE__{opcional: true}, _contexto), do: {:ok, nil}
-
-  defp vacio(%__MODULE__{} = campo, contexto) do
-    {:error,
-     diagnostico(campo, contexto,
-       esperado: "un valor #{inspect(campo.tipo)}",
-       recibido: "un campo en blanco",
-       causa_probable:
-         "el emisor no envió el dato; declare opcional: true si el campo puede venir vacío"
-     )}
-  end
-
-  defp solo_digitos?(texto), do: texto != "" and Regex.match?(~r/\A\d+\z/, texto)
 
   defp diagnostico(%__MODULE__{} = campo, contexto, atributos) do
     atributos

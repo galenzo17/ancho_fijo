@@ -338,7 +338,7 @@ defmodule AnchoFijo.Parser do
         zona = sumar_no_declarado(zona, Campo.fin(campo))
 
         cond do
-          campo.tipo != :texto -> {:halt, cerrar(zona)}
+          not Campo.texto?(campo) -> {:halt, cerrar(zona)}
           not reponible?(campo.relleno, unidad) -> {:halt, cerrar(zona)}
           zona.caracter in [nil, campo.relleno] -> {:cont, sumar_campo(zona, campo)}
           true -> {:halt, cerrar(zona)}
