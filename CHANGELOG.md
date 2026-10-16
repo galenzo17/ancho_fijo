@@ -4,6 +4,15 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+### Agregado
+
+- Eventos de `:telemetry` bajo `[:ancho_fijo, ...]`: `parsear` y `detectar`
+  con `start`/`stop`/`exception` vía `:telemetry.span/3`, y `stream` con
+  `start`/`stop` contados en el acumulador. Medidas de `stop`: `duration`,
+  `lineas`, `registros`, `errores`, `advertencias`. El contrato está en
+  `AnchoFijo.Telemetria`. La dependencia es opcional
+  (`{:telemetry, "~> 1.3", optional: true}`); sin ella no se emite nada.
+
 ### Infraestructura
 
 - CI en GitHub Actions: la suite corre en Elixir 1.14, 1.16, 1.18 y 1.20 con

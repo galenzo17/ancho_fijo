@@ -294,6 +294,30 @@ Enum.map(layout.advertencias, &AnchoFijo.Diagnostico.mensaje/1)
 #   si el formato tiene relleno ahí, ignore esta advertencia"]
 ```
 
+## Observabilidad
+
+Una librería que procesa archivos de 2 GB de noche y no emite un solo evento
+es una caja negra. `ancho_fijo` emite eventos de `:telemetry` con el patrón
+`start`/`stop`/`exception` del ecosistema, bajo el prefijo `[:ancho_fijo, ...]`,
+para `parsear/3`, `detectar/2` y `stream/3`. Suscribirse son tres líneas:
+
+```elixir
+:telemetry.attach("nomina", [:ancho_fijo, :parsear, :stop], fn _evento, medidas, metadata, _ ->
+  Logger.info("#{metadata.layout}: #{medidas.registros} registros, #{medidas.errores} errores")
+end, nil)
+```
+
+El `stop` de `parsear/3` trae `duration`, `lineas`, `registros`, `errores` y
+`advertencias`; el de `stream/3` lo mismo, contado en el acumulador del stream
+sin acumular registros ni romper la laziness, y sale también si la
+enumeración se corta. No hay un evento por línea que falla: en un archivo con
+10.000 filas malas serían 10.000 eventos, cada uno con un diagnóstico que
+puede traer datos personales. El contrato completo, evento por evento, está
+en `AnchoFijo.Telemetria`.
+
+`:telemetry` es una dependencia **opcional**: hay que agregarla al proyecto
+para recibir los eventos. Ver la decisión más abajo.
+
 ## Decisiones y trade-offs
 
 **Las posiciones se cuentan en bytes, no en caracteres.** Un formato de ancho
@@ -348,6 +372,19 @@ conversión previa es una línea de `iconv`.
 
 **Solo lectura en 0.2.** Sin escritura de archivos y sin multiregistro
 (header/detalle/trailer). Ver el [CHANGELOG](CHANGELOG.md).
+
+**`:telemetry` es opcional, y el paquete sigue sin dependencias de runtime.**
+Las dos opciones eran declararla obligatoria (30 KB, sin dependencias, ya
+instalada en cualquier app Phoenix) o `optional: true` con una decisión en
+tiempo de compilación. Se eligió la segunda porque la promesa de cero
+dependencias vale sobre todo fuera de Phoenix: el script de migración, el
+`Mix.Task`, el `escript` donde cada dependencia es fricción y nadie va a
+mirar un dashboard. El costo es un `if Code.ensure_loaded?(:telemetry)` en el
+cuerpo de un módulo: con la dependencia presente las llamadas se compilan,
+sin ella no existe ni una, y en runtime no hay ningún `if`. La parte fea:
+si se agrega `:telemetry` después de haber compilado `ancho_fijo`, hay que
+recompilarlo (`mix deps.compile ancho_fijo --force`). Está en la doc del
+módulo.
 
 ## Documentación
 

@@ -60,6 +60,7 @@ defmodule AnchoFijo.Detector do
   alias AnchoFijo.Diagnostico
   alias AnchoFijo.Entrada
   alias AnchoFijo.Layout
+  alias AnchoFijo.Telemetria
   alias AnchoFijo.Transcodificacion
 
   @lineas_default 200
@@ -106,9 +107,19 @@ defmodule AnchoFijo.Detector do
   """
   @spec detectar(term(), keyword()) :: {:ok, reporte()} | {:error, [Diagnostico.t()]}
   def detectar(entrada, opts \\ []) do
-    with {:ok, muestra, truncada?} <- Entrada.leer_muestra(entrada, opts) do
-      {:ok, analizar(muestra, truncada?, opts)}
-    end
+    Telemetria.span(:detectar, %{desde: Entrada.origen(entrada, opts)}, fn ->
+      case Entrada.leer_muestra(entrada, opts) do
+        {:ok, muestra, truncada?} ->
+          reporte = analizar(muestra, truncada?, opts)
+
+          {{:ok, reporte}, %{lineas: reporte.lineas_analizadas, bytes: byte_size(muestra)},
+           %{resultado: :ok, probablemente_ancho_fijo?: reporte.probablemente_ancho_fijo?}}
+
+        {:error, diagnosticos} ->
+          {{:error, diagnosticos}, %{lineas: 0, bytes: 0},
+           %{resultado: :error, probablemente_ancho_fijo?: nil}}
+      end
+    end)
   end
 
   @doc """

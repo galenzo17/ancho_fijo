@@ -49,6 +49,18 @@ defmodule AnchoFijo.Entrada do
     if enumerable?(entrada), do: {:ok, entrada}, else: {:error, [no_es_entrada(entrada)]}
   end
 
+  # De dónde viene la entrada, para la metadata de telemetría: `:archivo`,
+  # `:contenido` o `:enumerable`. No lee nada.
+  @doc false
+  @spec origen(term(), keyword()) :: :archivo | :contenido | :enumerable | :otro
+  def origen(entrada, opts) when is_binary(entrada) do
+    if ruta?(entrada, opts), do: :archivo, else: :contenido
+  end
+
+  def origen(entrada, _opts) do
+    if enumerable?(entrada), do: :enumerable, else: :otro
+  end
+
   @spec dividir(binary()) :: [binary()]
   def dividir(binario), do: String.split(binario, ["\r\n", "\n", "\r"])
 
