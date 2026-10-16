@@ -8,6 +8,7 @@ defmodule AnchoFijo.Entrada do
 
   @limite_ruta 4095
   @muestra_default 64_000
+  @bloque 65_536
 
   @spec leer(term(), keyword()) :: {:ok, binary()} | {:error, [Diagnostico.t()]}
   def leer(entrada, opts \\ [])
@@ -52,6 +53,17 @@ defmodule AnchoFijo.Entrada do
   @spec dividir(binary()) :: [binary()]
   def dividir(binario), do: String.split(binario, ["\r\n", "\n", "\r"])
 
+  # Como `dividir/1`, pero cada línea conserva su terminador, que es lo que
+  # hace falta para saber en qué byte empieza la siguiente. Es lo mismo que
+  # entrega `File.stream!/1`, así que `stream/3` trata igual a los dos.
+  @spec dividir_con_terminador(binary()) :: [binary()]
+  def dividir_con_terminador(binario) do
+    ~r/\r\n|\n|\r/
+    |> Regex.split(binario, include_captures: true)
+    |> Enum.chunk_every(2)
+    |> Enum.map(&IO.iodata_to_binary/1)
+  end
+
   @spec sin_terminador(binary()) :: binary()
   def sin_terminador(linea) do
     linea |> String.trim_trailing("\n") |> String.trim_trailing("\r")
@@ -62,6 +74,78 @@ defmodule AnchoFijo.Entrada do
       {:ok, File.stream!(ruta)}
     else
       {:error, [ilegible(ruta, :enoent)]}
+    end
+  end
+
+  # Las líneas con su terminador, byte a byte como están en el archivo. Para
+  # un binario es `dividir_con_terminador/1`; para una ruta, bloques crudos
+  # partidos acá, porque `File.stream!/1` en modo línea convierte CRLF en LF
+  # y no corta por CR solo. Un enumerable del llamador se entrega como viene.
+  @doc false
+  @spec lineas_con_terminador(term(), keyword()) ::
+          {:ok, Enumerable.t()} | {:error, [Diagnostico.t()]}
+  def lineas_con_terminador(entrada, opts) when is_binary(entrada) do
+    if ruta?(entrada, opts) do
+      with {:ok, bloques} <- bloques(entrada, opts), do: {:ok, partir_bloques(bloques)}
+    else
+      {:ok, dividir_con_terminador(entrada)}
+    end
+  end
+
+  def lineas_con_terminador(entrada, opts), do: lineas(entrada, opts)
+
+  # El contenido en bloques de bytes: uno solo para un binario, los del
+  # archivo para una ruta, los que vengan para un enumerable.
+  @doc false
+  @spec bloques(term(), keyword()) :: {:ok, Enumerable.t()} | {:error, [Diagnostico.t()]}
+  def bloques(entrada, opts) when is_binary(entrada) do
+    cond do
+      not ruta?(entrada, opts) -> {:ok, [entrada]}
+      File.regular?(entrada) -> {:ok, stream_de_bloques(entrada)}
+      true -> {:error, [ilegible(entrada, :enoent)]}
+    end
+  end
+
+  def bloques(entrada, opts), do: lineas(entrada, opts)
+
+  # `File.stream!/3` cambió el orden de sus argumentos en Elixir 1.16 y el
+  # orden viejo se deprecó; un `Stream.resource/3` sobre `IO.binread/2` es
+  # igual de lazy y compila sin avisos en toda la matriz.
+  defp stream_de_bloques(ruta) do
+    Stream.resource(
+      fn -> File.open!(ruta, [:read, :binary, :raw]) end,
+      fn dispositivo ->
+        case IO.binread(dispositivo, @bloque) do
+          datos when is_binary(datos) -> {[datos], dispositivo}
+          _eof_o_error -> {:halt, dispositivo}
+        end
+      end,
+      fn dispositivo -> File.close(dispositivo) end
+    )
+  end
+
+  # Parte un stream de bloques en líneas con terminador, arrastrando el
+  # pedazo incompleto de un bloque al siguiente. Un bloque que termina en CR
+  # se guarda entero porque puede ser la mitad de un CRLF.
+  defp partir_bloques(bloques) do
+    Stream.transform(
+      bloques,
+      fn -> "" end,
+      fn bloque, resto -> partir_completas(resto <> bloque) end,
+      fn resto -> if resto == "", do: {[], ""}, else: {[resto], ""} end,
+      fn _resto -> :ok end
+    )
+  end
+
+  defp partir_completas(""), do: {[], ""}
+
+  defp partir_completas(datos) do
+    {completas, [ultima]} = datos |> dividir_con_terminador() |> Enum.split(-1)
+
+    cond do
+      String.ends_with?(ultima, "\r") -> {completas, ultima}
+      String.ends_with?(ultima, "\n") -> {completas ++ [ultima], ""}
+      true -> {completas, ultima}
     end
   end
 
