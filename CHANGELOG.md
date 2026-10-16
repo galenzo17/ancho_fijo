@@ -4,6 +4,18 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+### Agregado
+
+- `moneda: :clp` en campos `:decimal`: el valor es un `AnchoFijo.Monto`
+  (unidades, precisión, moneda) y la precisión se toma de la escala ISO 4217
+  de la moneda; declararla distinta es un layout inválido. Una moneda fuera
+  de la tabla con `:precision` es una advertencia del layout; sin
+  `:precision`, un error.
+- `AnchoFijo.Monto`: `nuevo/2,3`, `cero/1`, `sumar/2`, `sumar!/2`, `restar/2`,
+  `negar/1`, `total/1,2`, `formatear/2`, `a_decimal/1`, `escala/1`,
+  `monedas/0`. Monedas distintas son un diagnóstico de tipo `:moneda`.
+- `Decimal` como dependencia opcional, solo para `a_decimal/1`.
+
 ### Infraestructura
 
 - CI en GitHub Actions: la suite corre en Elixir 1.14, 1.16, 1.18 y 1.20 con

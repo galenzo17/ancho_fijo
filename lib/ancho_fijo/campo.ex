@@ -26,6 +26,9 @@ defmodule AnchoFijo.Campo do
     * `:precision` — obligatorio en `:decimal`. Cantidad de decimales que el
       formato declara.
     * `:separador` — en `:decimal`: `:implicito` (default), `:punto` o `:coma`.
+    * `:moneda` — en `:decimal`: código ISO 4217 como átomo (`:clp`, `:usd`).
+      El valor pasa a ser un `AnchoFijo.Monto` y la `:precision` se toma de
+      la escala de la moneda; declararla distinta es un layout inválido.
     * `:signo` — en `:entero` y `:decimal`: `:inicial` (default) o `:final`.
       Con `:final` el signo va después de los dígitos, `0125000-`, como en los
       formatos heredados de mainframe.
@@ -39,7 +42,7 @@ defmodule AnchoFijo.Campo do
   | --- | --- |
   | `:texto` | `String.t()` ya transcodificado a UTF-8 |
   | `:entero` | `integer()` |
-  | `:decimal` | `{unidades, precision}`, p. ej. `{123456, 2}` para `1234.56` |
+  | `:decimal` | `{unidades, precision}`, p. ej. `{123456, 2}` para `1234.56`; con `:moneda`, un `AnchoFijo.Monto` |
   | `:fecha` | `Date.t()` |
   | `:rut` | `String.t()` canónico, `"12345678-5"`; solo el cuerpo, `"12345678"`, con `dv: :ausente` |
 
@@ -50,6 +53,7 @@ defmodule AnchoFijo.Campo do
   """
 
   alias AnchoFijo.Diagnostico
+  alias AnchoFijo.Monto
   alias AnchoFijo.Rut
   alias AnchoFijo.Transcodificacion
 
@@ -72,6 +76,7 @@ defmodule AnchoFijo.Campo do
           relleno: String.t(),
           precision: non_neg_integer() | nil,
           separador: :implicito | :punto | :coma,
+          moneda: Monto.moneda() | nil,
           signo: :inicial | :final,
           formato: :aaaammdd | :ddmmaaaa | nil,
           dv: Rut.dv()
@@ -86,6 +91,7 @@ defmodule AnchoFijo.Campo do
             relleno: " ",
             precision: nil,
             separador: :implicito,
+            moneda: nil,
             signo: :inicial,
             formato: nil,
             dv: :validar
@@ -116,13 +122,25 @@ defmodule AnchoFijo.Campo do
   @spec nuevo(Enumerable.t()) :: {:ok, t()} | {:error, [Diagnostico.t()]}
   def nuevo(atributos) do
     atributos = Map.new(atributos)
-    campo = struct(%__MODULE__{}, normalizar(atributos))
+    campo = %__MODULE__{} |> struct(normalizar(atributos)) |> precision_por_moneda()
 
     case validar(campo, atributos) do
       [] -> {:ok, campo}
       diagnosticos -> {:error, diagnosticos}
     end
   end
+
+  # Con moneda y sin precisión, la precisión es la escala de la moneda. Con
+  # las dos, `validar_moneda/1` revisa que coincidan.
+  defp precision_por_moneda(%__MODULE__{tipo: :decimal, moneda: moneda, precision: nil} = campo)
+       when not is_nil(moneda) do
+    case Monto.escala(moneda) do
+      {:ok, escala} -> %__MODULE__{campo | precision: escala}
+      :error -> campo
+    end
+  end
+
+  defp precision_por_moneda(campo), do: campo
 
   @doc """
   Igual que `nuevo/1` pero levanta `AnchoFijo.Error` si la definición es inválida.
@@ -206,6 +224,7 @@ defmodule AnchoFijo.Campo do
 
   defp normalizar(atributos) do
     atributos
+    |> Map.update(:moneda, nil, fn moneda -> if is_atom(moneda), do: moneda, else: nil end)
     |> Map.take([
       :nombre,
       :posicion,
@@ -216,6 +235,7 @@ defmodule AnchoFijo.Campo do
       :relleno,
       :precision,
       :separador,
+      :moneda,
       :signo,
       :formato,
       :dv
@@ -235,8 +255,19 @@ defmodule AnchoFijo.Campo do
       validar_trim(campo),
       validar_relleno(campo),
       validar_opciones_de_tipo(campo),
+      validar_moneda_cruda(campo, atributos),
       validar_opciones_ajenas(campo, atributos)
     ])
+  end
+
+  # La moneda se valida sobre lo que llegó, no sobre el struct: `normalizar/1`
+  # no deja entrar al struct nada que no sea un átomo, para que el campo
+  # tenga siempre el tipo que declara.
+  defp validar_moneda_cruda(%__MODULE__{nombre: nombre}, atributos) do
+    case Map.get(atributos, :moneda) do
+      moneda when is_atom(moneda) -> []
+      otro -> [falla(nombre, "una :moneda como átomo ISO 4217, por ejemplo :clp o :usd", otro, nil)]
+    end
   end
 
   defp validar_nombre(%__MODULE__{nombre: nombre}) when is_atom(nombre) and not is_nil(nombre),
@@ -299,8 +330,14 @@ defmodule AnchoFijo.Campo do
     [falla(nombre, "un :relleno binario de un carácter", relleno, nil)]
   end
 
-  defp validar_opciones_de_tipo(%__MODULE__{tipo: :decimal} = campo) do
+  # Con moneda, la precisión la valida `validar_moneda/1`: reclamarla dos
+  # veces no ayuda a nadie.
+  defp validar_opciones_de_tipo(%__MODULE__{tipo: :decimal, moneda: nil} = campo) do
     validar_precision(campo) ++ validar_separador(campo) ++ validar_signo(campo)
+  end
+
+  defp validar_opciones_de_tipo(%__MODULE__{tipo: :decimal} = campo) do
+    validar_moneda(campo) ++ validar_separador(campo) ++ validar_signo(campo)
   end
 
   defp validar_opciones_de_tipo(%__MODULE__{tipo: :entero} = campo) do
@@ -316,6 +353,51 @@ defmodule AnchoFijo.Campo do
   end
 
   defp validar_opciones_de_tipo(_campo), do: []
+
+  # La escala no es una preferencia del layout: es una propiedad de la
+  # moneda. Un `moneda: :clp` con `precision: 2` lee pesos chilenos divididos
+  # por cien, y nadie se entera hasta la conciliación.
+  defp validar_moneda(%__MODULE__{moneda: moneda, precision: precision, nombre: nombre}) do
+    case Monto.escala(moneda) do
+      {:ok, ^precision} ->
+        []
+
+      {:ok, escala} ->
+        [
+          falla(
+            nombre,
+            "precision: #{escala} para #{Monto.codigo(moneda)}, que es su escala ISO 4217",
+            precision,
+            causa_de_escala(moneda, escala)
+          )
+        ]
+
+      :error when is_integer(precision) ->
+        # Se valida la precisión como siempre; la moneda queda sin verificar y
+        # se avisa. Un layout con advertencias se construye igual.
+        []
+
+      :error ->
+        [
+          falla(
+            nombre,
+            "una :moneda de la tabla ISO 4217 de AnchoFijo.Monto, o :precision explícita",
+            moneda,
+            "la moneda no está en la tabla y sin :precision no se sabe la escala"
+          )
+        ]
+    end
+  end
+
+  defp causa_de_escala(moneda, 0) do
+    "#{Monto.codigo(moneda)} no tiene decimales: leer el campo con decimales implícitos " <>
+      "dividiría los montos; si el archivo trae decimales de verdad, no es #{Monto.codigo(moneda)}"
+  end
+
+  defp causa_de_escala(moneda, escala) do
+    "#{Monto.codigo(moneda)} tiene #{escala} decimales; con otra precisión los montos " <>
+      "quedan escalados mal"
+  end
 
   defp validar_dv(%__MODULE__{dv: dv} = campo) do
     if dv in Rut.modos(),
@@ -380,6 +462,7 @@ defmodule AnchoFijo.Campo do
     [
       {:precision, [:decimal], nil},
       {:separador, [:decimal], :implicito},
+      {:moneda, [:decimal], nil},
       {:signo, [:entero, :decimal], :inicial},
       {:formato, [:fecha], nil},
       {:dv, [:rut], :validar}
@@ -501,7 +584,7 @@ defmodule AnchoFijo.Campo do
   defp convertir(%__MODULE__{tipo: :decimal} = campo, texto, contexto) do
     with {:ok, signo, digitos} <- separar_signo(texto, campo),
          {:ok, unidades} <- unidades(digitos, campo) do
-      {:ok, {signo * unidades, campo.precision}}
+      {:ok, valor_decimal(signo * unidades, campo)}
     else
       {:error, {:exceso, fraccion}} -> {:error, exceso_de_decimales(campo, fraccion, contexto)}
       {:error, :formato} -> {:error, error_decimal(campo, texto, contexto)}
@@ -614,6 +697,12 @@ defmodule AnchoFijo.Campo do
 
   defp descripcion_signo(:inicial), do: "el signo antes de los dígitos, como -1250"
   defp descripcion_signo(:final), do: "el signo después de los dígitos, como 1250-"
+
+  defp valor_decimal(unidades, %__MODULE__{moneda: nil, precision: precision}),
+    do: {unidades, precision}
+
+  defp valor_decimal(unidades, %__MODULE__{moneda: moneda, precision: precision}),
+    do: Monto.nuevo(unidades, precision, moneda)
 
   # Con separador implícito el campo entero ya viene en unidades mínimas: el
   # anexo dice "10 posiciones, 2 decimales" y el archivo trae 0000125000 para

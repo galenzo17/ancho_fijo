@@ -6,6 +6,7 @@ defmodule AnchoFijo.DoctestTest do
   doctest AnchoFijo.Detector
   doctest AnchoFijo.Diagnostico
   doctest AnchoFijo.Layout
+  doctest AnchoFijo.Monto
   doctest AnchoFijo.Parser
   doctest AnchoFijo.Rut
   doctest AnchoFijo.Transcodificacion
