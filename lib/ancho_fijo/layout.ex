@@ -388,7 +388,30 @@ defmodule AnchoFijo.Layout do
       |> Enum.chunk_every(2, 1, :discard)
       |> Enum.flat_map(fn [anterior, actual] -> hueco_entre(anterior, actual) end)
 
-    intermedios ++ hueco_inicial(campos) ++ hueco_final(ocupado, largo, unidad)
+    intermedios ++
+      hueco_inicial(campos) ++
+      hueco_final(ocupado, largo, unidad) ++
+      monedas_sin_tabla(campos)
+  end
+
+  # Una moneda fuera de la tabla ISO 4217 con :precision explícita se acepta,
+  # pero la escala quedó sin verificar y hay que decirlo.
+  defp monedas_sin_tabla(campos) do
+    campos
+    |> Enum.filter(fn campo -> campo.tipo == :decimal and not is_nil(campo.moneda) end)
+    |> Enum.reject(fn campo -> match?({:ok, _}, AnchoFijo.Monto.escala(campo.moneda)) end)
+    |> Enum.map(fn campo ->
+      Diagnostico.nuevo(
+        tipo: :layout,
+        campo: campo.nombre,
+        posicion: Campo.rango(campo),
+        esperado: "una :moneda de la tabla ISO 4217 de AnchoFijo.Monto",
+        recibido: campo.moneda,
+        causa_probable:
+          "la moneda no está en la tabla, así que la precision: #{campo.precision} declarada " <>
+            "no se pudo verificar contra su escala"
+      )
+    end)
   end
 
   defp hueco_entre(anterior, actual) do

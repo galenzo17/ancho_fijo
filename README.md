@@ -238,7 +238,7 @@ entra en la zona reponible.
 | --- | --- | --- |
 | `:texto` | `String.t()` en UTF-8 | `:trim`, `:relleno`, `:opcional` |
 | `:entero` | `integer()` | `:opcional`, `:signo` |
-| `:decimal` | `{unidades, precision}` | `:precision` (obligatoria), `:separador`, `:signo` |
+| `:decimal` | `{unidades, precision}`; con `:moneda`, un `AnchoFijo.Monto` | `:precision` (obligatoria sin `:moneda`), `:moneda`, `:separador`, `:signo` |
 | `:fecha` | `Date.t()` | `:formato` (obligatorio), `:opcional` |
 | `:rut` | `String.t()` canónico, `"12345678-5"`; solo el cuerpo con `dv: :ausente` | `:dv`, `:opcional` |
 
@@ -246,6 +246,14 @@ Un monto de `0000125000` con `precision: 2` se lee como `{125000, 2}`: 125.000
 unidades mínimas con escala 2, es decir 1.250,00. Nunca hay un float en el
 camino. Un monto que pasó por punto flotante deja de cuadrar con la contabilidad
 del banco y nadie sabe dónde se perdió el peso.
+
+`:moneda` convierte el `:decimal` en un `AnchoFijo.Monto` con su código ISO
+4217, y la precisión deja de declararse: es la escala de la moneda. CLP no
+tiene decimales, USD tiene dos, KWD tres; `moneda: :clp` con `precision: 2`
+es un layout inválido, porque leer pesos chilenos divididos por cien es el
+error que nadie nota hasta la conciliación. `Monto.sumar/2` exige la misma
+moneda y devuelve un diagnóstico si no; `total/1`, `formatear/2` y
+`a_decimal/1` para quien tenga `Decimal`. Nunca hay un float en el camino.
 
 `:signo` es `:inicial` por default: `-0125000`. Los formatos heredados de
 mainframe escriben el signo después de los dígitos, `0125000-`, y para leerlos
@@ -348,6 +356,20 @@ conversión previa es una línea de `iconv`.
 
 **Solo lectura en 0.2.** Sin escritura de archivos y sin multiregistro
 (header/detalle/trailer). Ver el [CHANGELOG](CHANGELOG.md).
+
+**`moneda:` devuelve un struct; sin `moneda:` sigue la tupla.** Las tres
+opciones eran seguir con `{unidades, precision}` y solo validar (cero
+migración, pero sumar CLP con USD sigue sin quejarse), `{unidades, precision,
+moneda}` (rompe todo el pattern matching publicado en Hex) o un struct. Se
+eligió el struct, pero solo cuando el layout declara la moneda: quien no la
+declara no cambia una línea, y quien la declara pidió a propósito un valor
+que sabe de qué moneda es. `%AnchoFijo.Monto{}` tiene tres campos, cinco
+operaciones sobre enteros y un `Inspect`; no es una librería de dinero
+disfrazada, y `a_decimal/1` entrega el monto a quien sí tenga una. La tabla
+ISO 4217 es acotada a propósito: todas las monedas con escala distinta de
+dos, que son las que importan, más las de la región y las de reserva. Una
+moneda que falta con `:precision` explícita se acepta con una advertencia
+del layout; sin `:precision`, es un error.
 
 ## Documentación
 

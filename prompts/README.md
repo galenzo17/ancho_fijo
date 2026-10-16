@@ -35,3 +35,4 @@ como quedó.
 | [0006](0006-signo-al-final.md) | Issue #4: signo al final del campo | `signo: :final` en `:entero` y `:decimal`, diagnósticos de signo mal ubicado |
 | [0007](0007-tipo-rut.md) | Issue #5: tipo `:rut` | `AnchoFijo.Rut`, tipo `:rut` con `dv:`, generador y propiedades |
 | [0008](0008-ci-github-actions.md) | Issue #14: CI y publicación por tag | `ci.yml` con matriz y PLT en caché, `release.yml`, umbral de cobertura |
+| [0009](0009-moneda.md) | Issue #9: moneda y escala | `moneda:` en `:decimal`, `AnchoFijo.Monto`, escala ISO 4217 validada, aritmética sin floats |

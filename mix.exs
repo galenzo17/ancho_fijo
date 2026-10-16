@@ -33,6 +33,8 @@ defmodule AnchoFijo.MixProject do
 
   defp deps do
     [
+      # Opcional: solo para AnchoFijo.Monto.a_decimal/1.
+      {:decimal, "~> 2.0", optional: true},
       {:stream_data, "~> 1.1", only: [:dev, :test]},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
@@ -65,7 +67,12 @@ defmodule AnchoFijo.MixProject do
       source_ref: "v#{@version}",
       extras: ["README.md", "CHANGELOG.md", "LICENSE"],
       groups_for_modules: [
-        "Definición del formato": [AnchoFijo.Layout, AnchoFijo.Campo, AnchoFijo.Rut],
+        "Definición del formato": [
+          AnchoFijo.Layout,
+          AnchoFijo.Campo,
+          AnchoFijo.Rut,
+          AnchoFijo.Monto
+        ],
         Diagnóstico: [AnchoFijo.Detector, AnchoFijo.Diagnostico],
         Lectura: [AnchoFijo.Parser, AnchoFijo.Transcodificacion]
       ]
