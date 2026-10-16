@@ -15,7 +15,8 @@ defmodule AnchoFijo.MixProject do
       description: description(),
       package: package(),
       docs: docs(),
-      dialyzer: dialyzer()
+      dialyzer: dialyzer(),
+      test_coverage: test_coverage()
     ]
   end
 
@@ -68,6 +69,16 @@ defmodule AnchoFijo.MixProject do
         Diagnóstico: [AnchoFijo.Detector, AnchoFijo.Diagnostico],
         Lectura: [AnchoFijo.Parser, AnchoFijo.Transcodificacion]
       ]
+    ]
+  end
+
+  # Sin servicio externo ni badge: el número se mide en CI y falla si cae del
+  # umbral, nada más. Un badge de cobertura invita a escribir tests para el
+  # número. Los módulos de test/support no son código del paquete.
+  defp test_coverage do
+    [
+      summary: [threshold: 90],
+      ignore_modules: [AnchoFijo.Fixtures, AnchoFijo.Generadores]
     ]
   end
 

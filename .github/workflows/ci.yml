@@ -1,0 +1,151 @@
+# Integración continua.
+#
+# Dos jobs con criterios distintos:
+#
+# - `pruebas` corre en toda la matriz de pares Elixir/OTP que el paquete declara
+#   soportar (`elixir: "~> 1.14"` en mix.exs). Su pregunta es "¿compila y pasa
+#   en cada versión?". Compila con warnings como errores en todas, porque cada
+#   versión nueva de Elixir trae deprecaciones y es acá donde se ven primero.
+#
+# - `calidad` corre una sola vez, en la versión más nueva. Formato, credo,
+#   dialyzer y cobertura no dependen de la versión del lenguaje; correrlos
+#   cuatro veces sería cuatro veces el costo por la misma respuesta. Y el
+#   dialyzer es el paso lento: su PLT se cachea aparte de deps/_build porque
+#   cambia con otra frecuencia (OTP y mix.lock, no cada commit).
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pruebas:
+    name: Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # El mínimo declarado. OTP 25 es el más nuevo que 1.14 soporta
+          # oficialmente en toda la serie. Corre en 22.04 porque los builds
+          # precompilados de OTP 25 existen para esa imagen.
+          - elixir: "1.14.5"
+            otp: "25.3"
+            os: ubuntu-22.04
+          - elixir: "1.16.3"
+            otp: "26.2"
+            os: ubuntu-24.04
+          - elixir: "1.18.4"
+            otp: "27.3"
+            os: ubuntu-24.04
+          # La más nueva. Es la única que mide cobertura: ver `calidad`.
+          - elixir: "1.20"
+            otp: "28"
+            os: ubuntu-24.04
+            cobertura: true
+    env:
+      MIX_ENV: test
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Instalar Erlang y Elixir
+        id: beam
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ matrix.elixir }}
+          otp-version: ${{ matrix.otp }}
+
+      # La clave lleva las versiones exactas que setup-beam resolvió, no las de
+      # la matriz: "1.20" puede resolver a 1.20.1 mañana y los .beam compilados
+      # con 1.20.0 no sirven.
+      - name: Cache de deps y _build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-${{ matrix.os }}-${{ steps.beam.outputs.elixir-version }}-${{ steps.beam.outputs.otp-version }}-${{ env.MIX_ENV }}-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            mix-${{ matrix.os }}-${{ steps.beam.outputs.elixir-version }}-${{ steps.beam.outputs.otp-version }}-${{ env.MIX_ENV }}-
+
+      - run: mix deps.get
+
+      # Las dependencias se compilan aparte para que --warnings-as-errors
+      # aplique solo al código del paquete: un warning en credo no es nuestro.
+      - run: mix deps.compile
+
+      - run: mix compile --warnings-as-errors
+
+      - name: Tests
+        if: ${{ !matrix.cobertura }}
+        run: mix test
+
+      - name: Tests con cobertura
+        if: ${{ matrix.cobertura }}
+        run: mix test --cover
+
+  calidad:
+    name: Formato, credo y dialyzer
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Instalar Erlang y Elixir
+        id: beam
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.20"
+          otp-version: "28"
+
+      # Sin MIX_ENV fijo: `cli/0` en mix.exs elige test para credo y dev para
+      # dialyzer, y _build guarda los dos.
+      - name: Cache de deps y _build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-calidad-${{ steps.beam.outputs.elixir-version }}-${{ steps.beam.outputs.otp-version }}-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            mix-calidad-${{ steps.beam.outputs.elixir-version }}-${{ steps.beam.outputs.otp-version }}-
+
+      # El PLT se restaura y se guarda en pasos separados, con `if: always()`
+      # en el guardado: si dialyzer encuentra un error después de construir el
+      # PLT, el PLT igual se cachea y la corrida siguiente no vuelve a pagar
+      # los minutos de construcción. Con actions/cache a secas, un job que
+      # falla no guarda nada.
+      - name: Restaurar el PLT de dialyzer
+        id: plt
+        uses: actions/cache/restore@v4
+        with:
+          path: priv/plts
+          key: plt-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            plt-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-
+
+      - run: mix deps.get
+
+      - run: mix format --check-formatted
+
+      - run: mix credo --strict
+
+      - name: Construir el PLT si no vino del cache
+        if: steps.plt.outputs.cache-hit != 'true'
+        run: mix dialyzer --plt
+
+      - name: Guardar el PLT de dialyzer
+        if: always() && steps.plt.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: priv/plts
+          key: ${{ steps.plt.outputs.cache-primary-key }}
+
+      - run: mix dialyzer --format github
