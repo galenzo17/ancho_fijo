@@ -72,7 +72,8 @@ defmodule AnchoFijo.MixProject do
           AnchoFijo.Multiregistro
         ],
         Diagnóstico: [AnchoFijo.Detector, AnchoFijo.Diagnostico],
-        Lectura: [AnchoFijo.Parser, AnchoFijo.Transcodificacion]
+        Lectura: [AnchoFijo.Parser, AnchoFijo.Transcodificacion],
+        "Formatos incluidos": [AnchoFijo.Formatos, AnchoFijo.Formatos.Nacha]
       ]
     ]
   end

@@ -6,6 +6,16 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- `AnchoFijo.Formatos` con el catálogo de formatos reales y su vigencia, y
+  `AnchoFijo.Formatos.Nacha`: el formato NACHA/ACH completo (seis tipos de
+  registro más el relleno) como multiregistro, `validar/1` con los
+  controles propios del formato (cuentas, entry hash, débitos y créditos
+  por código de transacción, por lote y por archivo) y `lotes/1` con la
+  estructura anidada. Fuente citada en el módulo. Fixture `nacha_ppd.txt`
+  con datos inventados.
+- `AnchoFijo.Multiregistro` acepta varios valores de discriminador por tipo
+  (`valor: ["62", "63"]`) y `orden: :libre` para formatos con lotes que se
+  repiten.
 - `AnchoFijo.Multiregistro`: archivos con header, detalle y trailer. Un
   discriminador por posición, un layout por tipo con cantidad (`:uno`,
   `:opcional`, `:varios`, `:al_menos_uno`) y orden, y controles cruzados

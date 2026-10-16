@@ -284,6 +284,26 @@ Las decisiones, y por qué:
 - **Las sumas son sobre enteros o `{unidades, precision}`**, nunca floats;
   con precisiones distintas se comparan a la mayor.
 
+## Formatos incluidos
+
+Los formatos de verdad son públicos y estables, y transcribirlos desde cero
+es el trabajo central de cada integración. Vienen incluidos, con su fuente
+citada y su vigencia, empezando por NACHA/ACH (Estados Unidos):
+
+```elixir
+{:ok, registros, []} = AnchoFijo.parsear(AnchoFijo.Formatos.nacha(), "ach.txt")
+[] = AnchoFijo.Formatos.Nacha.validar(registros)   # hash, totales y cuentas de cada lote y del archivo
+lotes = AnchoFijo.Formatos.Nacha.lotes(registros)  # cada lote con sus entradas y addendas
+```
+
+Los formatos cambian por resolución del regulador, y un layout
+desactualizado en silencio es peor que no tenerlo. Por eso cada uno se pide
+con su **vigencia** (`nacha(vigencia: "2021")`), que no cambia cuando el
+catálogo se actualiza; pedir la más nueva es para empezar, fijarla es para
+producción. `AnchoFijo.Formatos.catalogo/0` lista las vigencias con su fuente
+y la fecha en que se consultó. Se agregan de a uno y completos: Previred
+(Chile) es el siguiente.
+
 ## Tipos de campo
 
 | tipo | valor devuelto | opciones |

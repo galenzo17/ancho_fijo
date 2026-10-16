@@ -36,3 +36,4 @@ como quedó.
 | [0007](0007-tipo-rut.md) | Issue #5: tipo `:rut` | `AnchoFijo.Rut`, tipo `:rut` con `dv:`, generador y propiedades |
 | [0008](0008-ci-github-actions.md) | Issue #14: CI y publicación por tag | `ci.yml` con matriz y PLT en caché, `release.yml`, umbral de cobertura |
 | [0009](0009-multiregistro.md) | Issue #1: header, detalle y trailer | `AnchoFijo.Multiregistro`, discriminador, orden y cantidad, controles cruzados, stream con cierre |
+| [0010](0010-catalogo-nacha.md) | Issue #10: catálogo de formatos reales, NACHA primero | `AnchoFijo.Formatos` con vigencias, `Formatos.Nacha` completo y validado, fixture inventado |

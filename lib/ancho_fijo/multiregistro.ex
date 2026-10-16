@@ -32,9 +32,14 @@ defmodule AnchoFijo.Multiregistro do
       qué es, en bytes de la línea cruda.
     * `:registros` — una keyword list de tipo a definición, en el orden
       esperado en el archivo. Cada definición tiene `:valor` (lo que trae el
-      discriminador), `:layout` (un `AnchoFijo.Layout` o su definición) y
-      `:cantidad`: `:uno` (exactamente uno), `:opcional` (cero o uno),
-      `:varios` (cero o más) o `:al_menos_uno`.
+      discriminador, o una lista de valores si el tipo admite varios),
+      `:layout` (un `AnchoFijo.Layout` o su definición) y `:cantidad`:
+      `:uno` (exactamente uno), `:opcional` (cero o uno), `:varios` (cero o
+      más) o `:al_menos_uno`.
+    * `:orden` — `:estricto` (default): los tipos aparecen en el orden de
+      `:registros`. `:libre`: cualquier orden; solo se verifican las
+      cantidades. Es para los formatos con lotes que se repiten (NACHA), donde
+      la estructura anidada se valida aparte.
     * `:controles` — lista de `[en: tipo, campo: nombre, cuenta: tipo]` o
       `[en: tipo, campo: nombre, suma: {tipo, campo}]`. El campo del registro
       `en:` tiene que valer la cantidad de registros de ese tipo, o la suma
@@ -89,7 +94,7 @@ defmodule AnchoFijo.Multiregistro do
   @type tipo :: atom()
   @type registro :: {tipo(), Parser.registro()}
 
-  @type definicion :: %{valor: binary(), layout: Layout.t(), cantidad: cantidad()}
+  @type definicion :: %{valores: [binary()], layout: Layout.t(), cantidad: cantidad()}
 
   @type control ::
           %{en: tipo(), campo: atom(), cuenta: tipo()}
@@ -98,11 +103,12 @@ defmodule AnchoFijo.Multiregistro do
   @type t :: %__MODULE__{
           discriminador: %{posicion: pos_integer(), largo: pos_integer()},
           registros: [{tipo(), definicion()}],
-          controles: [control()]
+          controles: [control()],
+          orden: :estricto | :libre
         }
 
   @enforce_keys [:discriminador, :registros]
-  defstruct discriminador: nil, registros: [], controles: []
+  defstruct discriminador: nil, registros: [], controles: [], orden: :estricto
 
   # ------------------------------------------------------------- definición
 
@@ -120,10 +126,20 @@ defmodule AnchoFijo.Multiregistro do
 
     with {:ok, discriminador} <- validar_discriminador(Map.get(definicion, :discriminador)),
          {:ok, registros} <- validar_registros(Map.get(definicion, :registros, []), discriminador),
-         {:ok, controles} <- validar_controles(Map.get(definicion, :controles, []), registros) do
-      {:ok, %__MODULE__{discriminador: discriminador, registros: registros, controles: controles}}
+         {:ok, controles} <- validar_controles(Map.get(definicion, :controles, []), registros),
+         {:ok, orden} <- validar_orden(Map.get(definicion, :orden, :estricto)) do
+      {:ok,
+       %__MODULE__{
+         discriminador: discriminador,
+         registros: registros,
+         controles: controles,
+         orden: orden
+       }}
     end
   end
+
+  defp validar_orden(orden) when orden in [:estricto, :libre], do: {:ok, orden}
+  defp validar_orden(otro), do: {:error, [falla(":orden :estricto o :libre", inspect(otro), nil)]}
 
   @doc "Como `nuevo/1`, pero levanta `AnchoFijo.Error`."
   @spec nuevo!(keyword() | map()) :: t()
@@ -186,17 +202,20 @@ defmodule AnchoFijo.Multiregistro do
   end
 
   defp validar_registro(tipo, definicion, discriminador) do
-    valor = get(definicion, :valor)
+    valores = definicion |> get(:valor) |> List.wrap()
     cantidad = get(definicion, :cantidad, :varios)
 
     problemas =
       Enum.concat([
-        if(is_binary(valor) and byte_size(valor) == discriminador.largo,
+        if(
+          valores != [] and
+            Enum.all?(valores, &(is_binary(&1) and byte_size(&1) == discriminador.largo)),
           do: [],
           else: [
             falla(
-              "un :valor binario de #{discriminador.largo} bytes para #{inspect(tipo)}, el largo del discriminador",
-              inspect(valor),
+              "un :valor binario (o una lista de ellos) de #{discriminador.largo} bytes para " <>
+                "#{inspect(tipo)}, el largo del discriminador",
+              inspect(get(definicion, :valor)),
               nil
             )
           ]
@@ -215,7 +234,7 @@ defmodule AnchoFijo.Multiregistro do
 
     case {problemas, Layout.coercer(get(definicion, :layout))} do
       {[], {:ok, layout}} ->
-        {:ok, %{valor: valor, layout: layout, cantidad: cantidad}}
+        {:ok, %{valores: valores, layout: layout, cantidad: cantidad}}
 
       {problemas, {:ok, _layout}} ->
         {:error, problemas}
@@ -231,7 +250,8 @@ defmodule AnchoFijo.Multiregistro do
 
   defp valores_repetidos(definiciones) do
     definiciones
-    |> Enum.group_by(fn {_tipo, d} -> d.valor end, fn {tipo, _d} -> tipo end)
+    |> Enum.flat_map(fn {tipo, d} -> Enum.map(d.valores, &{&1, tipo}) end)
+    |> Enum.group_by(fn {valor, _tipo} -> valor end, fn {_valor, tipo} -> tipo end)
     |> Enum.filter(fn {_valor, tipos} -> length(tipos) > 1 end)
     |> Enum.map(fn {valor, tipos} ->
       falla(
@@ -487,7 +507,7 @@ defmodule AnchoFijo.Multiregistro do
   end
 
   defp buscar_tipo(%__MODULE__{} = multi, valor, numero) do
-    case Enum.find(multi.registros, fn {_tipo, d} -> d.valor == valor end) do
+    case Enum.find(multi.registros, fn {_tipo, d} -> valor in d.valores end) do
       {tipo, definicion} -> {:ok, tipo, definicion}
       nil -> {:error, [desconocido(multi, valor, numero)]}
     end
@@ -507,7 +527,7 @@ defmodule AnchoFijo.Multiregistro do
   defp desconocido(%__MODULE__{} = multi, valor, numero) do
     valores =
       Enum.map_join(multi.registros, ", ", fn {tipo, d} ->
-        "#{inspect(d.valor)} (#{inspect(tipo)})"
+        "#{Enum.map_join(d.valores, "/", &inspect/1)} (#{inspect(tipo)})"
       end)
 
     Diagnostico.nuevo(
@@ -529,7 +549,7 @@ defmodule AnchoFijo.Multiregistro do
     vistos = Map.fetch!(estado.vistos, tipo)
 
     cond do
-      indice < estado.indice ->
+      multi.orden == :estricto and indice < estado.indice ->
         {:error, [fuera_de_orden(multi, tipo, numero, estado)], estado}
 
       vistos >= 1 and definicion.cantidad in [:uno, :opcional] ->
