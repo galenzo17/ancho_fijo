@@ -1,0 +1,52 @@
+# Publicación en Hex al empujar un tag `vX.Y.Z`.
+#
+# El tag es la orden de publicar; el workflow solo verifica que la orden sea
+# coherente antes de obedecerla: que el tag diga lo mismo que `@version` en
+# mix.exs y que el CHANGELOG tenga una sección para esa versión. Después corre
+# la suite una vez más en la versión más nueva y publica paquete y docs.
+#
+# La credencial es el secret HEX_API_KEY del repositorio, generada en
+# https://hex.pm/dashboard/keys con permiso `api:write`. No hay otra copia.
+name: Publicar en Hex
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  publicar:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Verificar que el tag coincide con mix.exs y el CHANGELOG
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version="$(sed -nE 's/^[[:space:]]*@version "([^"]+)"/\1/p' mix.exs)"
+          if [ "$tag" != "$version" ]; then
+            echo "::error file=mix.exs::El tag v$tag no coincide con @version \"$version\""
+            exit 1
+          fi
+          if ! grep -qE "^## \[$version\]" CHANGELOG.md; then
+            echo "::error file=CHANGELOG.md::No hay una sección ## [$version] en el CHANGELOG"
+            exit 1
+          fi
+
+      - name: Instalar Erlang y Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.20"
+          otp-version: "28"
+
+      - run: mix deps.get
+
+      - run: mix test
+        env:
+          MIX_ENV: test
+
+      - run: mix hex.publish --yes
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}

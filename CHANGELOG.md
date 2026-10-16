@@ -28,6 +28,13 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   del enumerable que no sea binario; antes era un `FunctionClauseError`.
 - `Layout.nuevo/1` y `Campo.nuevo/1` devuelven un diagnóstico cuando el
   argumento no es una definición (un entero, una lista que no es keyword).
+### Infraestructura
+
+- CI en GitHub Actions: la suite corre en Elixir 1.14, 1.16, 1.18 y 1.20 con
+  warnings como errores; formato, credo, dialyzer (con el PLT en caché) y
+  cobertura con umbral del 90 % corren en la versión más nueva.
+- Publicación en Hex al empujar un tag `vX.Y.Z`, previa verificación de que
+  el tag coincide con `mix.exs` y el CHANGELOG.
 
 ## [0.2.0] — 2026-10-16
 

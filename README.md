@@ -2,6 +2,7 @@
 
 [![Hex.pm](https://img.shields.io/hexpm/v/ancho_fijo.svg)](https://hex.pm/packages/ancho_fijo)
 [![Docs](https://img.shields.io/badge/hexdocs-ancho__fijo-blue.svg)](https://hexdocs.pm/ancho_fijo)
+[![CI](https://github.com/galenzo17/ancho_fijo/actions/workflows/ci.yml/badge.svg)](https://github.com/galenzo17/ancho_fijo/actions/workflows/ci.yml)
 
 Lectura de archivos de ancho fijo que empieza por desconfiar del archivo.
 
