@@ -132,7 +132,7 @@ defmodule AnchoFijo.Campo do
 
     case Tipo.resolver(campo.tipo) do
       {:ok, modulo} ->
-        campo = %__MODULE__{campo | modulo: modulo, opciones: opciones_propias(modulo, atributos)}
+        campo = %{campo | modulo: modulo, opciones: opciones_propias(modulo, atributos)}
 
         case validar(campo, atributos) do
           [] -> {:ok, campo}
