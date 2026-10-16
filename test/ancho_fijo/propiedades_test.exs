@@ -6,6 +6,35 @@ defmodule AnchoFijo.PropiedadesTest do
 
   alias AnchoFijo.Campo
 
+  describe "round-trip de escritura" do
+    property "lo que escribir/3 escribe, parsear/3 lo lee igual" do
+      check all(
+              %{layout: layout, registro: registro} <- layout_con_registro(),
+              repeticiones <- integer(1..5)
+            ) do
+        registros = List.duplicate(registro, repeticiones)
+
+        assert {:ok, contenido, []} = AnchoFijo.escribir(layout, registros)
+        assert AnchoFijo.parsear(layout, contenido) == {:ok, registros, []}
+      end
+    end
+
+    property "cada línea escrita mide exactamente el largo del layout" do
+      check all(%{layout: layout, registro: registro} <- layout_con_registro()) do
+        assert {:ok, contenido, []} = AnchoFijo.escribir(layout, [registro], terminador: :ninguno)
+        assert byte_size(contenido) == AnchoFijo.Layout.largo(layout)
+      end
+    end
+
+    property "escribir lo que se leyó de una línea válida da una línea que se lee igual" do
+      check all(%{layout: layout, linea: linea} <- layout_con_registro()) do
+        {:ok, [registro], []} = AnchoFijo.parsear(layout, linea)
+        {:ok, escrita, []} = AnchoFijo.escribir(layout, [registro], terminador: :ninguno)
+        assert AnchoFijo.parsear(layout, escrita) == {:ok, [registro], []}
+      end
+    end
+  end
+
   describe "round-trip" do
     property "un registro válido serializado y vuelto a parsear es el mismo registro" do
       check all(%{layout: layout, linea: linea, registro: registro} <- layout_con_registro()) do
@@ -135,10 +164,19 @@ defmodule AnchoFijo.PropiedadesTest do
       end
     end
 
+    # El filtro va en el generador y no como cláusula del `check all`: con un
+    # solo campo de los cinco tipos, tres de cada cinco layouts no tienen
+    # numérico, y 25 descartes seguidos (el default) pasan de vez en cuando.
     property "meter una letra en un campo numérico se diagnostica en ese campo" do
+      con_numerico =
+        filter(
+          layout_con_registro(),
+          &Enum.any?(&1.campos, fn c -> c.tipo in [:entero, :decimal] end),
+          500
+        )
+
       check all(
-              %{layout: layout, linea: linea, campos: campos} <- layout_con_registro(),
-              Enum.any?(campos, &(&1.tipo in [:entero, :decimal])),
+              %{layout: layout, linea: linea, campos: campos} <- con_numerico,
               nombre <- member_of(nombres_numericos(campos))
             ) do
         campo = AnchoFijo.Layout.campo(layout, nombre)

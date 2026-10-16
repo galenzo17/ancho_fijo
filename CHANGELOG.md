@@ -4,6 +4,16 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+### Agregado
+
+- `AnchoFijo.escribir/3`: el inverso de `parsear/3`. Escribe registros con
+  el layout, todo o nada, con todos los diagnósticos si algo no se puede
+  escribir. `AnchoFijo.Escritor.stream/3` es la versión lazy y
+  `AnchoFijo.Campo.formatear/3` el inverso de `extraer/3`. Opciones
+  `:terminador` y `truncar: true` (solo `:texto`, con advertencia
+  `:campo_truncado`). Respeta encoding, unidad, relleno, signo, separador
+  y formato de fecha; el round-trip con `parsear/3` es una propiedad.
+
 ### Infraestructura
 
 - CI en GitHub Actions: la suite corre en Elixir 1.14, 1.16, 1.18 y 1.20 con

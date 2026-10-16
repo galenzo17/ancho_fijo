@@ -97,7 +97,8 @@ defmodule AnchoFijo.Campo do
   @type contexto :: %{
           optional(:unidad) => :bytes | :caracteres,
           optional(:encoding) => :utf8 | :latin1,
-          optional(:linea) => pos_integer() | nil
+          optional(:linea) => pos_integer() | nil,
+          optional(:truncar) => boolean()
         }
 
   @doc """
@@ -772,6 +773,304 @@ defmodule AnchoFijo.Campo do
   end
 
   defp solo_digitos?(texto), do: texto != "" and Regex.match?(~r/\A\d+\z/, texto)
+
+  @doc """
+  El inverso de `extraer/3`: escribe el valor con el ancho, el relleno, el
+  signo y el encoding que el campo declara.
+
+  Devuelve `{:ok, texto, advertencias}` con el texto ya en el encoding del
+  layout y midiendo exactamente `:largo` en la unidad del layout, o
+  `{:error, diagnostico}`. El contexto es el de `AnchoFijo.Layout.contexto/2`
+  más `:truncar` (ver `AnchoFijo.Escritor`).
+
+      iex> campo = AnchoFijo.Campo.nuevo!(nombre: :monto, posicion: 1, largo: 8, tipo: :decimal, precision: 2, signo: :final)
+      iex> AnchoFijo.Campo.formatear(campo, {-123_456, 2}, %{})
+      {:ok, "0123456-", []}
+
+      iex> campo = AnchoFijo.Campo.nuevo!(nombre: :glosa, posicion: 1, largo: 6)
+      iex> AnchoFijo.Campo.formatear(campo, "ab", %{})
+      {:ok, "ab    ", []}
+  """
+  @spec formatear(t(), term(), contexto() | keyword()) ::
+          {:ok, binary(), [Diagnostico.t()]} | {:error, Diagnostico.t()}
+  def formatear(%__MODULE__{} = campo, valor, contexto \\ %{}) do
+    contexto = Map.new(contexto)
+
+    with {:ok, texto, advertencias} <- representar(campo, valor, contexto),
+         {:ok, codificado} <- codificar(campo, texto, contexto) do
+      {:ok, codificado, advertencias}
+    end
+  end
+
+  # nil solo cabe en un campo opcional, y se escribe como blanco.
+  defp representar(%__MODULE__{opcional: true, largo: largo}, nil, _contexto),
+    do: {:ok, String.duplicate(" ", largo), []}
+
+  defp representar(%__MODULE__{} = campo, nil, contexto) do
+    {:error,
+     diagnostico(campo, contexto,
+       esperado: "un valor #{inspect(campo.tipo)}",
+       recibido: "nil",
+       causa_probable: "el registro no trae el campo; declare opcional: true si puede ir en blanco"
+     )}
+  end
+
+  defp representar(%__MODULE__{tipo: :texto} = campo, valor, contexto) when is_binary(valor) do
+    ancho = medir(valor, contexto)
+
+    cond do
+      ancho == campo.largo ->
+        {:ok, valor, []}
+
+      ancho < campo.largo and campo.trim != false ->
+        {:ok, rellenar_texto(valor, campo, campo.largo - ancho), []}
+
+      ancho < campo.largo ->
+        {:error,
+         no_cabe(
+           campo,
+           valor,
+           ancho,
+           "un texto de exactamente #{campo.largo} posiciones (trim: false)",
+           contexto
+         )}
+
+      Map.get(contexto, :truncar, false) ->
+        {:ok, recortar(valor, campo.largo, contexto), [truncado(campo, valor, ancho, contexto)]}
+
+      true ->
+        {:error,
+         no_cabe(campo, valor, ancho, "un texto de hasta #{campo.largo} posiciones", contexto)}
+    end
+  end
+
+  defp representar(%__MODULE__{tipo: :entero} = campo, valor, contexto) when is_integer(valor) do
+    con_signo(
+      campo,
+      valor,
+      Integer.to_string(abs(valor)),
+      "un entero de hasta #{campo.largo} dígitos",
+      contexto
+    )
+  end
+
+  # La representación mínima: los dígitos de las unidades, y con separador
+  # explícito la parte entera (que puede ser vacía) y los decimales. Los
+  # ceros a la izquierda los pone `con_signo/5` hasta llenar el campo, así
+  # que `{-1, 2}` en tres posiciones es `-01`, como lo lee el parser.
+  defp representar(
+         %__MODULE__{tipo: :decimal, precision: precision} = campo,
+         {unidades, precision},
+         contexto
+       )
+       when is_integer(unidades) do
+    digitos = Integer.to_string(abs(unidades))
+
+    texto =
+      case campo.separador do
+        :implicito ->
+          digitos
+
+        separador ->
+          con_fraccion = String.pad_leading(digitos, precision, "0")
+
+          {entera, fraccion} =
+            String.split_at(con_fraccion, String.length(con_fraccion) - precision)
+
+          entera <> caracter_separador(separador) <> fraccion
+      end
+
+    con_signo(campo, unidades, texto, descripcion_decimal(campo), contexto)
+  end
+
+  defp representar(%__MODULE__{tipo: :decimal} = campo, {unidades, otra}, contexto)
+       when is_integer(unidades) and is_integer(otra) do
+    {:error,
+     diagnostico(campo, contexto,
+       esperado: "un monto {unidades, #{campo.precision}} con la precisión del campo",
+       recibido: inspect({unidades, otra}),
+       causa_probable:
+         "la precisión del valor no es la del campo; escalar acá es donde se pierde el peso, convierta antes"
+     )}
+  end
+
+  defp representar(%__MODULE__{tipo: :fecha} = campo, %Date{} = fecha, contexto) do
+    texto =
+      case campo.formato do
+        :aaaammdd -> parte(fecha.year, 4) <> parte(fecha.month, 2) <> parte(fecha.day, 2)
+        :ddmmaaaa -> parte(fecha.day, 2) <> parte(fecha.month, 2) <> parte(fecha.year, 4)
+      end
+
+    if String.length(texto) <= campo.largo,
+      do: {:ok, String.pad_trailing(texto, campo.largo), []},
+      else:
+        {:error, no_cabe(campo, fecha, String.length(texto), "una fecha de 8 posiciones", contexto)}
+  end
+
+  defp representar(%__MODULE__{tipo: :rut} = campo, valor, contexto) when is_binary(valor) do
+    case Rut.normalizar(valor, campo.dv) do
+      {:ok, canonico} when byte_size(canonico) <= campo.largo ->
+        {:ok, String.pad_trailing(canonico, campo.largo), []}
+
+      # El guion es presentación: si el campo no tiene lugar para él se
+      # omite, como en los formatos que reservan nueve posiciones. Lo que
+      # nunca se omite es el dígito verificador.
+      {:ok, canonico} when byte_size(canonico) - 1 <= campo.largo ->
+        {:ok, canonico |> String.replace("-", "") |> String.pad_trailing(campo.largo), []}
+
+      {:ok, canonico} ->
+        {:error,
+         no_cabe(
+           campo,
+           canonico,
+           byte_size(canonico) - 1,
+           "#{descripcion_rut(campo.dv)} de hasta #{campo.largo} posiciones",
+           contexto
+         )}
+
+      {:error, {:dv, esperado, _}} ->
+        {:error,
+         diagnostico(campo, contexto,
+           esperado:
+             "un RUT cuyo dígito verificador cuadre; para ese cuerpo corresponde #{esperado}",
+           recibido: inspect(valor),
+           causa_probable: "el dígito verificador no cuadra; un RUT inválido no se escribe"
+         )}
+
+      {:error, {:formato, detalle}} ->
+        {:error,
+         diagnostico(campo, contexto,
+           esperado: descripcion_rut(campo.dv),
+           recibido: inspect(valor),
+           causa_probable: detalle
+         )}
+    end
+  end
+
+  defp representar(%__MODULE__{} = campo, valor, contexto) do
+    {:error,
+     diagnostico(campo, contexto,
+       esperado: descripcion_de_valor(campo),
+       recibido: inspect(valor),
+       causa_probable: "el valor no es del tipo que el campo escribe"
+     )}
+  end
+
+  defp descripcion_de_valor(%__MODULE__{tipo: :texto}), do: "un binario"
+  defp descripcion_de_valor(%__MODULE__{tipo: :entero}), do: "un entero"
+
+  defp descripcion_de_valor(%__MODULE__{tipo: :decimal, precision: p}),
+    do: "un monto {unidades, #{p}}"
+
+  defp descripcion_de_valor(%__MODULE__{tipo: :fecha}), do: "una fecha (Date)"
+  defp descripcion_de_valor(%__MODULE__{tipo: :rut}), do: "un RUT como binario"
+
+  # El signo ocupa una posición solo en los negativos, del lado que el layout
+  # declara; los ceros van a la izquierda de los dígitos, nunca del signo.
+  defp con_signo(%__MODULE__{} = campo, valor, digitos, esperado, contexto) do
+    ancho_signo = if valor < 0, do: 1, else: 0
+    disponible = campo.largo - ancho_signo
+
+    if String.length(digitos) > disponible do
+      {:error, no_cabe(campo, valor, String.length(digitos) + ancho_signo, esperado, contexto)}
+    else
+      rellenado = String.pad_leading(digitos, disponible, "0")
+
+      texto =
+        case {valor < 0, campo.signo} do
+          {false, _} -> rellenado
+          {true, :inicial} -> "-" <> rellenado
+          {true, :final} -> rellenado <> "-"
+        end
+
+      {:ok, texto, []}
+    end
+  end
+
+  defp rellenar_texto(valor, %__MODULE__{trim: :izquierda, relleno: relleno}, faltan),
+    do: String.duplicate(relleno, faltan) <> valor
+
+  defp rellenar_texto(valor, %__MODULE__{relleno: relleno}, faltan),
+    do: valor <> String.duplicate(relleno, faltan)
+
+  defp parte(numero, ancho), do: numero |> Integer.to_string() |> String.pad_leading(ancho, "0")
+
+  # El ancho se mide como lo medirá el lector: en bytes del encoding del
+  # layout, o en caracteres.
+  defp medir(texto, %{unidad: :caracteres}), do: String.length(texto)
+
+  defp medir(texto, contexto) do
+    case Map.get(contexto, :encoding, :utf8) do
+      :latin1 -> String.length(texto)
+      _utf8 -> byte_size(texto)
+    end
+  end
+
+  defp recortar(texto, largo, %{unidad: :caracteres}), do: String.slice(texto, 0, largo)
+
+  defp recortar(texto, largo, contexto) do
+    case Map.get(contexto, :encoding, :utf8) do
+      :latin1 -> String.slice(texto, 0, largo)
+      _utf8 -> recortar_bytes(texto, largo)
+    end
+  end
+
+  # Nunca a la mitad de un carácter multibyte: se recorta por grafemas hasta
+  # que quepa en bytes, y lo que falte se completa con espacios.
+  defp recortar_bytes(texto, largo) do
+    recortado =
+      texto
+      |> String.graphemes()
+      |> Enum.reduce_while("", fn grafema, acumulado ->
+        candidato = acumulado <> grafema
+        if byte_size(candidato) <= largo, do: {:cont, candidato}, else: {:halt, acumulado}
+      end)
+
+    recortado <> String.duplicate(" ", largo - byte_size(recortado))
+  end
+
+  # Latin-1 cubre los puntos de código hasta 255; el primero que se pasa se
+  # reporta con su posición, que es lo que hace falta para corregir el dato.
+  defp codificar(%__MODULE__{} = campo, texto, %{encoding: :latin1} = contexto) do
+    case Enum.find_index(String.to_charlist(texto), &(&1 > 255)) do
+      nil ->
+        {:ok, :unicode.characters_to_binary(texto, :utf8, :latin1)}
+
+      indice ->
+        caracter =
+          texto |> String.to_charlist() |> Enum.at(indice) |> List.wrap() |> List.to_string()
+
+        {:error,
+         diagnostico(campo, contexto,
+           tipo: :encoding,
+           esperado: "caracteres representables en latin1",
+           recibido: "#{inspect(caracter)} en la posición #{indice + 1} del valor",
+           causa_probable:
+             "el layout declara encoding: :latin1 y el valor trae un carácter que latin-1 no tiene"
+         )}
+    end
+  end
+
+  defp codificar(%__MODULE__{}, texto, _contexto), do: {:ok, texto}
+
+  defp no_cabe(%__MODULE__{} = campo, valor, ancho, esperado, contexto) do
+    diagnostico(campo, contexto,
+      esperado: esperado,
+      recibido: inspect(valor),
+      causa_probable: "el valor no cabe en el campo: #{ancho} posiciones en #{campo.largo}"
+    )
+  end
+
+  defp truncado(%__MODULE__{} = campo, valor, ancho, contexto) do
+    diagnostico(campo, contexto,
+      tipo: :campo_truncado,
+      gravedad: :advertencia,
+      esperado: "un texto de hasta #{campo.largo} posiciones",
+      recibido: inspect(valor),
+      causa_probable:
+        "se recortó a #{campo.largo} posiciones porque se pidió truncar: true; sobraban #{ancho - campo.largo}"
+    )
+  end
 
   defp diagnostico(%__MODULE__{} = campo, contexto, atributos) do
     atributos

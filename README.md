@@ -188,6 +188,41 @@ diagnósticos de un archivo de 2 GB para devolverlos al final anularía el punto
 ser lazy. Las advertencias viajan pegadas a su registro por la misma razón: no
 hay dónde juntarlas.
 
+### Escribir con el mismo layout
+
+Para mandarle la nómina al banco hay que generarla con el formato del anexo,
+y el formato ya está escrito una vez. `escribir/3` es el inverso de
+`parsear/3`, y la propiedad que lo define es el round-trip: lo que se escribe
+se vuelve a leer igual.
+
+```elixir
+{:ok, contenido, []} = AnchoFijo.escribir(layout, registros)
+File.write!("nomina.txt", contenido)
+
+# o línea por línea, sin armar el archivo en memoria:
+layout
+|> AnchoFijo.Escritor.stream(registros)
+|> Stream.map(fn {:ok, linea, _advertencias} -> linea end)
+|> Stream.into(File.stream!("nomina.txt"))
+|> Stream.run()
+```
+
+No hay modo tolerante para escribir: una nómina con una fila menos es otro
+archivo, y mandarlo es peor que no mandarlo. Si algún valor no se puede
+escribir, `escribir/3` devuelve todos los diagnósticos de todos los
+registros, con el número de registro, el campo, las posiciones y la causa.
+
+**Lo que no cabe no se trunca.** Un monto truncado es otro monto, un RUT
+truncado es otra persona, una glosa truncada es la única de las tres que a
+veces se acepta. Por eso un valor más ancho que su campo es un error, y
+`truncar: true` existe solo para `:texto`, con una advertencia por cada
+campo recortado. El texto se rellena del lado que `:trim` recorta al leer,
+los números con ceros a la izquierda y el signo solo en los negativos, un
+`{unidades, precision}` tiene que traer la precisión del campo (escalar es
+donde se pierde el peso), y el encoding del layout se respeta: con
+`encoding: :latin1` el archivo sale en latin-1, y un carácter que latin-1 no
+tiene es un diagnóstico con el carácter y su posición.
+
 ### Líneas cortas por relleno recortado
 
 Hay emisores que recortan los espacios finales de cada línea, o solo de la
@@ -346,8 +381,7 @@ Agregar una tabla de transcodificación por cada codepage del mundo es cómo un
 paquete chico deja de estar terminado. El diagnóstico apunta al problema y la
 conversión previa es una línea de `iconv`.
 
-**Solo lectura en 0.2.** Sin escritura de archivos y sin multiregistro
-(header/detalle/trailer). Ver el [CHANGELOG](CHANGELOG.md).
+**Sin multiregistro** (header/detalle/trailer). Ver el [CHANGELOG](CHANGELOG.md).
 
 ## Documentación
 
