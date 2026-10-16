@@ -116,7 +116,8 @@ defmodule AnchoFijo.Detector do
            %{resultado: :ok, probablemente_ancho_fijo?: reporte.probablemente_ancho_fijo?}}
 
         {:error, diagnosticos} ->
-          {{:error, diagnosticos}, %{}, %{resultado: :error}}
+          {{:error, diagnosticos}, %{lineas: 0, bytes: 0},
+           %{resultado: :error, probablemente_ancho_fijo?: nil}}
       end
     end)
   end

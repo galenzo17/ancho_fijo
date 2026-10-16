@@ -11,7 +11,7 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   `start`/`stop` contados en el acumulador. Medidas de `stop`: `duration`,
   `lineas`, `registros`, `errores`, `advertencias`. El contrato está en
   `AnchoFijo.Telemetria`. La dependencia es opcional
-  (`{:telemetry, "~> 1.2", optional: true}`); sin ella no se emite nada.
+  (`{:telemetry, "~> 1.3", optional: true}`); sin ella no se emite nada.
 
 ### Infraestructura
 

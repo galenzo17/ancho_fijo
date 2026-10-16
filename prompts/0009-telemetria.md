@@ -28,7 +28,7 @@ El `/loop` que gobierna la serie de issues, sin prompt propio para esta:
 - `parsear/3` y `detectar/2` envueltos en `span`; `stream/3` instrumentado
   con `Stream.transform/4`, que emite `start` al empezar la enumeración y
   `stop` al terminar o cortarse, con las cuentas en el acumulador.
-- `{:telemetry, "~> 1.2", optional: true}` en `mix.exs`; la decisión de
+- `{:telemetry, "~> 1.3", optional: true}` en `mix.exs`; la decisión de
   emitir o no se toma al compilar.
 - `Entrada.origen/2` para la metadata `:desde`.
 - 15 tests con `:telemetry_test.attach_event_handlers/2`.
@@ -51,7 +51,7 @@ El `/loop` que gobierna la serie de issues, sin prompt propio para esta:
 2. **`:telemetry.span/3` y no el par a mano.** Garantiza el `stop` o el
    `exception` pase lo que pase adentro, mide con el reloj monotónico y
    agrega `telemetry_span_context` para correlacionar. Se usa la forma de
-   tres elementos (`{resultado, medidas, metadata}`), que existe desde 1.2,
+   tres elementos (`{resultado, medidas, metadata}`), que existe desde 1.3,
    para poner `registros`, `errores` y `advertencias` como medidas y no como
    metadata: son números para graficar.
 

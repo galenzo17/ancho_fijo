@@ -35,7 +35,7 @@ defmodule AnchoFijo.MixProject do
     [
       # Opcional: sin ella no se emite nada y el paquete sigue sin
       # dependencias de runtime. Ver AnchoFijo.Telemetria.
-      {:telemetry, "~> 1.2", optional: true},
+      {:telemetry, "~> 1.3", optional: true},
       {:stream_data, "~> 1.1", only: [:dev, :test]},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

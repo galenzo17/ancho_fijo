@@ -109,7 +109,11 @@ defmodule AnchoFijo.Parser do
           {resultado, medidas, Map.merge(extra, metadata_de_layout(layout))}
 
         {:error, diagnosticos} ->
-          {{:error, diagnosticos}, %{}, %{resultado: :error}}
+          # La misma forma que un stop exitoso: un handler que lee
+          # `metadata.layout` o `medidas.registros` no puede reventar (y ser
+          # desenganchado por telemetry) porque el layout no se pudo construir.
+          {medidas, extra} = Telemetria.medir_parseo({:error, diagnosticos}, 0)
+          {{:error, diagnosticos}, medidas, Map.merge(extra, metadata_de_layout(nil))}
       end
     end)
   end
@@ -125,6 +129,8 @@ defmodule AnchoFijo.Parser do
   defp metadata_de_layout(%Layout{} = layout) do
     %{layout: layout.nombre, encoding: layout.encoding, unidad: layout.unidad}
   end
+
+  defp metadata_de_layout(nil), do: %{layout: nil, encoding: nil, unidad: nil}
 
   @doc """
   Versión lazy de `parsear/3`, para archivos que no caben en memoria.

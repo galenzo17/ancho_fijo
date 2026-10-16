@@ -3,7 +3,7 @@ defmodule AnchoFijo.Telemetria do
   Los eventos de `:telemetry` que emite la librería. Son parte de la API:
   cambiarle el nombre a uno rompe los dashboards de quien lo mira.
 
-  Para recibirlos hay que tener `{:telemetry, "~> 1.2"}` en las dependencias
+  Para recibirlos hay que tener `{:telemetry, "~> 1.3"}` en las dependencias
   del proyecto. Es una dependencia **opcional** de `ancho_fijo`: sin ella no
   se emite nada, no se carga nada y el paquete sigue sin dependencias de
   runtime. Si se agrega después de haber compilado `ancho_fijo`, hay que
@@ -35,11 +35,15 @@ defmodule AnchoFijo.Telemetria do
 
   Al salir, con éxito o con `{:error, _}`.
 
-    * Medidas: `duration`, `monotonic_time`, y cuando el layout y la entrada
-      se pudieron leer: `lineas` (las que se consideraron, después de
-      `:saltar` y `:omitir_vacias`), `registros`, `errores` y `advertencias`.
+    * Medidas: `duration`, `monotonic_time`, `lineas` (las que se
+      consideraron, después de `:saltar` y `:omitir_vacias`), `registros`,
+      `errores` y `advertencias`. Siempre las cinco: si el layout o la entrada
+      no se pudieron leer, `lineas` y `registros` son `0` y `errores` cuenta
+      los diagnósticos.
     * Metadata: la de `start` más `:resultado` (`:ok` o `:error`), `:layout`
-      (el `:nombre` del layout, o `nil`), `:encoding` y `:unidad`.
+      (el `:nombre` del layout), `:encoding` y `:unidad`. Las tres son `nil`
+      cuando el layout no se pudo construir. Un handler puede leer cualquier
+      clave documentada sin chequear si existe.
 
   ### `[:ancho_fijo, :parsear, :exception]`
 
@@ -50,9 +54,10 @@ defmodule AnchoFijo.Telemetria do
   ### `[:ancho_fijo, :detectar, :start]` y `[:ancho_fijo, :detectar, :stop]`
 
   Igual que `parsear`. En `stop`: medidas `duration`, `monotonic_time`,
-  `lineas` (analizadas) y `bytes` (de la muestra); metadata `:desde`,
-  `:resultado` y `:probablemente_ancho_fijo?`. Y `:exception` con el mismo
-  contrato.
+  `lineas` (analizadas) y `bytes` (de la muestra), en cero si la entrada no
+  se pudo leer; metadata `:desde`, `:resultado` y
+  `:probablemente_ancho_fijo?` (`nil` con `:resultado` `:error`). Y
+  `:exception` con el mismo contrato.
 
   ### `[:ancho_fijo, :stream, :start]` y `[:ancho_fijo, :stream, :stop]`
 
