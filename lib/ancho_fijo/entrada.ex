@@ -50,6 +50,12 @@ defmodule AnchoFijo.Entrada do
     if enumerable?(entrada), do: {:ok, entrada}, else: {:error, [no_es_entrada(entrada)]}
   end
 
+  # Si la entrada se va a tratar como ruta, con la misma regla que `leer/2`.
+  @doc false
+  @spec es_ruta?(term(), keyword()) :: boolean()
+  def es_ruta?(entrada, opts) when is_binary(entrada), do: ruta?(entrada, opts)
+  def es_ruta?(_entrada, _opts), do: false
+
   @spec dividir(binary()) :: [binary()]
   def dividir(binario), do: String.split(binario, ["\r\n", "\n", "\r"])
 

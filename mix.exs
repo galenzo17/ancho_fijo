@@ -67,7 +67,12 @@ defmodule AnchoFijo.MixProject do
       groups_for_modules: [
         "Definición del formato": [AnchoFijo.Layout, AnchoFijo.Campo, AnchoFijo.Rut],
         Diagnóstico: [AnchoFijo.Detector, AnchoFijo.Diagnostico],
-        Lectura: [AnchoFijo.Parser, AnchoFijo.Transcodificacion, AnchoFijo.Traza]
+        Lectura: [
+          AnchoFijo.Parser,
+          AnchoFijo.Transcodificacion,
+          AnchoFijo.Traza,
+          AnchoFijo.Identidad
+        ]
       ]
     ]
   end

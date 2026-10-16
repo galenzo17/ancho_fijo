@@ -36,3 +36,4 @@ como quedó.
 | [0007](0007-tipo-rut.md) | Issue #5: tipo `:rut` | `AnchoFijo.Rut`, tipo `:rut` con `dv:`, generador y propiedades |
 | [0008](0008-ci-github-actions.md) | Issue #14: CI y publicación por tag | `ci.yml` con matriz y PLT en caché, `release.yml`, umbral de cobertura |
 | [0009](0009-trazabilidad.md) | Issue #7: trazabilidad por registro y huella del lote | `traza: true` con `:__traza__`, `AnchoFijo.Traza`, `huella/2` normalizada |
+| [0010](0010-idempotencia.md) | Issue #11: idempotencia de lotes | `AnchoFijo.Identidad`, tres fuentes, `cotejar/2` con duplicado y conflicto, sin estado |
