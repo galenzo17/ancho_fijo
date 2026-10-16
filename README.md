@@ -232,6 +232,58 @@ completa con 2 caracteres, no con los 0 que sugeriría contar bytes. Con
 repetido tantas veces como bytes faltan no reconstruye la línea, y ese campo no
 entra en la zona reponible.
 
+## Header, detalle y trailer
+
+Las nóminas y cartolas reales traen varios tipos de registro, cada línea dice
+cuál es en sus primeras posiciones, el orden importa y el trailer trae
+totales que tienen que cuadrar. `AnchoFijo.Multiregistro` es un layout de
+layouts más esas reglas, y `parsear/3` y `stream/3` lo aceptan en lugar del
+layout:
+
+```elixir
+nomina = AnchoFijo.Multiregistro.nuevo!(
+  discriminador: [posicion: 1, largo: 2],
+  registros: [
+    header:  [valor: "01", cantidad: :uno,          layout: layout_header],
+    detalle: [valor: "02", cantidad: :al_menos_uno, layout: layout_detalle],
+    trailer: [valor: "09", cantidad: :uno,          layout: layout_trailer]
+  ],
+  controles: [
+    [en: :trailer, campo: :cantidad, cuenta: :detalle],
+    [en: :trailer, campo: :total, suma: {:detalle, :monto}]
+  ]
+)
+
+{:ok, registros, []} = AnchoFijo.parsear(nomina, "nomina.txt")
+# [header: %{...}, detalle: %{...}, detalle: %{...}, trailer: %{...}]
+
+AnchoFijo.Multiregistro.agrupar(nomina, registros)
+# %{header: %{...}, detalle: [%{...}, %{...}], trailer: %{...}}
+```
+
+Las decisiones, y por qué:
+
+- **Los registros vuelven como `{tipo, mapa}` en el orden del archivo**, no
+  como un mapa por tipo. El orden es parte del dato (hay formatos que
+  intercalan tipos) y es lo único que `stream/3` puede emitir de a uno.
+  `agrupar/2` arma el mapa por tipo para el caso común.
+- **La estructura se valida al pasar; los controles, al final.** Un
+  discriminador desconocido, un `:detalle` después del `:trailer`, un
+  segundo `:header` o un `:trailer` que falta son diagnósticos
+  `:estructura`, con la causa probable de siempre ("suele ser un archivo
+  pegado a otro"). Los totales necesitan todos los detalles, así que se
+  comparan al llegar al fin del archivo: diagnósticos `:control` que dicen
+  el valor calculado, el declarado y de qué se calculó.
+- **En `stream/3` los controles salen como último elemento.** Un
+  `{:error, diagnosticos}` después del último registro si algo no cuadra o
+  falta un registro obligatorio, y nada si todo cuadra. El acumulador lleva
+  cuentas y sumas, no registros: la memoria sigue siendo constante.
+- **En modo tolerante los controles se calculan sobre lo que se pudo leer.**
+  Un detalle ilegible produce su diagnóstico y además el del total que ya no
+  cuadra. Los dos son ciertos y el segundo es el que el banco va a reportar.
+- **Las sumas son sobre enteros o `{unidades, precision}`**, nunca floats;
+  con precisiones distintas se comparan a la mayor.
+
 ## Tipos de campo
 
 | tipo | valor devuelto | opciones |
@@ -346,8 +398,8 @@ Agregar una tabla de transcodificación por cada codepage del mundo es cómo un
 paquete chico deja de estar terminado. El diagnóstico apunta al problema y la
 conversión previa es una línea de `iconv`.
 
-**Solo lectura en 0.2.** Sin escritura de archivos y sin multiregistro
-(header/detalle/trailer). Ver el [CHANGELOG](CHANGELOG.md).
+**Solo lectura en 0.2.** Sin escritura de archivos. Ver el
+[CHANGELOG](CHANGELOG.md).
 
 ## Documentación
 
