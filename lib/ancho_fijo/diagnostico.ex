@@ -34,6 +34,8 @@ defmodule AnchoFijo.Diagnostico do
   * `:campo_invalido` — el contenido del campo no calza con su tipo.
   * `:relleno_completado` — la línea llegó corta y el layout autorizó completar
     el relleno faltante. Siempre de gravedad `:advertencia`.
+  * `:campo_truncado` — al escribir, un `:texto` no cabía y se pidió
+    `truncar: true`. Siempre de gravedad `:advertencia`.
   """
   @type tipo ::
           :layout
@@ -42,6 +44,7 @@ defmodule AnchoFijo.Diagnostico do
           | :encoding
           | :campo_invalido
           | :relleno_completado
+          | :campo_truncado
 
   @typedoc """
   Si el problema impide leer el dato o solo merece quedar anotado.

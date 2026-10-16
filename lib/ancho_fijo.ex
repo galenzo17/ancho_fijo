@@ -45,6 +45,7 @@ defmodule AnchoFijo do
   | `detectar/2` | interrogar el archivo antes de escribir el layout |
   | `parsear/3` | leer un archivo completo, estricto o tolerante |
   | `stream/3` | leer un archivo grande de forma lazy |
+  | `escribir/3` | generar un archivo con el mismo layout |
   | `AnchoFijo.Layout.nuevo/1` | definir y validar el formato |
 
   ## Montos
@@ -64,14 +65,14 @@ defmodule AnchoFijo do
   advertencias de las que sí, pero asumiendo algo. `Diagnostico.separar/1` las
   parte en dos.
 
-  ## Alcance de 0.1
+  ## Alcance
 
-  Solo lectura. Sin escritura de archivos y sin multiregistro
-  (header/detalle/trailer): ver el `CHANGELOG.md`.
+  Sin multiregistro (header/detalle/trailer): ver el `CHANGELOG.md`.
   """
 
   alias AnchoFijo.Detector
   alias AnchoFijo.Diagnostico
+  alias AnchoFijo.Escritor
   alias AnchoFijo.Layout
   alias AnchoFijo.Parser
 
@@ -148,4 +149,19 @@ defmodule AnchoFijo do
   """
   @spec stream(Layout.t() | Enumerable.t(), term(), keyword()) :: Enumerable.t()
   defdelegate stream(layout, entrada, opts \\ []), to: Parser
+
+  @doc """
+  Escribe registros con el mismo layout que los lee: el inverso de `parsear/3`.
+
+      iex> layout = [campos: [[nombre: :codigo, largo: 3, tipo: :entero], [nombre: :glosa, largo: 5]]]
+      iex> AnchoFijo.escribir(layout, [%{codigo: 7, glosa: "ab"}, %{codigo: 42, glosa: "cde"}])
+      {:ok, "007ab   \\n042cde  \\n", []}
+
+  Todo o nada: si algún valor no se puede escribir, devuelve todos los
+  diagnósticos. Ver `AnchoFijo.Escritor`, y `AnchoFijo.Escritor.stream/3`
+  para la versión lazy.
+  """
+  @spec escribir(Layout.t() | Enumerable.t(), Enumerable.t(), keyword()) ::
+          {:ok, binary(), [Diagnostico.t()]} | {:error, [Diagnostico.t()]}
+  defdelegate escribir(layout, registros, opts \\ []), to: Escritor
 end

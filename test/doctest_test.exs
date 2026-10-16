@@ -5,6 +5,7 @@ defmodule AnchoFijo.DoctestTest do
   doctest AnchoFijo.Campo
   doctest AnchoFijo.Detector
   doctest AnchoFijo.Diagnostico
+  doctest AnchoFijo.Escritor
   doctest AnchoFijo.Layout
   doctest AnchoFijo.Parser
   doctest AnchoFijo.Rut
