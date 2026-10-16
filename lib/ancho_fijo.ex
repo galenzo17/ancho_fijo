@@ -72,6 +72,7 @@ defmodule AnchoFijo do
 
   alias AnchoFijo.Detector
   alias AnchoFijo.Diagnostico
+  alias AnchoFijo.Identidad
   alias AnchoFijo.Layout
   alias AnchoFijo.Parser
   alias AnchoFijo.Traza
@@ -158,4 +159,17 @@ defmodule AnchoFijo do
   """
   @spec huella(term(), keyword()) :: {:ok, String.t()} | {:error, [Diagnostico.t()]}
   defdelegate huella(entrada, opts \\ []), to: Traza
+
+  @doc """
+  La identidad del lote: lo que el archivo declara, su huella y su nombre.
+  Para reconocer un archivo reprocesado antes de pagar dos veces. Ver
+  `AnchoFijo.Identidad`.
+
+      iex> {:ok, identidad} = AnchoFijo.identidad([campos: [[nombre: :a, largo: 3]]], "001\\n002\\n")
+      iex> {identidad.declarada, String.starts_with?(identidad.huella, "sha256:")}
+      {nil, true}
+  """
+  @spec identidad(Layout.t() | Enumerable.t(), term(), keyword()) ::
+          {:ok, Identidad.t()} | {:error, [Diagnostico.t()]}
+  defdelegate identidad(layout, entrada, opts \\ []), to: Identidad
 end

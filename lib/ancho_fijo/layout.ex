@@ -58,6 +58,8 @@ defmodule AnchoFijo.Layout do
     * `:largo` — largo total esperado por línea. Si se omite, se infiere del
       último campo.
     * `:nombre` — etiqueta libre para identificar el layout en logs.
+    * `:identidad` — `[campos: [:lote, :fecha]]`: los campos del primer
+      registro que identifican el lote. Ver `AnchoFijo.Identidad`.
 
   ## Líneas cortas por relleno recortado
 
@@ -94,7 +96,8 @@ defmodule AnchoFijo.Layout do
           encoding: :utf8 | :latin1,
           unidad: :bytes | :caracteres,
           relleno_final: :estricto | :tolerar,
-          advertencias: [Diagnostico.t()]
+          advertencias: [Diagnostico.t()],
+          identidad: %{campos: [atom()]} | nil
         }
 
   defstruct nombre: nil,
@@ -103,7 +106,8 @@ defmodule AnchoFijo.Layout do
             encoding: :utf8,
             unidad: :bytes,
             relleno_final: :estricto,
-            advertencias: []
+            advertencias: [],
+            identidad: nil
 
   @doc """
   Valida y construye un layout.
@@ -129,12 +133,46 @@ defmodule AnchoFijo.Layout do
          {:ok, campos} <- construir_campos(Map.get(atributos, :campos, [])),
          campos = posicionar(campos),
          :ok <- validar_disposicion(campos),
+         {:ok, identidad} <- validar_identidad(Map.get(atributos, :identidad), campos),
          {:ok, largo, advertencias} <- resolver_largo(campos, globales, atributos) do
       {:ok,
        struct(
          %__MODULE__{},
-         Map.merge(globales, %{campos: campos, largo: largo, advertencias: advertencias})
+         Map.merge(globales, %{
+           campos: campos,
+           largo: largo,
+           advertencias: advertencias,
+           identidad: identidad
+         })
        )}
+    end
+  end
+
+  # Los campos que identifican el lote tienen que existir en el layout. Es
+  # una lista y no un solo campo porque la identidad real suele ser número de
+  # lote más fecha: el número solo se repite cada año.
+  defp validar_identidad(nil, _campos), do: {:ok, nil}
+
+  defp validar_identidad(identidad, campos) do
+    nombres = Enum.map(campos, & &1.nombre)
+    declarados = if Keyword.keyword?(identidad), do: Keyword.get(identidad, :campos), else: nil
+
+    cond do
+      not is_list(declarados) or declarados == [] ->
+        {:error, [falla("identidad: [campos: [...]] con al menos un campo", identidad, nil)]}
+
+      declarados -- nombres != [] ->
+        {:error,
+         [
+           falla(
+             "campos de identidad que existan en el layout",
+             inspect(declarados -- nombres),
+             "la identidad se lee del primer registro con este mismo layout"
+           )
+         ]}
+
+      true ->
+        {:ok, %{campos: declarados}}
     end
   end
 

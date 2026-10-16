@@ -341,6 +341,42 @@ dato). Con `normalizar: false` se calcula sobre los bytes exactos, que es lo
 que da `sha256sum`. Se calcula por bloques, así que un archivo de gigabytes
 no se carga en memoria.
 
+## Idempotencia: reconocer el archivo que ya se procesó
+
+El error operacional más caro de una nómina no es una fila mal parseada: es
+el mismo archivo procesado dos veces, por un reintento manual, un cron que
+corrió dos veces o un correo reenviado. La librería es el punto natural para
+detectarlo, porque ve el archivo completo antes de que exista un solo
+registro en la base de datos.
+
+```elixir
+layout = AnchoFijo.Layout.nuevo!(identidad: [campos: [:lote, :fecha]], campos: [...])
+
+{:ok, identidad} = AnchoFijo.identidad(layout, "nomina.txt")
+# %AnchoFijo.Identidad{declarada: %{lote: 1, fecha: ~D[2024-01-15]}, huella: "sha256:...", nombre: "nomina.txt"}
+
+case AnchoFijo.Identidad.cotejar(identidad, identidades_ya_procesadas) do
+  :nueva -> procesar(...)
+  {:duplicada, vista} -> rechazar("ya se procesó el #{vista.nombre}")
+  {:conflicto, diagnostico, _vista} -> escalar(AnchoFijo.Diagnostico.mensaje(diagnostico))
+end
+```
+
+Tres fuentes, en orden de confiabilidad decreciente: lo que el archivo
+declara de sí mismo (el número de lote y la fecha del header, que el layout
+señala con `identidad:`), la huella del contenido, y el nombre del archivo,
+que es informativo y nada más. La huella manda: el mismo contenido es un
+duplicado aunque cambie el nombre. Y la misma identidad declarada con otro
+contenido **no es un duplicado, es algo peor**: el emisor reutilizó el número
+de lote o alguien editó el archivo, y tiene su propio diagnóstico.
+
+**La frontera.** La librería no persiste nada ni tiene estado: recibe las
+identidades que el llamador ya vio, responde, y punto. El día en que un
+parser abre una tabla o un ETS deja de ser un parser, y además decide por el
+usuario cuánto tiempo recordar y qué hacer con un duplicado. Eso es del
+sistema que paga: guardar la huella y lo declarado de cada archivo procesado
+y consultarlos antes de empezar.
+
 ## Decisiones y trade-offs
 
 **Las posiciones se cuentan en bytes, no en caracteres.** Un formato de ancho

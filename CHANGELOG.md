@@ -6,6 +6,12 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- `AnchoFijo.identidad/3` y `AnchoFijo.Identidad`: la identidad del lote
+  desde lo que el archivo declara (`identidad: [campos: [...]]` en el
+  layout, leído del primer registro), la huella y el nombre. `cotejar/2`
+  contra las identidades ya vistas responde `:nueva`, `{:duplicada, _}` o
+  `{:conflicto, diagnostico, _}`; `duplicada?/2`. Sin estado ni
+  persistencia. Diagnóstico nuevo `:identidad`.
 - `traza: true` en `parsear/3` y `stream/3`: cada registro trae la clave
   reservada `:__traza__` con un `AnchoFijo.Traza` (línea, offset de byte,
   largo). `AnchoFijo.Traza.linea_original/2` recupera la línea desde el
