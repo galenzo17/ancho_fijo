@@ -27,7 +27,7 @@ error diga qué pasó en vez de `{:error, :invalid}`.
 
 ```elixir
 def deps do
-  [{:ancho_fijo, "~> 0.1.0"}]
+  [{:ancho_fijo, "~> 0.2.0"}]
 end
 ```
 
@@ -345,7 +345,7 @@ Agregar una tabla de transcodificación por cada codepage del mundo es cómo un
 paquete chico deja de estar terminado. El diagnóstico apunta al problema y la
 conversión previa es una línea de `iconv`.
 
-**Solo lectura en 0.1.** Sin escritura de archivos y sin multiregistro
+**Solo lectura en 0.2.** Sin escritura de archivos y sin multiregistro
 (header/detalle/trailer). Ver el [CHANGELOG](CHANGELOG.md).
 
 ## Documentación
