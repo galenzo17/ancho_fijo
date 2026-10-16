@@ -82,7 +82,7 @@ defmodule AnchoFijo.MontoTest do
       assert diagnostico.esperado == ":moneda solo en campos :decimal"
 
       assert {:error, [diagnostico]} =
-               Campo.nuevo(nombre: :m, largo: 10, tipo: :decimal, moneda: "CLP")
+               Campo.nuevo(nombre: :m, largo: 10, tipo: :decimal, precision: 2, moneda: "CLP")
 
       assert diagnostico.esperado =~ "una :moneda como átomo ISO 4217"
     end

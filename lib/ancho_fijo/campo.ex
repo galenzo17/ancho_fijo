@@ -224,6 +224,7 @@ defmodule AnchoFijo.Campo do
 
   defp normalizar(atributos) do
     atributos
+    |> Map.update(:moneda, nil, fn moneda -> if is_atom(moneda), do: moneda, else: nil end)
     |> Map.take([
       :nombre,
       :posicion,
@@ -254,8 +255,19 @@ defmodule AnchoFijo.Campo do
       validar_trim(campo),
       validar_relleno(campo),
       validar_opciones_de_tipo(campo),
+      validar_moneda_cruda(campo, atributos),
       validar_opciones_ajenas(campo, atributos)
     ])
+  end
+
+  # La moneda se valida sobre lo que llegó, no sobre el struct: `normalizar/1`
+  # no deja entrar al struct nada que no sea un átomo, para que el campo
+  # tenga siempre el tipo que declara.
+  defp validar_moneda_cruda(%__MODULE__{nombre: nombre}, atributos) do
+    case Map.get(atributos, :moneda) do
+      moneda when is_atom(moneda) -> []
+      otro -> [falla(nombre, "una :moneda como átomo ISO 4217, por ejemplo :clp o :usd", otro, nil)]
+    end
   end
 
   defp validar_nombre(%__MODULE__{nombre: nombre}) when is_atom(nombre) and not is_nil(nombre),
@@ -345,12 +357,6 @@ defmodule AnchoFijo.Campo do
   # La escala no es una preferencia del layout: es una propiedad de la
   # moneda. Un `moneda: :clp` con `precision: 2` lee pesos chilenos divididos
   # por cien, y nadie se entera hasta la conciliación.
-  defp validar_moneda(%__MODULE__{moneda: nil}), do: []
-
-  defp validar_moneda(%__MODULE__{moneda: moneda, nombre: nombre}) when not is_atom(moneda) do
-    [falla(nombre, "una :moneda como átomo ISO 4217, por ejemplo :clp o :usd", moneda, nil)]
-  end
-
   defp validar_moneda(%__MODULE__{moneda: moneda, precision: precision, nombre: nombre}) do
     case Monto.escala(moneda) do
       {:ok, ^precision} ->
