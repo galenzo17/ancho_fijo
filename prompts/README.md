@@ -34,3 +34,4 @@ como quedó.
 | [0005](0005-relleno-final-tolerado.md) | Issue #3: relleno final tolerado, una issue por PR | `relleno_final: :tolerar`, advertencia `:relleno_completado`, fixture |
 | [0006](0006-signo-al-final.md) | Issue #4: signo al final del campo | `signo: :final` en `:entero` y `:decimal`, diagnósticos de signo mal ubicado |
 | [0007](0007-tipo-rut.md) | Issue #5: tipo `:rut` | `AnchoFijo.Rut`, tipo `:rut` con `dv:`, generador y propiedades |
+| [0009](0009-parsear-bang-y-superficie-de-fallas.md) | Issue #16: `parsear!/3`, `AnchoFijo.Error` y la superficie de fallas | Bangs, `ArgumentError` para opciones, claves desconocidas rechazadas, test de basura |
