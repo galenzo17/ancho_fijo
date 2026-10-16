@@ -1,3 +1,10 @@
+---
+prompt: 0004
+fecha: 2026-08-06T17:56:52-04:00
+autor: Agustin Bereciartua <bereciartua.agustin@gmail.com>
+modelo: no registrado
+---
+
 # 0004 — Variables de entorno y publicación en Hex
 
 **Fecha:** 2026-08-06
