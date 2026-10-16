@@ -68,14 +68,18 @@ defmodule AnchoFijo.TelemetriaTest do
                        %{registros: 1, errores: 0, advertencias: 1}, _}
     end
 
-    test "un layout inválido o un archivo ilegible también cierran el span", %{ref: ref} do
+    test "un layout inválido o un archivo ilegible también cierran el span, con la misma forma",
+         %{ref: ref} do
       assert {:error, _} = AnchoFijo.parsear([campos: []], "001\n")
-      assert_received {[:ancho_fijo, :parsear, :stop], ^ref, %{duration: _}, %{resultado: :error}}
+
+      assert_received {[:ancho_fijo, :parsear, :stop], ^ref, medidas, metadata}
+      assert %{duration: _, lineas: 0, registros: 0, errores: 1, advertencias: 0} = medidas
+      assert %{resultado: :error, layout: nil, encoding: nil, unidad: nil} = metadata
 
       assert {:error, _} = AnchoFijo.parsear(@layout, "/no/existe", desde: :archivo)
 
-      assert_received {[:ancho_fijo, :parsear, :stop], ^ref, _,
-                       %{resultado: :error, desde: :archivo}}
+      assert_received {[:ancho_fijo, :parsear, :stop], ^ref, %{errores: 1},
+                       %{resultado: :error, desde: :archivo, layout: nil}}
     end
 
     test "desde una ruta, la metadata lo dice", %{ref: ref} do
@@ -98,9 +102,11 @@ defmodule AnchoFijo.TelemetriaTest do
       assert metadata.probablemente_ancho_fijo? == false
     end
 
-    test "una entrada ilegible cierra el span con :error", %{ref: ref} do
+    test "una entrada ilegible cierra el span con :error y la misma forma", %{ref: ref} do
       assert {:error, _} = AnchoFijo.detectar("/no/existe", desde: :archivo)
-      assert_received {[:ancho_fijo, :detectar, :stop], ^ref, %{duration: _}, %{resultado: :error}}
+
+      assert_received {[:ancho_fijo, :detectar, :stop], ^ref, %{duration: _, lineas: 0, bytes: 0},
+                       %{resultado: :error, probablemente_ancho_fijo?: nil}}
     end
   end
 
