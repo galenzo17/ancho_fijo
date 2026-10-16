@@ -294,6 +294,53 @@ Enum.map(layout.advertencias, &AnchoFijo.Diagnostico.mensaje/1)
 #   si el formato tiene relleno ahí, ignore esta advertencia"]
 ```
 
+## Trazabilidad: del registro al byte, y la huella del lote
+
+Cuando el banco rechaza una nómina de 40.000 líneas, la conversación es "el
+registro del beneficiario X está mal", y lo primero que se pide es volver del
+dato al lugar físico del archivo del que salió. Con `traza: true`, cada
+registro trae la clave reservada `:__traza__`:
+
+```elixir
+{:ok, registros, []} = AnchoFijo.parsear(layout, "nomina.txt", traza: true)
+
+registro = Enum.at(registros, 6)
+registro.__traza__
+# %AnchoFijo.Traza{linea: 7, offset: 288, largo: 48}
+
+AnchoFijo.Traza.linea_original(registro.__traza__, File.read!("nomina.txt"))
+# "12345678-5JUAN PEREZ          000012345620240115"
+```
+
+La forma de retorno fue una decisión. Una tupla `{registro, traza}` o un
+struct `%Registro{valores: ..., traza: ...}` cambian la forma para todo el
+código que ya lee `registro.monto`. La clave `:__traza__` no: el registro
+sigue siendo el mapa, la traza está al lado, y los dos guiones bajos son la
+convención de Elixir para metadatos que no chocan con datos (`__struct__`,
+`__meta__` en Ecto). Un campo del layout no se puede llamar así. Apagada, la
+opción no cuesta nada: el camino de parseo es el mismo de siempre y no se
+calcula ni se agrega nada; medido sobre 100.000 líneas, encenderla cuesta un
+45 % de tiempo y un 35 % de memoria en `parsear/3`, y nada medible en
+`stream/3`, que lleva el offset en el acumulador sin estado global.
+
+La huella del lote es la otra mitad de la trazabilidad: demostrar *qué*
+archivo se procesó.
+
+```elixir
+AnchoFijo.huella("nomina.txt")
+# {:ok, "sha256:3164aeb0f4d85eabb8bcc255402e83170729ffe8cb076483b98caf2407eca512"}
+```
+
+Es un SHA-256 estable entre corridas y sensible a cualquier byte de datos. Lo
+que no cambia la huella es lo que no cambia lo que el parser lee: el estilo
+de terminador de línea (CRLF, LF o CR, normalizados a LF) y la presencia del
+terminador en la última línea. Un archivo que pasó por un editor de Windows es
+el mismo lote. Lo que sí cambia la huella, a propósito: un espacio de relleno
+de más o de menos (es un byte del registro) y el encoding (los bytes son el
+dato). Con `normalizar: false` se calcula sobre los bytes exactos, que es lo
+que da `sha256sum`. Se calcula por bloques, así que un archivo de gigabytes
+no se carga en memoria.
+
 ## Decisiones y trade-offs
 
 **Las posiciones se cuentan en bytes, no en caracteres.** Un formato de ancho

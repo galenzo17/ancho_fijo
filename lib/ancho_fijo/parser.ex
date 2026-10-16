@@ -69,6 +69,9 @@ defmodule AnchoFijo.Parser do
     * `:omitir_vacias` — ignorar líneas en blanco. Default `true`, porque el
       salto final del archivo es una línea vacía y no un registro corrupto.
     * `:desde` — `:auto` (default), `:archivo` o `:contenido`.
+    * `:traza` — si es `true`, cada registro trae la clave `:__traza__` con
+      un `AnchoFijo.Traza`: número de línea, byte donde empieza y largo.
+      Default `false`, y apagada no cuesta nada: no se calcula ni se agrega.
   """
 
   alias AnchoFijo.Campo
@@ -76,6 +79,7 @@ defmodule AnchoFijo.Parser do
   alias AnchoFijo.Entrada
   alias AnchoFijo.Layout
   alias AnchoFijo.Transcodificacion
+  alias AnchoFijo.Traza
 
   @type registro :: %{optional(atom()) => Campo.valor()}
   @type resultado ::
@@ -101,11 +105,30 @@ defmodule AnchoFijo.Parser do
     with {:ok, layout} <- Layout.coercer(layout),
          {:ok, contenido} <- Entrada.leer(entrada, opts) do
       contenido
-      |> Entrada.dividir()
-      |> Enum.with_index(1)
+      |> numerar(Keyword.get(opts, :traza, false))
       |> seleccionar(opts)
       |> procesar(layout, Keyword.get(opts, :modo, :estricto))
     end
+  end
+
+  # Sin traza, el camino es el de siempre: partir y numerar. Con traza, cada
+  # línea conserva su terminador para saber dónde empieza la siguiente, y la
+  # tupla lleva la traza en vez del número solo. `parsear_linea/3` recibe el
+  # número en los dos casos; la traza se pega al registro al final.
+  defp numerar(contenido, false) do
+    contenido |> Entrada.dividir() |> Enum.with_index(1)
+  end
+
+  defp numerar(contenido, true) do
+    contenido
+    |> Entrada.dividir_con_terminador()
+    |> Enum.map_reduce({1, 0}, fn cruda, {numero, offset} ->
+      linea = Entrada.sin_terminador(cruda)
+
+      {{linea, Traza.nueva(numero, offset, byte_size(linea))},
+       {numero + 1, offset + byte_size(cruda)}}
+    end)
+    |> elem(0)
   end
 
   @doc """
@@ -142,16 +165,46 @@ defmodule AnchoFijo.Parser do
   reporta como dato, en el primer elemento del stream.
 
   Con `File.stream!/1` las líneas se cortan solo por `\\n`; si el archivo usa CR
-  a secas (Mac clásico, que `detectar/2` identifica), use `parsear/3`.
+  a secas (Mac clásico, que `detectar/2` identifica), use `parsear/3` o pase
+  la ruta con `traza: true`.
+
+  Con `traza: true` y una ruta, `stream/3` lee el archivo en bloques y parte
+  las líneas por sí mismo, byte a byte, así que los offsets cuadran con
+  cualquier terminador. Con un `File.Stream` construido por el llamador no
+  puede: `File.stream!/1` en modo línea convierte CRLF en LF y los offsets
+  quedan corridos un byte por línea. Para archivos CRLF, pase la ruta.
   """
   @spec stream(Layout.t() | Enumerable.t(), term(), keyword()) :: Enumerable.t()
   def stream(layout, entrada, opts \\ []) do
     layout = coercer!(layout)
 
-    case Entrada.lineas(entrada, opts) do
+    case fuente(entrada, opts) do
       {:ok, lineas} -> encadenar(lineas, layout, opts)
       {:error, diagnosticos} -> [{:error, diagnosticos}]
     end
+  end
+
+  # Con traza, las líneas tienen que llegar con sus bytes exactos para que el
+  # offset cuadre; sin traza, el camino de siempre.
+  defp fuente(entrada, opts) do
+    if Keyword.get(opts, :traza, false),
+      do: Entrada.lineas_con_terminador(entrada, opts),
+      else: Entrada.lineas(entrada, opts)
+  end
+
+  # La traza en un stream sale sin estado global: el offset viaja en el
+  # acumulador de `Stream.transform/3`. Para una ruta o un binario las líneas
+  # vienen con sus bytes exactos; para un enumerable del llamador se supone
+  # que cada elemento trae su terminador tal cual estaba en el archivo, y la
+  # doc avisa que `File.stream!/1` no cumple eso con CRLF.
+  defp numerar_stream(lineas, false), do: Stream.with_index(lineas, 1)
+
+  defp numerar_stream(lineas, true) do
+    Stream.transform(lineas, {1, 0}, fn cruda, {numero, offset} ->
+      largo = if is_binary(cruda), do: byte_size(Entrada.sin_terminador(cruda)), else: 0
+      avance = if is_binary(cruda), do: byte_size(cruda), else: 0
+      {[{cruda, Traza.nueva(numero, offset, largo)}], {numero + 1, offset + avance}}
+    end)
   end
 
   @doc """
@@ -187,15 +240,26 @@ defmodule AnchoFijo.Parser do
 
   defp encadenar(lineas, layout, opts) do
     lineas
-    |> Stream.with_index(1)
+    |> numerar_stream(Keyword.get(opts, :traza, false))
     |> Stream.drop(Keyword.get(opts, :saltar, 0))
-    |> Stream.map(fn {linea, numero} -> {Entrada.sin_terminador(linea), numero} end)
+    |> Stream.map(fn {linea, marca} -> {Entrada.sin_terminador(linea), marca} end)
     |> descartar_vacias(Keyword.get(opts, :omitir_vacias, true))
-    |> Stream.map(fn {linea, numero} -> parsear_linea(layout, linea, numero) end)
+    |> Stream.map(fn {linea, marca} -> parsear_marcada(layout, linea, marca) end)
   end
 
+  # `marca` es el número de línea, o la traza entera cuando se pidió. En el
+  # segundo caso el registro sale con la clave reservada.
+  defp parsear_marcada(layout, linea, %Traza{} = traza) do
+    case parsear_linea(layout, linea, traza.linea) do
+      {:ok, registro, advertencias} -> {:ok, Map.put(registro, Traza.clave(), traza), advertencias}
+      {:error, diagnosticos} -> {:error, diagnosticos}
+    end
+  end
+
+  defp parsear_marcada(layout, linea, numero), do: parsear_linea(layout, linea, numero)
+
   defp descartar_vacias(stream, true) do
-    Stream.reject(stream, fn {linea, _numero} -> linea == "" end)
+    Stream.reject(stream, fn {linea, _marca} -> linea == "" end)
   end
 
   defp descartar_vacias(stream, _false), do: stream
@@ -207,7 +271,7 @@ defmodule AnchoFijo.Parser do
   end
 
   defp filtrar_vacias(numeradas, true) do
-    Enum.reject(numeradas, fn {linea, _numero} -> linea == "" end)
+    Enum.reject(numeradas, fn {linea, _marca} -> linea == "" end)
   end
 
   defp filtrar_vacias(numeradas, _false), do: numeradas
@@ -217,8 +281,8 @@ defmodule AnchoFijo.Parser do
   # advertencias solo viajan cuando el archivo entero se pudo leer.
   defp procesar(numeradas, layout, :estricto) do
     resultado =
-      Enum.reduce_while(numeradas, {[], []}, fn {linea, numero}, {registros, advertencias} ->
-        case parsear_linea(layout, linea, numero) do
+      Enum.reduce_while(numeradas, {[], []}, fn {linea, marca}, {registros, advertencias} ->
+        case parsear_marcada(layout, linea, marca) do
           {:ok, registro, nuevas} ->
             {:cont, {[registro | registros], apilar(nuevas, advertencias)}}
 
@@ -235,8 +299,8 @@ defmodule AnchoFijo.Parser do
 
   defp procesar(numeradas, layout, :tolerante) do
     {registros, diagnosticos} =
-      Enum.reduce(numeradas, {[], []}, fn {linea, numero}, {registros, diagnosticos} ->
-        case parsear_linea(layout, linea, numero) do
+      Enum.reduce(numeradas, {[], []}, fn {linea, marca}, {registros, diagnosticos} ->
+        case parsear_marcada(layout, linea, marca) do
           {:ok, registro, nuevas} -> {[registro | registros], apilar(nuevas, diagnosticos)}
           {:error, nuevos} -> {registros, apilar(nuevos, diagnosticos)}
         end

@@ -4,6 +4,15 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+### Agregado
+
+- `traza: true` en `parsear/3` y `stream/3`: cada registro trae la clave
+  reservada `:__traza__` con un `AnchoFijo.Traza` (línea, offset de byte,
+  largo). `AnchoFijo.Traza.linea_original/2` recupera la línea desde el
+  contenido. Un campo no se puede llamar `:__traza__`.
+- `AnchoFijo.huella/2`: SHA-256 del lote con los terminadores normalizados a
+  LF, calculado por bloques; `normalizar: false` para los bytes exactos.
+
 ### Infraestructura
 
 - CI en GitHub Actions: la suite corre en Elixir 1.14, 1.16, 1.18 y 1.20 con
