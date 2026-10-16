@@ -75,6 +75,7 @@ defmodule AnchoFijo.Parser do
   alias AnchoFijo.Diagnostico
   alias AnchoFijo.Entrada
   alias AnchoFijo.Layout
+  alias AnchoFijo.Telemetria
   alias AnchoFijo.Transcodificacion
 
   @type registro :: %{optional(atom()) => Campo.valor()}
@@ -98,14 +99,31 @@ defmodule AnchoFijo.Parser do
   """
   @spec parsear(Layout.t() | Enumerable.t(), term(), keyword()) :: resultado()
   def parsear(layout, entrada, opts \\ []) do
+    metadata = %{modo: Keyword.get(opts, :modo, :estricto), desde: Entrada.origen(entrada, opts)}
+
+    Telemetria.span(:parsear, metadata, fn ->
+      case preparar_parseo(layout, entrada, opts) do
+        {:ok, layout, numeradas} ->
+          resultado = procesar(numeradas, layout, metadata.modo)
+          {medidas, extra} = Telemetria.medir_parseo(resultado, length(numeradas))
+          {resultado, medidas, Map.merge(extra, metadata_de_layout(layout))}
+
+        {:error, diagnosticos} ->
+          {{:error, diagnosticos}, %{}, %{resultado: :error}}
+      end
+    end)
+  end
+
+  defp preparar_parseo(layout, entrada, opts) do
     with {:ok, layout} <- Layout.coercer(layout),
          {:ok, contenido} <- Entrada.leer(entrada, opts) do
-      contenido
-      |> Entrada.dividir()
-      |> Enum.with_index(1)
-      |> seleccionar(opts)
-      |> procesar(layout, Keyword.get(opts, :modo, :estricto))
+      numeradas = contenido |> Entrada.dividir() |> Enum.with_index(1) |> seleccionar(opts)
+      {:ok, layout, numeradas}
     end
+  end
+
+  defp metadata_de_layout(%Layout{} = layout) do
+    %{layout: layout.nombre, encoding: layout.encoding, unidad: layout.unidad}
   end
 
   @doc """
@@ -148,10 +166,14 @@ defmodule AnchoFijo.Parser do
   def stream(layout, entrada, opts \\ []) do
     layout = coercer!(layout)
 
-    case Entrada.lineas(entrada, opts) do
-      {:ok, lineas} -> encadenar(lineas, layout, opts)
-      {:error, diagnosticos} -> [{:error, diagnosticos}]
-    end
+    resultados =
+      case Entrada.lineas(entrada, opts) do
+        {:ok, lineas} -> encadenar(lineas, layout, opts)
+        {:error, diagnosticos} -> [{:error, diagnosticos}]
+      end
+
+    metadata = Map.put(metadata_de_layout(layout), :desde, Entrada.origen(entrada, opts))
+    Telemetria.instrumentar_stream(resultados, metadata)
   end
 
   @doc """

@@ -33,6 +33,9 @@ defmodule AnchoFijo.MixProject do
 
   defp deps do
     [
+      # Opcional: sin ella no se emite nada y el paquete sigue sin
+      # dependencias de runtime. Ver AnchoFijo.Telemetria.
+      {:telemetry, "~> 1.2", optional: true},
       {:stream_data, "~> 1.1", only: [:dev, :test]},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
@@ -67,7 +70,8 @@ defmodule AnchoFijo.MixProject do
       groups_for_modules: [
         "Definición del formato": [AnchoFijo.Layout, AnchoFijo.Campo, AnchoFijo.Rut],
         Diagnóstico: [AnchoFijo.Detector, AnchoFijo.Diagnostico],
-        Lectura: [AnchoFijo.Parser, AnchoFijo.Transcodificacion]
+        Lectura: [AnchoFijo.Parser, AnchoFijo.Transcodificacion],
+        Observabilidad: [AnchoFijo.Telemetria]
       ]
     ]
   end

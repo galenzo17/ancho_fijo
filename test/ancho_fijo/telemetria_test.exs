@@ -1,0 +1,173 @@
+defmodule AnchoFijo.TelemetriaTest do
+  # No es async: el handler de telemetry es global y recibiría los eventos de
+  # los parseos de cualquier otro test que corra en paralelo.
+  use ExUnit.Case, async: false
+
+  import AnchoFijo.Fixtures, only: [ruta: 1, layout_nomina: 0]
+
+  alias AnchoFijo.Layout
+  alias AnchoFijo.Telemetria
+
+  @layout Layout.nuevo!(nombre: "códigos", campos: [[nombre: :codigo, largo: 3, tipo: :entero]])
+
+  @eventos [
+    [:ancho_fijo, :parsear, :start],
+    [:ancho_fijo, :parsear, :stop],
+    [:ancho_fijo, :parsear, :exception],
+    [:ancho_fijo, :detectar, :start],
+    [:ancho_fijo, :detectar, :stop],
+    [:ancho_fijo, :stream, :start],
+    [:ancho_fijo, :stream, :stop]
+  ]
+
+  setup do
+    ref = :telemetry_test.attach_event_handlers(self(), @eventos)
+    on_exit(fn -> :telemetry.detach(ref) end)
+    {:ok, ref: ref}
+  end
+
+  test "telemetry está disponible en este build" do
+    assert Telemetria.disponible?()
+  end
+
+  describe "parsear/3" do
+    test "emite start y stop con las cuentas y la metadata del layout", %{ref: ref} do
+      contenido = "001\nXYZ\n\n003\n"
+      assert {:ok, _, _} = AnchoFijo.parsear(@layout, contenido, modo: :tolerante)
+
+      assert_received {[:ancho_fijo, :parsear, :start], ^ref, %{system_time: _}, metadata}
+      assert metadata.modo == :tolerante
+      assert metadata.desde == :contenido
+
+      assert_received {[:ancho_fijo, :parsear, :stop], ^ref, medidas, metadata}
+      assert %{duration: d, lineas: 3, registros: 2, errores: 1, advertencias: 0} = medidas
+      assert is_integer(d)
+      assert metadata.resultado == :ok
+      assert metadata.layout == "códigos"
+      assert metadata.encoding == :utf8
+      assert metadata.unidad == :bytes
+    end
+
+    test "en estricto con error, stop dice :error y cuenta los diagnósticos", %{ref: ref} do
+      assert {:error, _} = AnchoFijo.parsear(@layout, "001\nXYZ\n")
+
+      assert_received {[:ancho_fijo, :parsear, :stop], ^ref, medidas, %{resultado: :error}}
+      assert %{lineas: 2, registros: 0, errores: 1} = medidas
+    end
+
+    test "las advertencias se cuentan aparte", %{ref: ref} do
+      layout =
+        Layout.nuevo!(
+          relleno_final: :tolerar,
+          campos: [[nombre: :a, largo: 3], [nombre: :b, largo: 3]]
+        )
+
+      assert {:ok, _, [_]} = AnchoFijo.parsear(layout, "abc\n")
+
+      assert_received {[:ancho_fijo, :parsear, :stop], ^ref,
+                       %{registros: 1, errores: 0, advertencias: 1}, _}
+    end
+
+    test "un layout inválido o un archivo ilegible también cierran el span", %{ref: ref} do
+      assert {:error, _} = AnchoFijo.parsear([campos: []], "001\n")
+      assert_received {[:ancho_fijo, :parsear, :stop], ^ref, %{duration: _}, %{resultado: :error}}
+
+      assert {:error, _} = AnchoFijo.parsear(@layout, "/no/existe", desde: :archivo)
+
+      assert_received {[:ancho_fijo, :parsear, :stop], ^ref, _,
+                       %{resultado: :error, desde: :archivo}}
+    end
+
+    test "desde una ruta, la metadata lo dice", %{ref: ref} do
+      assert {:ok, _, _} = AnchoFijo.parsear(layout_nomina(), ruta("nomina_correcta.txt"))
+      assert_received {[:ancho_fijo, :parsear, :stop], ^ref, %{registros: 3}, %{desde: :archivo}}
+    end
+  end
+
+  describe "detectar/2" do
+    test "emite start y stop con líneas, bytes y el veredicto", %{ref: ref} do
+      contenido = "juan;100\nmaria;20000\n"
+      assert {:ok, _} = AnchoFijo.detectar(contenido)
+
+      assert_received {[:ancho_fijo, :detectar, :start], ^ref, _, %{desde: :contenido}}
+
+      assert_received {[:ancho_fijo, :detectar, :stop], ^ref, medidas, metadata}
+      assert medidas.lineas == 2
+      assert medidas.bytes == byte_size(contenido)
+      assert metadata.resultado == :ok
+      assert metadata.probablemente_ancho_fijo? == false
+    end
+
+    test "una entrada ilegible cierra el span con :error", %{ref: ref} do
+      assert {:error, _} = AnchoFijo.detectar("/no/existe", desde: :archivo)
+      assert_received {[:ancho_fijo, :detectar, :stop], ^ref, %{duration: _}, %{resultado: :error}}
+    end
+  end
+
+  describe "stream/3" do
+    test "no emite nada hasta que se enumera", %{ref: ref} do
+      stream = AnchoFijo.stream(@layout, "001\n002\n")
+      refute_received {[:ancho_fijo, :stream, :start], ^ref, _, _}
+
+      assert Enum.count(stream) == 2
+
+      assert_received {[:ancho_fijo, :stream, :start], ^ref, %{system_time: _},
+                       %{layout: "códigos"}}
+
+      assert_received {[:ancho_fijo, :stream, :stop], ^ref, medidas, %{desde: :contenido}}
+      assert %{duration: _, lineas: 2, registros: 2, errores: 0, advertencias: 0} = medidas
+    end
+
+    test "cuenta errores y advertencias por línea", %{ref: ref} do
+      layout =
+        Layout.nuevo!(
+          relleno_final: :tolerar,
+          campos: [[nombre: :a, largo: 3, tipo: :entero], [nombre: :b, largo: 3]]
+        )
+
+      resultados = AnchoFijo.stream(layout, "001\nXYZabc\n002ab\n") |> Enum.to_list()
+      assert length(resultados) == 3
+
+      assert_received {[:ancho_fijo, :stream, :stop], ^ref, medidas, _}
+      assert %{lineas: 3, registros: 2, errores: 1, advertencias: 2} = medidas
+    end
+
+    test "si la enumeración se corta, stop sale igual con lo contado hasta ahí", %{ref: ref} do
+      assert [_] = AnchoFijo.stream(@layout, "001\n002\n003\n") |> Enum.take(1)
+
+      assert_received {[:ancho_fijo, :stream, :stop], ^ref, %{lineas: 1, registros: 1}, _}
+    end
+
+    test "sigue siendo lazy: con un stream infinito, take termina", %{ref: ref} do
+      infinito = Stream.cycle(["001\n"])
+      assert [_, _] = AnchoFijo.stream(@layout, infinito) |> Enum.take(2)
+
+      assert_received {[:ancho_fijo, :stream, :stop], ^ref, %{lineas: 2}, %{desde: :enumerable}}
+    end
+
+    test "un archivo ilegible emite start y stop con el error contado", %{ref: ref} do
+      assert [{:error, _}] =
+               AnchoFijo.stream(@layout, "/no/existe", desde: :archivo) |> Enum.to_list()
+
+      assert_received {[:ancho_fijo, :stream, :stop], ^ref, %{lineas: 1, errores: 1},
+                       %{desde: :archivo}}
+    end
+  end
+
+  describe "span/3" do
+    test "una excepción adentro emite :exception y la propaga", %{ref: ref} do
+      assert_raise RuntimeError, "boom", fn ->
+        Telemetria.span(:parsear, %{modo: :prueba}, fn -> raise "boom" end)
+      end
+
+      assert_received {[:ancho_fijo, :parsear, :exception], ^ref, %{duration: _}, metadata}
+      assert metadata.kind == :error
+      assert %RuntimeError{message: "boom"} = metadata.reason
+      assert metadata.modo == :prueba
+    end
+
+    test "devuelve el resultado de la función, no la tupla" do
+      assert Telemetria.span(:parsear, %{}, fn -> {:valor, %{}, %{}} end) == :valor
+    end
+  end
+end
