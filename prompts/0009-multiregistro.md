@@ -1,7 +1,7 @@
 ---
 prompt: 0009
-fecha: 2026-10-16T19:00:00-03:00
-autor: Agustin Bereciartua <bereciartua.agustin@gmail.com>
+fecha: 2026-10-16T19:38:38-03:00
+autor: Agustín Bereciartúa <bereciartua.agustin@gmail.com>
 modelo: claude-fable-5-1
 issue: 1
 ---
