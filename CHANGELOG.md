@@ -4,6 +4,12 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+### Agregado
+
+- `mix ancho_fijo.detectar RUTA`: `detectar/2` desde la terminal, con
+  `--lineas`, `--bytes`, `--layout RUTA.exs` y `--json`. Código de salida `0`
+  si parece ancho fijo y concuerda con el layout, `1` si no, `2` si no se
+  pudo leer el archivo, el layout o las opciones.
 ### Infraestructura
 
 - CI en GitHub Actions: la suite corre en Elixir 1.14, 1.16, 1.18 y 1.20 con
