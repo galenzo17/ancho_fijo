@@ -66,7 +66,7 @@ defmodule AnchoFijo.MixProject do
       extras: ["README.md", "CHANGELOG.md", "LICENSE"],
       groups_for_modules: [
         "Definición del formato": [AnchoFijo.Layout, AnchoFijo.Campo, AnchoFijo.Rut],
-        Diagnóstico: [AnchoFijo.Detector, AnchoFijo.Diagnostico],
+        Diagnóstico: [AnchoFijo.Detector, AnchoFijo.Diagnostico, AnchoFijo.Error],
         Lectura: [AnchoFijo.Parser, AnchoFijo.Transcodificacion]
       ]
     ]
