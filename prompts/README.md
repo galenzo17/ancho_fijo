@@ -35,4 +35,5 @@ como quedó.
 | [0006](0006-signo-al-final.md) | Issue #4: signo al final del campo | `signo: :final` en `:entero` y `:decimal`, diagnósticos de signo mal ubicado |
 | [0007](0007-tipo-rut.md) | Issue #5: tipo `:rut` | `AnchoFijo.Rut`, tipo `:rut` con `dv:`, generador y propiedades |
 | [0008](0008-ci-github-actions.md) | Issue #14: CI y publicación por tag | `ci.yml` con matriz y PLT en caché, `release.yml`, umbral de cobertura |
+| [0009](0009-parsear-bang-y-superficie-de-fallas.md) | Issue #16: `parsear!/3`, `AnchoFijo.Error` y la superficie de fallas | Bangs, `ArgumentError` para opciones, claves desconocidas rechazadas, test de basura |
 | [0010](0010-mix-task-detectar.md) | Issue #15: `mix ancho_fijo.detectar` | Tarea Mix con `--layout`, `--json`, códigos de salida 0/1/2, test con `CaptureIO` |

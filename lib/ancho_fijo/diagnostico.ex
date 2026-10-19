@@ -240,30 +240,3 @@ defmodule AnchoFijo.Diagnostico do
     def to_string(diagnostico), do: AnchoFijo.Diagnostico.mensaje(diagnostico)
   end
 end
-
-defmodule AnchoFijo.Error do
-  @moduledoc """
-  Excepción que envuelve uno o más `AnchoFijo.Diagnostico`.
-
-  Solo la levantan las funciones con `!` (`AnchoFijo.Layout.nuevo!/1` y
-  `AnchoFijo.stream/3`), reservadas para errores del programador —un layout mal
-  definido— y no para datos sucios, que siempre se devuelven como valor.
-  """
-
-  defexception [:diagnosticos]
-
-  @type t :: %__MODULE__{diagnosticos: [AnchoFijo.Diagnostico.t()]}
-
-  @impl true
-  def exception(diagnosticos) when is_list(diagnosticos) do
-    %__MODULE__{diagnosticos: diagnosticos}
-  end
-
-  @impl true
-  def exception(diagnostico), do: %__MODULE__{diagnosticos: [diagnostico]}
-
-  @impl true
-  def message(%__MODULE__{diagnosticos: diagnosticos}) do
-    AnchoFijo.Diagnostico.reporte(diagnosticos)
-  end
-end
