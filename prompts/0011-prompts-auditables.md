@@ -1,12 +1,12 @@
 ---
-prompt: 0009
+prompt: 0011
 fecha: 2026-10-16T18:26:20-03:00
 autor: Agustín Bereciartúa <bereciartua.agustin@gmail.com>
 modelo: claude-fable-5-1
 issue: 17
 ---
 
-# 0009 — Historial de prompts auditable (issue #17)
+# 0011 — Historial de prompts auditable (issue #17)
 
 **Contexto:** `prompts/` tenía diez archivos con dos convenciones: `0001` a
 `0004` con la fecha en prosa y sin hora, `0005` en adelante con un
