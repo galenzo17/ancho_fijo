@@ -34,6 +34,8 @@ defmodule AnchoFijo.MixProject do
   defp deps do
     [
       {:stream_data, "~> 1.1", only: [:dev, :test]},
+      # Solo para validar la salida --json de la tarea con un decoder real.
+      {:jason, "~> 1.4", only: [:dev, :test]},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
@@ -67,7 +69,8 @@ defmodule AnchoFijo.MixProject do
       groups_for_modules: [
         "Definición del formato": [AnchoFijo.Layout, AnchoFijo.Campo, AnchoFijo.Rut],
         Diagnóstico: [AnchoFijo.Detector, AnchoFijo.Diagnostico, AnchoFijo.Error],
-        Lectura: [AnchoFijo.Parser, AnchoFijo.Transcodificacion]
+        Lectura: [AnchoFijo.Parser, AnchoFijo.Transcodificacion],
+        Terminal: [Mix.Tasks.AnchoFijo.Detectar]
       ]
     ]
   end

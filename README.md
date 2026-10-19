@@ -103,6 +103,25 @@ El reporte completo trae `:largos`, `:largo_consistente?`, `:largo_predominante`
 `:termina_con_terminador?`, `:delimitadores`, `:delimitador_sugerido` y
 `:probablemente_ancho_fijo?`. Ver `AnchoFijo.Detector`.
 
+### Desde la terminal
+
+El día uno no hay proyecto ni `iex`: hay un archivo que llegó por correo. La
+misma pregunta, como comando:
+
+```
+$ mix ancho_fijo.detectar nomina.txt
+nomina.txt: probablemente de ancho fijo
+  3 líneas · largo 48 bytes, consistente · ascii · LF
+  - todas las 3 líneas miden 48 bytes
+  - todos los bytes son ASCII: latin-1 y UTF-8 dan el mismo resultado en este archivo
+  - las líneas terminan en LF (\n), estilo Unix
+```
+
+`--layout nomina.exs` contrasta con un layout, `--json` imprime el reporte
+para `jq`, y el código de salida sirve para un script de validación previa:
+`0` si parece ancho fijo y concuerda, `1` si no, `2` si no se pudo leer.
+Ver `mix help ancho_fijo.detectar`.
+
 ## Después se parsea
 
 El layout es data: una lista de campos con nombre, largo, tipo y opciones de
