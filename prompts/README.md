@@ -167,3 +167,4 @@ Las que la convención tuvo que zanjar y no eran obvias:
 | [0018](0018-escritura.md) | Issue #2: escritura con el mismo layout | `AnchoFijo.escribir/3`, `Escritor.stream/3`, `Campo.formatear/3`, round-trip como propiedad |
 | [0019](0019-multiregistro.md) | Issue #1: header, detalle y trailer | `AnchoFijo.Multiregistro`, discriminador, orden y cantidad, controles cruzados, stream con cierre |
 | [0020](0020-idempotencia.md) | Issue #11: idempotencia de lotes | `AnchoFijo.Identidad`, tres fuentes, `cotejar/2` con duplicado y conflicto, sin estado |
+| [0021](0021-catalogo-nacha.md) | Issue #10: catálogo de formatos reales, NACHA primero | `AnchoFijo.Formatos` con vigencias, `Formatos.Nacha` completo y validado, fixture inventado |

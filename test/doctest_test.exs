@@ -7,6 +7,7 @@ defmodule AnchoFijo.DoctestTest do
   doctest AnchoFijo.Diagnostico
   doctest AnchoFijo.Escritor
   doctest AnchoFijo.Identidad
+  doctest AnchoFijo.Formatos
   doctest AnchoFijo.Layout
   doctest AnchoFijo.Monto
   doctest AnchoFijo.Multiregistro

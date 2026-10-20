@@ -262,7 +262,7 @@ defmodule AnchoFijo.MultiregistroTest do
                  registros: [h: [valor: "H", layout: [campos: [[nombre: :a, largo: 2]]]]]
                )
 
-      assert d.esperado =~ "un :valor binario de 2 bytes para :h"
+      assert d.esperado =~ "de 2 bytes para :h"
 
       assert {:error, [d]} =
                Multiregistro.nuevo(
