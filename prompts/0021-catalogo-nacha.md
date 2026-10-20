@@ -1,12 +1,12 @@
 ---
-prompt: 0010
+prompt: 0021
 fecha: 2026-10-16T19:52:04-03:00
 autor: Agustín Bereciartúa <bereciartua.agustin@gmail.com>
 modelo: claude-fable-5-1
 issue: 10
 ---
 
-# 0010 — Catálogo de formatos reales: NACHA primero (issue #10)
+# 0021 — Catálogo de formatos reales: NACHA primero (issue #10)
 
 **Contexto:** la librería lee cualquier formato, pero cada usuario
 transcribe el anexo desde cero. Los formatos de verdad son públicos y
