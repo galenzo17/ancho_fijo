@@ -1,3 +1,10 @@
+---
+prompt: 0001
+fecha: 2026-08-06T17:42:34-04:00
+autor: Agustin Bereciartua <bereciartua.agustin@gmail.com>
+modelo: no registrado
+---
+
 # 0001 — Creación inicial de la librería
 
 **Fecha:** 2026-08-06

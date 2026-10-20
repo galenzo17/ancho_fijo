@@ -14,3 +14,6 @@ ancho_fijo-*.tar
 # viajar: una API key de Hex publica paquetes en tu nombre.
 .env
 .env.*
+
+# Archivos grandes de los benchmarks: se generan con mix run bench/generar.exs
+/bench/datos/

@@ -5,10 +5,14 @@ defmodule AnchoFijo.DoctestTest do
   doctest AnchoFijo.Campo
   doctest AnchoFijo.Detector
   doctest AnchoFijo.Diagnostico
+  doctest AnchoFijo.Escritor
+  doctest AnchoFijo.Identidad
   doctest AnchoFijo.Formatos
   doctest AnchoFijo.Layout
+  doctest AnchoFijo.Monto
   doctest AnchoFijo.Multiregistro
   doctest AnchoFijo.Parser
   doctest AnchoFijo.Rut
   doctest AnchoFijo.Transcodificacion
+  doctest AnchoFijo.Traza
 end
