@@ -2,6 +2,27 @@
 
 Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
+## [No publicado]
+
+### Corregido
+
+- `:crypto` declarado en `extra_applications`: sin eso, un release que no
+  arrastre `:ssl` deja afuera la aplicación y `huella/2` e `identidad/3`
+  fallan con `UndefinedFunctionError` recién en producción. Como dependencia
+  también compilaba con warning.
+- `AnchoFijo.Telemetria` ya no deja un atributo sin usar cuando el proyecto
+  que la compila no tiene `:telemetry`: era un warning en cada compilación
+  ajena.
+- El `ArgumentError` de `Monto.a_decimal/1` nombra el requisito real,
+  `{:decimal, "~> 2.0 or ~> 3.0"}`.
+
+### Infraestructura
+
+- Job de CI "Como dependencia": un proyecto vacío con `{:ancho_fijo, path: ...}`
+  y sin dependencias opcionales compila la librería y falla ante cualquier
+  warning. Es lo que CI no veía: en el repo, las deps de dev y test tapan
+  estos problemas.
+
 ## [0.3.0] — 2026-10-20
 
 ### Cambiado — rompe compatibilidad

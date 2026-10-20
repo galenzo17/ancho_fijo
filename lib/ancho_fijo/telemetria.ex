@@ -83,8 +83,6 @@ defmodule AnchoFijo.Telemetria do
   los diagnósticos que la función devuelve, que son datos y no eventos.
   """
 
-  @prefijo :ancho_fijo
-
   @typedoc "Lo que devuelve la función envuelta: resultado, medidas extra y metadata extra."
   @type salida :: {term(), map(), map()}
 
@@ -94,6 +92,8 @@ defmodule AnchoFijo.Telemetria do
   # runtime. `Code.ensure_loaded?/1` acá adentro corre en tiempo de
   # compilación porque está en el cuerpo del módulo, no de una función.
   if Code.ensure_loaded?(:telemetry) do
+    @prefijo :ancho_fijo
+
     @doc """
     Envuelve `fun` en un `:telemetry.span/3` bajo `[:ancho_fijo, nombre]`.
 

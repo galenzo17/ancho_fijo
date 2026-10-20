@@ -182,3 +182,69 @@ jobs:
       - run: mix deps.get
 
       - run: mix prompts.verificar
+
+  # Lo que ve un proyecto que agrega la librería: un `mix new` con
+  # `{:ancho_fijo, path: ...}` y nada más, sin :telemetry ni :decimal. En el
+  # repo las deps de dev y test tapan los warnings de xref y los atributos sin
+  # usar de las ramas compiladas condicionalmente; acá no hay nada que los tape.
+  dependencia:
+    name: Como dependencia
+    runs-on: ubuntu-24.04
+    strategy:
+      matrix:
+        include:
+          - elixir: "1.14.5"
+            otp: "25.3"
+          - elixir: "1.20"
+            otp: "28"
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          path: ancho_fijo
+
+      - name: Instalar Erlang y Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: ${{ matrix.elixir }}
+          otp-version: ${{ matrix.otp }}
+
+      - name: Crear un proyecto vacío que dependa de la librería por path
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix new consumidor
+          cat > consumidor/mix.exs <<'MIX'
+          defmodule Consumidor.MixProject do
+            use Mix.Project
+
+            def project do
+              [app: :consumidor, version: "0.0.0", elixir: "~> 1.14", deps: deps()]
+            end
+
+            def application, do: [extra_applications: [:logger]]
+
+            defp deps, do: [{:ancho_fijo, path: "../ancho_fijo"}]
+          end
+          MIX
+
+      - name: Compilar la librería como dependencia sin un solo warning
+        working-directory: consumidor
+        run: |
+          mix deps.get
+          mix deps.compile 2>&1 | tee compilacion.log
+          if grep -q "warning:" compilacion.log; then
+            echo "::error::la librería compila con warnings como dependencia"
+            exit 1
+          fi
+
+      - name: Usar la librería desde el proyecto vacío
+        working-directory: consumidor
+        run: |
+          mix run -e '
+          layout = [campos: [[nombre: :rut, largo: 10, tipo: :rut], [nombre: :monto, largo: 8, tipo: :decimal, precision: 2]]]
+          {:ok, [registro], []} = AnchoFijo.parsear(layout, "12345678-500012345\n")
+          {:ok, "12345678-500012345\n", []} = AnchoFijo.escribir(layout, [registro])
+          {:ok, "sha256:" <> _} = AnchoFijo.huella("12345678-500012345\n")
+          true = :crypto in Application.spec(:ancho_fijo, :applications)
+          IO.puts("ancho_fijo " <> to_string(Application.spec(:ancho_fijo, :vsn)) <> " funciona como dependencia")
+          '

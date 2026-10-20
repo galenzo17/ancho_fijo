@@ -325,7 +325,7 @@ defmodule AnchoFijo.Monto do
       Decimal.new(signo, abs(monto.unidades), -monto.precision)
     else
       raise ArgumentError,
-            "la librería Decimal no está disponible; agregue {:decimal, \"~> 2.0\"} al proyecto"
+            "la librería Decimal no está disponible; agregue {:decimal, \"~> 2.0 or ~> 3.0\"} al proyecto"
     end
   end
 
