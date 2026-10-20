@@ -336,6 +336,51 @@ Enum.map(layout.advertencias, &AnchoFijo.Diagnostico.mensaje/1)
 #   si el formato tiene relleno ahí, ignore esta advertencia"]
 ```
 
+## Los datos personales no viajan en los diagnósticos
+
+El mensaje que se pega en un correo para el banco es el mismo que termina en un
+`Logger.error`, en Sentry y en un ticket. Si el campo que falló es un RUT o un
+nombre, ese es el camino por el que los datos de miles de beneficiarios salen
+del sistema sin que nadie lo haya decidido (Ley 19.628 en Chile, GDPR si hay
+clientes europeos). Lo incómodo es que la información que hace útil al
+diagnóstico es la misma que no debería viajar.
+
+Un campo se declara sensible en el layout, y `:rut` lo es por default:
+
+```elixir
+[nombre: :beneficiario, largo: 20, sensible: true]
+```
+
+Sus diagnósticos muestran la **forma** del valor, no el valor, en
+`Diagnostico.mensaje/1`, `reporte/1`, `to_string/1` e `inspect/1`:
+
+```
+línea 7, campo :rut (posiciones 1-10): se esperaban un RUT con dígito verificador,
+llegaron <10 caracteres: 4 dígitos, 1 letra, 3 dígitos, "-", 1 dígito>; ...
+```
+
+La forma es la política de redacción, y es una decisión. Una máscara parcial
+(`1234****-*`) deja ver lo suficiente para reidentificar —cuatro dígitos de un
+RUT dejan diez mil candidatos— y oculta justo lo que hace falta para depurar.
+La supresión total no dice nada. La forma dice que hay una letra donde debía
+haber un dígito, y en qué posición, sin decir cuál. El largo no se oculta: es
+el ancho del campo, que el layout ya declara.
+
+El valor completo sigue en `:recibido` del struct, y `mensaje(d, revelar: true)`
+o `reporte(lista, revelar: true)` lo muestran para uso local e interactivo. La
+redacción es de las representaciones, no del dato: quien lo necesita lo lee a
+propósito, y el camino accidental —`Logger.error(inspect(diagnostico))`— no lo
+lleva. Es el mismo patrón que `redact: true` en Ecto.
+
+Lo que no se redacta, y por qué: un byte inválido y su posición (`el byte 0xC9
+en la posición 14`) no es un dato personal y es el diagnóstico entero de un
+problema de encoding; la medida de una línea corta es un número; y las
+observaciones de `detectar/2` citan a lo sumo un byte y un delimitador, nunca
+el contenido de un campo. Las entradas que no son binarios se describen por
+tipo ("una lista de 3 elementos") en vez de imprimirse. Hay un test que
+recorre cada tipo de campo y cada falla posible y verifica la ausencia del
+valor en cada representación.
+
 ## Decisiones y trade-offs
 
 **Las posiciones se cuentan en bytes, no en caracteres.** Un formato de ancho

@@ -19,6 +19,13 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- `sensible: true` en los campos del layout (`:rut` lo es por default). Los
+  diagnósticos de un campo sensible muestran la forma del valor y no el valor
+  en `Diagnostico.mensaje/1`, `reporte/1`, `to_string/1` e `inspect/1`;
+  `mensaje/2` y `reporte/2` con `revelar: true` muestran el valor.
+  `Diagnostico.forma/1` describe un valor sin revelarlo y
+  `Diagnostico.marcar_sensible/2` marca un diagnóstico.
+- `AnchoFijo.Diagnostico` tiene `:sensible` y `:redactado`.
 - `mix ancho_fijo.detectar RUTA`: `detectar/2` desde la terminal, con
   `--lineas`, `--bytes`, `--layout RUTA.exs` y `--json`. Código de salida `0`
   si parece ancho fijo y concuerda con el layout, `1` si no, `2` si no se
@@ -32,6 +39,11 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   del enumerable que no sea binario; antes era un `FunctionClauseError`.
 - `Layout.nuevo/1` y `Campo.nuevo/1` devuelven un diagnóstico cuando el
   argumento no es una definición (un entero, una lista que no es keyword).
+
+### Cambiado
+
+- Un diagnóstico `:entrada` por un argumento que no es binario describe el
+  tipo del argumento ("una lista de 3 elementos") en vez de imprimirlo.
 
 ### Infraestructura
 

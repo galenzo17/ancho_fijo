@@ -158,3 +158,4 @@ Las que la convención tuvo que zanjar y no eran obvias:
 | [0009](0009-parsear-bang-y-superficie-de-fallas.md) | Issue #16: `parsear!/3`, `AnchoFijo.Error` y la superficie de fallas | Bangs, `ArgumentError` para opciones, claves desconocidas rechazadas, test de basura |
 | [0010](0010-mix-task-detectar.md) | Issue #15: `mix ancho_fijo.detectar` | Tarea Mix con `--layout`, `--json`, códigos de salida 0/1/2, test con `CaptureIO` |
 | [0011](0011-prompts-auditables.md) | Issue #17: historial de prompts auditable | `mix prompts.verificar`, frontmatter verificado contra git, job en CI |
+| [0012](0012-datos-sensibles.md) | Issue #8: datos personales en los diagnósticos | `sensible: true`, forma en vez de valor, `revelar: true`, `inspect` redactado |
