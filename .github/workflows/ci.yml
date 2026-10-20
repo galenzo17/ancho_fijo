@@ -137,6 +137,9 @@ jobs:
 
       - run: mix credo --strict
 
+      # Avisos de seguridad de las dependencias, incluidas las opcionales.
+      - run: mix hex.audit
+
       - name: Construir el PLT si no vino del cache
         if: steps.plt.outputs.cache-hit != 'true'
         run: mix dialyzer --plt

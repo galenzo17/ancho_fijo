@@ -2,7 +2,7 @@
 
 Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
-## [No publicado]
+## [0.3.0] — 2026-10-20
 
 ### Cambiado — rompe compatibilidad
 
@@ -103,6 +103,8 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Cambiado
 
+- `decimal`, la dependencia opcional de `Monto.a_decimal/1`, acepta la serie 3.x
+  (`~> 2.0 or ~> 3.0`): la 2.4.1 tiene dos avisos de seguridad (#43).
 - `parsear/3` parte y numera las líneas de a una en vez de materializar la
   lista completa antes de procesar la primera: en modo `:estricto` sobre un
   archivo de 100 MB con la primera fila mala en la línea 1000, de 0,46 s y
@@ -118,6 +120,7 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Infraestructura
 
+- `mix hex.audit` corre en CI junto con formato, credo y dialyzer.
 - `bench/generar.exs` y `bench/parseo.exs`: fixture grande, Benchee y un
   medidor de memoria pico por proceso. Resultados en `bench/README.md`.
 

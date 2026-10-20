@@ -1,7 +1,7 @@
 defmodule AnchoFijo.MixProject do
   use Mix.Project
 
-  @version "0.2.0"
+  @version "0.3.0"
   @source_url "https://github.com/galenzo17/ancho_fijo"
 
   def project do
@@ -36,7 +36,7 @@ defmodule AnchoFijo.MixProject do
   defp deps do
     [
       # Opcional: solo para AnchoFijo.Monto.a_decimal/1.
-      {:decimal, "~> 2.0", optional: true},
+      {:decimal, "~> 2.0 or ~> 3.0", optional: true},
       # Opcional: sin ella no se emite nada y el paquete sigue sin
       # dependencias de runtime. Ver AnchoFijo.Telemetria.
       {:telemetry, "~> 1.3", optional: true},
