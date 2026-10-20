@@ -2,7 +2,7 @@
 
 Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
-## [No publicado]
+## [0.3.1] — 2026-10-20
 
 ### Corregido
 
