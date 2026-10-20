@@ -45,7 +45,6 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 - Un diagnóstico `:entrada` por un argumento que no es binario describe el
   tipo del argumento ("una lista de 3 elementos") en vez de imprimirlo.
 
-
 ### Infraestructura
 
 - `mix prompts.verificar`: el registro de `prompts/` se verifica contra git
