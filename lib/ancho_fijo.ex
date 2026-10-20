@@ -47,6 +47,10 @@ defmodule AnchoFijo do
   | `stream/3` | leer un archivo grande de forma lazy |
   | `AnchoFijo.Layout.nuevo/1` | definir y validar el formato |
 
+  `detectar!/2`, `parsear!/3` y `AnchoFijo.Layout.nuevo!/1` son las mismas
+  con la convención de la stdlib: devuelven el valor o levantan
+  `AnchoFijo.Error`.
+
   ## Montos
 
   Un `:decimal` se devuelve como `{unidades, precision}`: `{123456, 2}` es
@@ -64,6 +68,10 @@ defmodule AnchoFijo do
   advertencias de las que sí, pero asumiendo algo. `Diagnostico.separar/1` las
   parte en dos.
 
+  Lo único que la librería levanta por sí misma es `AnchoFijo.Error`, desde las
+  funciones con `!`, y `ArgumentError` cuando la llamada está mal hecha: una
+  opción que no existe, un valor de otro tipo. Ver `AnchoFijo.Error`.
+
   ## Alcance de 0.1
 
   Solo lectura. Sin escritura de archivos y sin multiregistro
@@ -74,6 +82,7 @@ defmodule AnchoFijo do
   alias AnchoFijo.Diagnostico
   alias AnchoFijo.Layout
   alias AnchoFijo.Parser
+  alias AnchoFijo.Traza
 
   @doc """
   Interroga una muestra —binario o ruta— y devuelve un reporte del archivo.
@@ -96,6 +105,17 @@ defmodule AnchoFijo do
   """
   @spec detectar(term(), keyword()) :: {:ok, Detector.reporte()} | {:error, [Diagnostico.t()]}
   defdelegate detectar(entrada, opts \\ []), to: Detector
+
+  @doc """
+  Igual que `detectar/2`, pero devuelve el reporte o levanta `AnchoFijo.Error`.
+
+      iex> AnchoFijo.detectar!("ABC1234567\\nDEF7654321\\n").largo_predominante
+      10
+
+  Ver `AnchoFijo.Detector.detectar!/2`.
+  """
+  @spec detectar!(term(), keyword()) :: Detector.reporte()
+  defdelegate detectar!(entrada, opts \\ []), to: Detector
 
   @doc """
   Parsea un archivo completo según un layout.
@@ -126,6 +146,25 @@ defmodule AnchoFijo do
   defdelegate parsear(layout, entrada, opts \\ []), to: Parser
 
   @doc """
+  Igual que `parsear/3`, pero devuelve solo los registros o levanta `AnchoFijo.Error`.
+
+  Para el script o el `Mix.Task` donde un archivo malo no deja nada que hacer
+  salvo morir con un mensaje claro. En modo `:tolerante` levanta igual si hay
+  filas malas, pero con todos los errores adentro, no solo el primero. Las
+  advertencias no se devuelven: si importan, use `parsear/3`.
+
+      iex> AnchoFijo.parsear!([campos: [[nombre: :moneda, largo: 3]]], "CLP\\nUSD\\n")
+      [%{moneda: "CLP"}, %{moneda: "USD"}]
+
+      iex> AnchoFijo.parsear!([campos: [[nombre: :codigo, largo: 3, tipo: :entero]]], "001\\nAB2\\n")
+      ** (AnchoFijo.Error) línea 2, campo :codigo (posiciones 1-3): se esperaban 3 posiciones con un número entero, llegaron "AB2"; hay caracteres no numéricos o el campo está corrido
+
+  Ver `AnchoFijo.Parser.parsear!/3`.
+  """
+  @spec parsear!(Layout.t() | Enumerable.t(), term(), keyword()) :: [Parser.registro()]
+  defdelegate parsear!(layout, entrada, opts \\ []), to: Parser
+
+  @doc """
   Igual que `parsear/3` pero lazy, para archivos que no caben en memoria.
 
   Devuelve un `Stream` de `{:ok, registro, advertencias}` o
@@ -148,4 +187,13 @@ defmodule AnchoFijo do
   """
   @spec stream(Layout.t() | Enumerable.t(), term(), keyword()) :: Enumerable.t()
   defdelegate stream(layout, entrada, opts \\ []), to: Parser
+
+  @doc """
+  Huella SHA-256 del lote, estable entre corridas e insensible al estilo de
+  terminador de línea. Ver `AnchoFijo.Traza.huella/2`.
+
+      iex> {:ok, "sha256:" <> _hex} = AnchoFijo.huella("001\\n002\\n")
+  """
+  @spec huella(term(), keyword()) :: {:ok, String.t()} | {:error, [Diagnostico.t()]}
+  defdelegate huella(entrada, opts \\ []), to: Traza
 end

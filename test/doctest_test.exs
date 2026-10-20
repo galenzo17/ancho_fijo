@@ -10,4 +10,5 @@ defmodule AnchoFijo.DoctestTest do
   doctest AnchoFijo.Parser
   doctest AnchoFijo.Rut
   doctest AnchoFijo.Transcodificacion
+  doctest AnchoFijo.Traza
 end

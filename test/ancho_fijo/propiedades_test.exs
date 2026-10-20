@@ -135,10 +135,19 @@ defmodule AnchoFijo.PropiedadesTest do
       end
     end
 
+    # El filtro va en el generador y no como cláusula del `check all`: con un
+    # solo campo de los cinco tipos, tres de cada cinco layouts no tienen
+    # numérico, y 25 descartes seguidos (el default) pasan de vez en cuando.
     property "meter una letra en un campo numérico se diagnostica en ese campo" do
+      con_numerico =
+        filter(
+          layout_con_registro(),
+          &Enum.any?(&1.campos, fn c -> c.tipo in [:entero, :decimal] end),
+          500
+        )
+
       check all(
-              %{layout: layout, linea: linea, campos: campos} <- layout_con_registro(),
-              Enum.any?(campos, &(&1.tipo in [:entero, :decimal])),
+              %{layout: layout, linea: linea, campos: campos} <- con_numerico,
               nombre <- member_of(nombres_numericos(campos))
             ) do
         campo = AnchoFijo.Layout.campo(layout, nombre)
