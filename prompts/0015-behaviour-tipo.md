@@ -1,12 +1,12 @@
 ---
-prompt: 0009
+prompt: 0015
 fecha: 2026-10-16T18:57:19-03:00
 autor: Agustín Bereciartúa <bereciartua.agustin@gmail.com>
 modelo: claude-fable-5-1
 issue: 12
 ---
 
-# 0009 — Behaviour `AnchoFijo.Tipo` (issue #12)
+# 0015 — Behaviour `AnchoFijo.Tipo` (issue #12)
 
 **Contexto:** los tipos de campo eran un `case` cerrado en `Campo.convertir/3`
 sobre cinco átomos, con la validación de opciones por tipo en el mismo
