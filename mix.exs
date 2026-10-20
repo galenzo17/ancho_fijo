@@ -27,7 +27,9 @@ defmodule AnchoFijo.MixProject do
   end
 
   def application do
-    [extra_applications: [:logger]]
+    # :crypto es de OTP pero no viene solo: sin declararlo, un release que no
+    # arrastre :ssl lo deja afuera y huella/2 revienta recién en producción.
+    [extra_applications: [:logger, :crypto]]
   end
 
   defp elixirc_paths(:test), do: ["lib", "test/support"]
