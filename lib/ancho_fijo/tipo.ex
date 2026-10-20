@@ -73,7 +73,9 @@ defmodule AnchoFijo.Tipo do
       el campo y el contexto de lectura. Un campo en blanco con
       `opcional: true` se resuelve antes y nunca llega acá; sin `:opcional`,
       llega `""` y el tipo decide (lo usual es `Tipo.vacio/2`).
-    * `c:escribir/2` — opcional, para cuando exista la escritura de archivos.
+    * `c:escribir/2` — opcional: serializa el valor al ancho del campo, para
+      `AnchoFijo.escribir/3`. Un tipo sin `escribir/2` se lee pero no se
+      escribe, y `AnchoFijo.Campo.formatear/3` lo dice como diagnóstico.
 
   ## Cuándo se verifica que el módulo implementa el behaviour
 

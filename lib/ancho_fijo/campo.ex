@@ -657,7 +657,11 @@ defmodule AnchoFijo.Campo do
     representar(campo, {unidades, precision}, contexto)
   end
 
-  defp representar(%__MODULE__{modulo: Tipo.Decimal, moneda: moneda} = campo, %Monto{} = monto, contexto)
+  defp representar(
+         %__MODULE__{modulo: Tipo.Decimal, moneda: moneda} = campo,
+         %Monto{} = monto,
+         contexto
+       )
        when not is_nil(moneda) do
     {:error,
      diagnostico(campo, contexto,
@@ -769,35 +773,37 @@ defmodule AnchoFijo.Campo do
   # Un tipo propio escribe con `escribir/2`; el texto tiene que medir lo que
   # el campo declara, porque el lector va a contar exactamente eso.
   defp representar_externo(%__MODULE__{modulo: modulo} = campo, valor, contexto) do
-    cond do
-      not function_exported?(modulo, :escribir, 2) ->
-        {:error,
-         diagnostico(campo, contexto,
-           esperado: "un tipo que implemente escribir/2",
-           recibido: inspect(modulo),
-           causa_probable: "el tipo #{inspect(modulo)} solo sabe leer; implemente escribir/2 para escribirlo"
-         )}
-
-      true ->
-        case modulo.escribir(valor, campo) do
-          {:ok, texto} when is_binary(texto) ->
-            ancho = medir(texto, contexto)
-
-            if ancho == campo.largo,
-              do: {:ok, texto, []},
-              else:
-                {:error,
-                 no_cabe(campo, valor, ancho, "un texto de exactamente #{campo.largo} posiciones", contexto)}
-
-          {:error, causa} ->
-            {:error,
-             diagnostico(campo, contexto,
-               esperado: "un valor que #{inspect(modulo)} sepa escribir",
-               recibido: inspect(valor),
-               causa_probable: causa
-             )}
-        end
+    if function_exported?(modulo, :escribir, 2) do
+      valor |> modulo.escribir(campo) |> medir_externo(campo, valor, contexto)
+    else
+      {:error,
+       diagnostico(campo, contexto,
+         esperado: "un tipo que implemente escribir/2",
+         recibido: inspect(modulo),
+         causa_probable:
+           "el tipo #{inspect(modulo)} solo sabe leer; implemente escribir/2 para escribirlo"
+       )}
     end
+  end
+
+  defp medir_externo({:ok, texto}, %__MODULE__{} = campo, valor, contexto) when is_binary(texto) do
+    ancho = medir(texto, contexto)
+
+    if ancho == campo.largo do
+      {:ok, texto, []}
+    else
+      esperado = "un texto de exactamente #{campo.largo} posiciones"
+      {:error, no_cabe(campo, valor, ancho, esperado, contexto)}
+    end
+  end
+
+  defp medir_externo({:error, causa}, %__MODULE__{modulo: modulo} = campo, valor, contexto) do
+    {:error,
+     diagnostico(campo, contexto,
+       esperado: "un valor que #{inspect(modulo)} sepa escribir",
+       recibido: inspect(valor),
+       causa_probable: causa
+     )}
   end
 
   defp valor_de_otro_tipo(%__MODULE__{} = campo, valor, contexto) do
