@@ -1,12 +1,12 @@
 ---
-prompt: 0009
+prompt: 0017
 fecha: 2026-10-16T19:20:16-03:00
 autor: Agustín Bereciartúa <bereciartua.agustin@gmail.com>
 modelo: claude-fable-5-1
 issue: 6
 ---
 
-# 0009 — Benchmark de `stream/3` y presupuesto de memoria (issue #6)
+# 0017 — Benchmark de `stream/3` y presupuesto de memoria (issue #6)
 
 **Contexto:** el README prometía que `stream/3` sirve para archivos de 2 GB
 sin acumular nada, sin una cifra medida. "Debería ser lazy" no es una

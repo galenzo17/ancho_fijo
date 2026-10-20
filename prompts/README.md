@@ -163,4 +163,4 @@ Las que la convención tuvo que zanjar y no eran obvias:
 | [0014](0014-telemetria.md) | Issue #13: instrumentación con `:telemetry` | `AnchoFijo.Telemetria`, `span/3`, eventos de `parsear`, `detectar` y `stream`, dependencia opcional |
 | [0015](0015-behaviour-tipo.md) | Issue #12: behaviour `AnchoFijo.Tipo` | Los cinco tipos como implementaciones, `tipo: MiApp.Hora`, verificación al construir el layout |
 | [0016](0016-moneda.md) | Issue #9: moneda y escala | `moneda:` en `:decimal`, `AnchoFijo.Monto`, escala ISO 4217 validada, aritmética sin floats |
-| [0009](0009-benchmark.md) | Issue #6: benchmark de `stream/3` y presupuesto de memoria | `bench/`, memoria constante medida, dos cuellos de botella arreglados con antes y después |
+| [0017](0017-benchmark.md) | Issue #6: benchmark de `stream/3` y presupuesto de memoria | `bench/`, memoria constante medida, dos cuellos de botella arreglados con antes y después |
