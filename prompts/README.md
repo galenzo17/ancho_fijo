@@ -162,4 +162,4 @@ Las que la convención tuvo que zanjar y no eran obvias:
 | [0013](0013-trazabilidad.md) | Issue #7: trazabilidad por registro y huella del lote | `traza: true` con `:__traza__`, `AnchoFijo.Traza`, `huella/2` normalizada |
 | [0014](0014-telemetria.md) | Issue #13: instrumentación con `:telemetry` | `AnchoFijo.Telemetria`, `span/3`, eventos de `parsear`, `detectar` y `stream`, dependencia opcional |
 | [0015](0015-behaviour-tipo.md) | Issue #12: behaviour `AnchoFijo.Tipo` | Los cinco tipos como implementaciones, `tipo: MiApp.Hora`, verificación al construir el layout |
-| [0009](0009-moneda.md) | Issue #9: moneda y escala | `moneda:` en `:decimal`, `AnchoFijo.Monto`, escala ISO 4217 validada, aritmética sin floats |
+| [0016](0016-moneda.md) | Issue #9: moneda y escala | `moneda:` en `:decimal`, `AnchoFijo.Monto`, escala ISO 4217 validada, aritmética sin floats |

@@ -1,12 +1,12 @@
 ---
-prompt: 0009
+prompt: 0016
 fecha: 2026-10-16T19:06:19-03:00
 autor: Agustín Bereciartúa <bereciartua.agustin@gmail.com>
 modelo: claude-fable-5-1
 issue: 9
 ---
 
-# 0009 — Moneda y escala (issue #9)
+# 0016 — Moneda y escala (issue #9)
 
 **Contexto:** un `:decimal` devolvía `{unidades, precision}` con la
 precisión declarada a mano en el layout. Un monto en pesos chilenos leído
