@@ -180,7 +180,9 @@ defmodule AnchoFijo.Campo do
 
   # Con moneda y sin precisión, la precisión es la escala de la moneda. Con
   # las dos, `AnchoFijo.Tipo.Decimal` revisa que coincidan.
-  defp precision_por_moneda(%__MODULE__{modulo: Tipo.Decimal, moneda: moneda, precision: nil} = campo)
+  defp precision_por_moneda(
+         %__MODULE__{modulo: Tipo.Decimal, moneda: moneda, precision: nil} = campo
+       )
        when not is_nil(moneda) do
     case Monto.escala(moneda) do
       {:ok, escala} -> %__MODULE__{campo | precision: escala}

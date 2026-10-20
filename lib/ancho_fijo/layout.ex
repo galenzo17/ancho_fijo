@@ -451,7 +451,9 @@ defmodule AnchoFijo.Layout do
   # pero la escala quedó sin verificar y hay que decirlo.
   defp monedas_sin_tabla(campos) do
     campos
-    |> Enum.filter(fn campo -> campo.modulo == AnchoFijo.Tipo.Decimal and not is_nil(campo.moneda) end)
+    |> Enum.filter(fn campo ->
+      campo.modulo == AnchoFijo.Tipo.Decimal and not is_nil(campo.moneda)
+    end)
     |> Enum.reject(fn campo -> match?({:ok, _}, AnchoFijo.Monto.escala(campo.moneda)) end)
     |> Enum.map(fn campo ->
       Diagnostico.nuevo(

@@ -111,7 +111,9 @@ defmodule AnchoFijo.Tipo.Decimal do
   end
 
   defp valor(unidades, %Campo{moneda: nil, precision: precision}), do: {unidades, precision}
-  defp valor(unidades, %Campo{moneda: moneda, precision: precision}), do: Monto.nuevo(unidades, precision, moneda)
+
+  defp valor(unidades, %Campo{moneda: moneda, precision: precision}),
+    do: Monto.nuevo(unidades, precision, moneda)
 
   # Con separador implícito el campo entero ya viene en unidades mínimas: el
   # anexo dice "10 posiciones, 2 decimales" y el archivo trae 0000125000 para
