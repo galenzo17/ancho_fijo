@@ -6,6 +6,15 @@ defmodule AnchoFijo.PropiedadesTest do
 
   alias AnchoFijo.Campo
 
+  describe "partir líneas" do
+    property "dividir_lazy/1 produce exactamente las piezas de dividir/1" do
+      check all(binario <- string([?a, ?b, ?\r, ?\n], max_length: 40)) do
+        assert Enum.to_list(AnchoFijo.Entrada.dividir_lazy(binario)) ==
+                 AnchoFijo.Entrada.dividir(binario)
+      end
+    end
+  end
+
   describe "round-trip de escritura" do
     property "lo que escribir/3 escribe, parsear/3 lo lee igual" do
       check all(

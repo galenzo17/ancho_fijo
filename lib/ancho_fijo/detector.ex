@@ -54,12 +54,17 @@ defmodule AnchoFijo.Detector do
     * `:layout` — un `AnchoFijo.Layout` o una definición, para contrastar lo que
       el archivo dice con lo que la especificación declara.
     * `:delimitadores` — lista de candidatos a delimitador. Default `[";", ",", "\\t", "|"]`.
+
+  Una opción que no existe o un valor de otro tipo es un `ArgumentError`. Un
+  `:layout` inválido es `{:error, diagnosticos}`, igual que en `parsear/3`.
   """
 
   alias AnchoFijo.Campo
   alias AnchoFijo.Diagnostico
   alias AnchoFijo.Entrada
   alias AnchoFijo.Layout
+  alias AnchoFijo.Opciones
+  alias AnchoFijo.Telemetria
   alias AnchoFijo.Transcodificacion
 
   @lineas_default 200
@@ -106,8 +111,42 @@ defmodule AnchoFijo.Detector do
   """
   @spec detectar(term(), keyword()) :: {:ok, reporte()} | {:error, [Diagnostico.t()]}
   def detectar(entrada, opts \\ []) do
-    with {:ok, muestra, truncada?} <- Entrada.leer_muestra(entrada, opts) do
-      {:ok, analizar(muestra, truncada?, opts)}
+    opts = Opciones.validar!(opts, opciones_de_detectar(), "AnchoFijo.detectar/2")
+
+    Telemetria.span(:detectar, %{desde: Entrada.origen(entrada, opts)}, fn ->
+      with {:ok, layout} <- coercer_layout(Keyword.get(opts, :layout)),
+           {:ok, muestra, truncada?} <- Entrada.leer_muestra(entrada, opts) do
+        reporte = analizar(muestra, truncada?, Keyword.put(opts, :layout, layout))
+
+        {{:ok, reporte}, %{lineas: reporte.lineas_analizadas, bytes: byte_size(muestra)},
+         %{resultado: :ok, probablemente_ancho_fijo?: reporte.probablemente_ancho_fijo?}}
+      else
+        {:error, diagnosticos} ->
+          {{:error, diagnosticos}, %{lineas: 0, bytes: 0},
+           %{resultado: :error, probablemente_ancho_fijo?: nil}}
+      end
+    end)
+  end
+
+  @doc """
+  Igual que `detectar/2`, pero devuelve el reporte o levanta `AnchoFijo.Error`.
+
+  Lo que puede fallar en `detectar/2` es la entrada —una ruta que no existe, un
+  argumento que no es binario— o el layout de la opción `:layout`. El reporte
+  mismo nunca es un error: un archivo que no parece de ancho fijo es un
+  resultado, con `probablemente_ancho_fijo?: false`.
+
+      iex> AnchoFijo.Detector.detectar!("ABC\\nDEF\\n").largo_predominante
+      3
+
+      iex> AnchoFijo.Detector.detectar!("/no/existe.txt", desde: :archivo)
+      ** (AnchoFijo.Error) entrada: se esperaba un archivo legible en "/no/existe.txt", llegó :enoent; la ruta no existe; revise el directorio de trabajo
+  """
+  @spec detectar!(term(), keyword()) :: reporte()
+  def detectar!(entrada, opts \\ []) do
+    case detectar(entrada, opts) do
+      {:ok, reporte} -> reporte
+      {:error, diagnosticos} -> raise AnchoFijo.Error, diagnosticos
     end
   end
 
@@ -129,7 +168,7 @@ defmodule AnchoFijo.Detector do
       []
   """
   @spec contrastar(reporte(), Layout.t() | Enumerable.t()) :: [Diagnostico.t()]
-  def contrastar(reporte, layout) do
+  def contrastar(%{largo_predominante: _, encoding_probable: _} = reporte, layout) do
     case Layout.coercer(layout) do
       {:ok, layout} ->
         Enum.concat([contrastar_largo(reporte, layout), contrastar_encoding(reporte, layout)])
@@ -138,6 +177,29 @@ defmodule AnchoFijo.Detector do
         diagnosticos
     end
   end
+
+  defp opciones_de_detectar do
+    [
+      {:lineas, &(is_integer(&1) and &1 > 0), "un entero mayor que cero"},
+      {:bytes, &(is_integer(&1) and &1 > 0), "un entero mayor que cero"},
+      {:desde, &(&1 in [:auto, :archivo, :contenido]), ":auto, :archivo o :contenido"},
+      {:layout, &(is_struct(&1, Layout) or is_list(&1) or is_map(&1)),
+       "un AnchoFijo.Layout o su definición"},
+      {:delimitadores, &delimitadores?/1, "una lista de binarios no vacíos"}
+    ]
+  end
+
+  defp delimitadores?(lista) when is_list(lista) do
+    Enum.all?(lista, &(is_binary(&1) and &1 != ""))
+  end
+
+  defp delimitadores?(_otro), do: false
+
+  # El layout se valida antes de leer la muestra: una definición inválida es
+  # `{:error, diagnosticos}` como en `parsear/3`, no una observación en prosa
+  # dentro de un reporte que dice `:ok`.
+  defp coercer_layout(nil), do: {:ok, nil}
+  defp coercer_layout(layout), do: Layout.coercer(layout)
 
   defp analizar(muestra, truncada?, opts) do
     maximo = Keyword.get(opts, :lineas, @lineas_default)
