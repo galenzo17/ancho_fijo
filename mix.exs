@@ -11,6 +11,8 @@ defmodule AnchoFijo.MixProject do
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
+      # Los .exs de test/fixtures son scripts, no tests (Elixir 1.20 avisa).
+      test_ignore_filters: [~r"^test/fixtures/"],
       deps: deps(),
       description: description(),
       package: package(),
@@ -33,7 +35,15 @@ defmodule AnchoFijo.MixProject do
 
   defp deps do
     [
+      # Opcional: solo para AnchoFijo.Monto.a_decimal/1.
+      {:decimal, "~> 2.0", optional: true},
+      # Opcional: sin ella no se emite nada y el paquete sigue sin
+      # dependencias de runtime. Ver AnchoFijo.Telemetria.
+      {:telemetry, "~> 1.3", optional: true},
       {:stream_data, "~> 1.1", only: [:dev, :test]},
+      {:benchee, "~> 1.3", only: :dev, runtime: false},
+      # Solo para validar la salida --json de la tarea con un decoder real.
+      {:jason, "~> 1.4", only: [:dev, :test]},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
@@ -51,6 +61,8 @@ defmodule AnchoFijo.MixProject do
       licenses: ["MIT"],
       maintainers: ["Agustin Bereciartua"],
       files: ~w(lib mix.exs README.md CHANGELOG.md LICENSE .formatter.exs),
+      # La verificación de prompts/ es del repositorio, no del paquete.
+      exclude_patterns: [~r"lib/mix/tasks/prompts\."],
       links: %{
         "GitHub" => @source_url,
         "Changelog" => "#{@source_url}/blob/main/CHANGELOG.md"
@@ -69,10 +81,14 @@ defmodule AnchoFijo.MixProject do
           AnchoFijo.Layout,
           AnchoFijo.Campo,
           AnchoFijo.Rut,
+          AnchoFijo.Monto,
           AnchoFijo.Multiregistro
         ],
-        Diagnóstico: [AnchoFijo.Detector, AnchoFijo.Diagnostico],
-        Lectura: [AnchoFijo.Parser, AnchoFijo.Transcodificacion]
+        Diagnóstico: [AnchoFijo.Detector, AnchoFijo.Diagnostico, AnchoFijo.Error],
+        Lectura: [AnchoFijo.Parser, AnchoFijo.Transcodificacion, AnchoFijo.Traza],
+        Escritura: [AnchoFijo.Escritor],
+        Observabilidad: [AnchoFijo.Telemetria],
+        Terminal: [Mix.Tasks.AnchoFijo.Detectar]
       ]
     ]
   end

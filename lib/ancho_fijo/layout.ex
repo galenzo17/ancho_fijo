@@ -82,7 +82,9 @@ defmodule AnchoFijo.Layout do
 
   alias AnchoFijo.Campo
   alias AnchoFijo.Diagnostico
+  alias AnchoFijo.Opciones
 
+  @opciones [:campos, :encoding, :unidad, :relleno_final, :largo, :nombre]
   @encodings [:utf8, :latin1]
   @unidades [:bytes, :caracteres]
   @rellenos_finales [:estricto, :tolerar]
@@ -121,11 +123,11 @@ defmodule AnchoFijo.Layout do
       iex> AnchoFijo.Diagnostico.mensaje(diagnostico)
       "layout: se esperaba al menos un campo en :campos, llegó una lista vacía; un layout sin campos no puede leer nada"
   """
-  @spec nuevo(Enumerable.t()) :: {:ok, t()} | {:error, [Diagnostico.t()]}
+  @spec nuevo(term()) :: {:ok, t()} | {:error, [Diagnostico.t()]}
   def nuevo(atributos) do
-    atributos = Map.new(atributos)
-
-    with {:ok, globales} <- validar_globales(atributos),
+    with {:ok, atributos} <- a_mapa(atributos),
+         :ok <- validar_claves(atributos),
+         {:ok, globales} <- validar_globales(atributos),
          {:ok, campos} <- construir_campos(Map.get(atributos, :campos, [])),
          campos = posicionar(campos),
          :ok <- validar_disposicion(campos),
@@ -165,7 +167,7 @@ defmodule AnchoFijo.Layout do
       iex> AnchoFijo.Layout.coercer(layout)
       {:ok, layout}
   """
-  @spec coercer(t() | Enumerable.t()) :: {:ok, t()} | {:error, [Diagnostico.t()]}
+  @spec coercer(term()) :: {:ok, t()} | {:error, [Diagnostico.t()]}
   def coercer(%__MODULE__{} = layout), do: {:ok, layout}
   def coercer(atributos), do: nuevo(atributos)
 
@@ -214,6 +216,44 @@ defmodule AnchoFijo.Layout do
     %{encoding: layout.encoding, unidad: layout.unidad, linea: linea}
   end
 
+  defp a_mapa(atributos) do
+    case Opciones.a_mapa(atributos) do
+      {:ok, mapa} ->
+        {:ok, mapa}
+
+      :error ->
+        {:error,
+         [
+           falla(
+             "la definición del layout como keyword list o mapa",
+             atributos,
+             "el argumento no es una definición de layout"
+           )
+         ]}
+    end
+  end
+
+  # Una clave que no existe no se ignora: `campo: [...]` en vez de `campos:`
+  # o `enconding:` en vez de `encoding:` dejarían un layout distinto del que
+  # se escribió, sin ninguna señal. `:advertencias` se admite porque viene en
+  # un `Map.from_struct/1` de otro layout.
+  defp validar_claves(atributos) do
+    case Opciones.claves_desconocidas(atributos, [:advertencias | @opciones]) do
+      [] ->
+        :ok
+
+      desconocidas ->
+        {:error,
+         Enum.map(desconocidas, fn clave ->
+           falla(
+             "opciones en #{inspect(@opciones)}",
+             clave,
+             "la opción no existe y se ignoraría en silencio; probablemente un error de tipeo"
+           )
+         end)}
+    end
+  end
+
   defp validar_globales(atributos) do
     encoding = Map.get(atributos, :encoding, :utf8)
     unidad = Map.get(atributos, :unidad, :bytes)
@@ -224,7 +264,8 @@ defmodule AnchoFijo.Layout do
       Enum.concat([
         validar_en(encoding, @encodings, :encoding),
         validar_en(unidad, @unidades, :unidad),
-        validar_en(relleno_final, @rellenos_finales, :relleno_final)
+        validar_en(relleno_final, @rellenos_finales, :relleno_final),
+        validar_nombre(Map.get(atributos, :nombre))
       ])
 
     case diagnosticos do
@@ -240,6 +281,18 @@ defmodule AnchoFijo.Layout do
       diagnosticos ->
         {:error, diagnosticos}
     end
+  end
+
+  defp validar_nombre(nombre) when is_binary(nombre) or is_nil(nombre), do: []
+
+  defp validar_nombre(nombre) do
+    [
+      falla(
+        "un :nombre binario, o ninguno",
+        nombre,
+        "el nombre del layout es una etiqueta para logs"
+      )
+    ]
   end
 
   defp validar_en(valor, permitidos, opcion) do
@@ -388,7 +441,32 @@ defmodule AnchoFijo.Layout do
       |> Enum.chunk_every(2, 1, :discard)
       |> Enum.flat_map(fn [anterior, actual] -> hueco_entre(anterior, actual) end)
 
-    intermedios ++ hueco_inicial(campos) ++ hueco_final(ocupado, largo, unidad)
+    intermedios ++
+      hueco_inicial(campos) ++
+      hueco_final(ocupado, largo, unidad) ++
+      monedas_sin_tabla(campos)
+  end
+
+  # Una moneda fuera de la tabla ISO 4217 con :precision explícita se acepta,
+  # pero la escala quedó sin verificar y hay que decirlo.
+  defp monedas_sin_tabla(campos) do
+    campos
+    |> Enum.filter(fn campo ->
+      campo.modulo == AnchoFijo.Tipo.Decimal and not is_nil(campo.moneda)
+    end)
+    |> Enum.reject(fn campo -> match?({:ok, _}, AnchoFijo.Monto.escala(campo.moneda)) end)
+    |> Enum.map(fn campo ->
+      Diagnostico.nuevo(
+        tipo: :layout,
+        campo: campo.nombre,
+        posicion: Campo.rango(campo),
+        esperado: "una :moneda de la tabla ISO 4217 de AnchoFijo.Monto",
+        recibido: campo.moneda,
+        causa_probable:
+          "la moneda no está en la tabla, así que la precision: #{campo.precision} declarada " <>
+            "no se pudo verificar contra su escala"
+      )
+    end)
   end
 
   defp hueco_entre(anterior, actual) do
