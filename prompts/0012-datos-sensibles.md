@@ -1,12 +1,12 @@
 ---
-prompt: 0009
+prompt: 0012
 fecha: 2026-10-16T18:35:15-03:00
 autor: Agustín Bereciartúa <bereciartua.agustin@gmail.com>
 modelo: claude-fable-5-1
 issue: 8
 ---
 
-# 0009 — Datos personales en los diagnósticos (issue #8)
+# 0012 — Datos personales en los diagnósticos (issue #8)
 
 **Contexto:** `Diagnostico.mensaje/1` interpola el contenido recibido
 (`recibido: "12345678-9"`, `recibido: "JOSÉ MUÑOZ"`) porque está diseñado
