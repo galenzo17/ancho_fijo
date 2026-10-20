@@ -184,7 +184,7 @@ defmodule AnchoFijo.DetectorTest do
       {:error, [diagnostico]} = Detector.detectar(:no_soy_un_archivo)
 
       assert diagnostico.tipo == :entrada
-      assert diagnostico.recibido == ":no_soy_un_archivo"
+      assert diagnostico.recibido == "un átomo"
     end
   end
 
