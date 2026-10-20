@@ -34,6 +34,10 @@ defmodule AnchoFijo.Campo do
     * `:formato` — obligatorio en `:fecha`: `:aaaammdd` o `:ddmmaaaa`.
     * `:dv` — en `:rut`: `:validar` (default), `:no_validar` o `:ausente`. Ver
       `AnchoFijo.Rut`.
+    * `:sensible` — si es `true`, los diagnósticos del campo muestran la forma
+      del valor y no el valor en `AnchoFijo.Diagnostico.mensaje/1` y en
+      `inspect/1`. Default `false`, salvo en `:rut`, donde es `true`: un RUT
+      es siempre un dato personal.
 
   ## Tipos y valores devueltos
 
@@ -52,11 +56,12 @@ defmodule AnchoFijo.Campo do
   """
 
   alias AnchoFijo.Diagnostico
+  alias AnchoFijo.Opciones
   alias AnchoFijo.Rut
   alias AnchoFijo.Tipo
   alias AnchoFijo.Transcodificacion
 
-  @comunes [:nombre, :posicion, :largo, :tipo, :opcional, :trim, :relleno]
+  @comunes [:nombre, :posicion, :largo, :tipo, :opcional, :trim, :relleno, :sensible]
   @de_tipos_internos [
     precision: nil,
     separador: :implicito,
@@ -83,6 +88,7 @@ defmodule AnchoFijo.Campo do
           signo: :inicial | :final,
           formato: :aaaammdd | :ddmmaaaa | nil,
           dv: Rut.dv(),
+          sensible: boolean(),
           modulo: module() | nil,
           opciones: map()
         }
@@ -99,6 +105,7 @@ defmodule AnchoFijo.Campo do
             signo: :inicial,
             formato: nil,
             dv: :validar,
+            sensible: false,
             modulo: nil,
             opciones: %{}
 
@@ -125,14 +132,33 @@ defmodule AnchoFijo.Campo do
       iex> AnchoFijo.Diagnostico.mensaje(diagnostico)
       "layout, campo :monto: se esperaba :precision declarada para un campo :decimal; sin precisión no se sabe si 1234 son 12,34 o 1234,00"
   """
-  @spec nuevo(Enumerable.t()) :: {:ok, t()} | {:error, [Diagnostico.t()]}
+  @spec nuevo(term()) :: {:ok, t()} | {:error, [Diagnostico.t()]}
   def nuevo(atributos) do
-    atributos = Map.new(atributos)
+    case Opciones.a_mapa(atributos) do
+      {:ok, atributos} ->
+        construir(atributos)
+
+      :error ->
+        {:error,
+         [
+           falla(
+             nil,
+             "la definición del campo como keyword list o mapa",
+             atributos,
+             "el elemento de :campos no es una definición de campo"
+           )
+         ]}
+    end
+  end
+
+  defp construir(atributos) do
     campo = struct(%__MODULE__{}, normalizar(atributos))
 
     case Tipo.resolver(campo.tipo) do
       {:ok, modulo} ->
-        campo = %{campo | modulo: modulo, opciones: opciones_propias(modulo, atributos)}
+        campo =
+          %{campo | modulo: modulo, opciones: opciones_propias(modulo, atributos)}
+          |> sensible_por_tipo(atributos)
 
         case validar(campo, atributos) do
           [] -> {:ok, campo}
@@ -157,7 +183,7 @@ defmodule AnchoFijo.Campo do
       iex> AnchoFijo.Campo.nuevo!(nombre: :fecha, largo: 8, tipo: :fecha, formato: :ddmmaaaa).formato
       :ddmmaaaa
   """
-  @spec nuevo!(Enumerable.t()) :: t()
+  @spec nuevo!(term()) :: t()
   def nuevo!(atributos) do
     case nuevo(atributos) do
       {:ok, campo} -> campo
@@ -237,11 +263,29 @@ defmodule AnchoFijo.Campo do
     contexto = Map.new(contexto)
     unidad = Map.get(contexto, :unidad, :bytes)
 
-    with {:ok, crudo} <- rebanar(campo, linea, unidad, contexto),
-         {:ok, texto} <- decodificar(campo, crudo, unidad, contexto) do
-      convertir(campo, limpiar(texto, campo), contexto)
+    with {:ok, crudo} <- campo |> rebanar(linea, unidad, contexto) |> sensibilizar(campo, nil),
+         {:ok, texto} <- campo |> decodificar(crudo, unidad, contexto) |> sensibilizar(campo, nil) do
+      texto = limpiar(texto, campo)
+      campo |> convertir(texto, contexto) |> sensibilizar(campo, texto)
     end
   end
+
+  # Cada diagnóstico de un campo sensible sale marcado, con la forma del valor
+  # cuando el diagnóstico es sobre el valor. Una línea corta o un byte inválido
+  # no traen el dato en `:recibido`; ahí solo se oculta `:contenido`.
+  defp sensibilizar({:error, diagnostico}, %__MODULE__{sensible: true}, valor) do
+    {:error, Diagnostico.marcar_sensible(diagnostico, valor)}
+  end
+
+  defp sensibilizar(resultado, _campo, _valor), do: resultado
+
+  # Un RUT es un dato personal siempre; el default se decide por tipo y se
+  # puede apagar a propósito con `sensible: false`.
+  defp sensible_por_tipo(%__MODULE__{modulo: Tipo.Rut} = campo, atributos) do
+    if Map.has_key?(atributos, :sensible), do: campo, else: %__MODULE__{campo | sensible: true}
+  end
+
+  defp sensible_por_tipo(campo, _atributos), do: campo
 
   # Un campo en blanco con `opcional: true` es `nil` para todos los tipos; sin
   # `:opcional`, el texto vacío llega al tipo y él decide.
@@ -274,8 +318,21 @@ defmodule AnchoFijo.Campo do
       validar_largo(campo),
       validar_posicion(campo),
       validar_trim(campo),
-      validar_relleno(campo)
+      validar_relleno(campo),
+      validar_opcional(campo),
+      validar_sensible(campo)
     ])
+  end
+
+  defp validar_nombre(%__MODULE__{nombre: :__traza__}) do
+    [
+      falla(
+        :__traza__,
+        "un :nombre que no sea :__traza__",
+        :__traza__,
+        "es la clave reservada para la traza del registro (ver AnchoFijo.Traza)"
+      )
+    ]
   end
 
   defp validar_nombre(%__MODULE__{nombre: nombre}) when is_atom(nombre) and not is_nil(nombre),
@@ -330,6 +387,18 @@ defmodule AnchoFijo.Campo do
 
   defp validar_relleno(%__MODULE__{nombre: nombre, relleno: relleno}) do
     [falla(nombre, "un :relleno binario de un carácter", relleno, nil)]
+  end
+
+  defp validar_opcional(%__MODULE__{opcional: opcional}) when is_boolean(opcional), do: []
+
+  defp validar_opcional(%__MODULE__{nombre: nombre, opcional: opcional}) do
+    [falla(nombre, ":opcional true o false", opcional, nil)]
+  end
+
+  defp validar_sensible(%__MODULE__{sensible: sensible}) when is_boolean(sensible), do: []
+
+  defp validar_sensible(%__MODULE__{nombre: nombre, sensible: sensible}) do
+    [falla(nombre, ":sensible true o false", sensible, nil)]
   end
 
   # Se reclama por una opción declarada de verdad, no por la clave presente en

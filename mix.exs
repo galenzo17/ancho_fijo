@@ -33,7 +33,12 @@ defmodule AnchoFijo.MixProject do
 
   defp deps do
     [
+      # Opcional: sin ella no se emite nada y el paquete sigue sin
+      # dependencias de runtime. Ver AnchoFijo.Telemetria.
+      {:telemetry, "~> 1.3", optional: true},
       {:stream_data, "~> 1.1", only: [:dev, :test]},
+      # Solo para validar la salida --json de la tarea con un decoder real.
+      {:jason, "~> 1.4", only: [:dev, :test]},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
@@ -51,6 +56,8 @@ defmodule AnchoFijo.MixProject do
       licenses: ["MIT"],
       maintainers: ["Agustin Bereciartua"],
       files: ~w(lib mix.exs README.md CHANGELOG.md LICENSE .formatter.exs),
+      # La verificación de prompts/ es del repositorio, no del paquete.
+      exclude_patterns: [~r"lib/mix/tasks/prompts\."],
       links: %{
         "GitHub" => @source_url,
         "Changelog" => "#{@source_url}/blob/main/CHANGELOG.md"
@@ -66,8 +73,10 @@ defmodule AnchoFijo.MixProject do
       extras: ["README.md", "CHANGELOG.md", "LICENSE"],
       groups_for_modules: [
         "Definición del formato": [AnchoFijo.Layout, AnchoFijo.Campo, AnchoFijo.Rut],
-        Diagnóstico: [AnchoFijo.Detector, AnchoFijo.Diagnostico],
-        Lectura: [AnchoFijo.Parser, AnchoFijo.Transcodificacion]
+        Diagnóstico: [AnchoFijo.Detector, AnchoFijo.Diagnostico, AnchoFijo.Error],
+        Lectura: [AnchoFijo.Parser, AnchoFijo.Transcodificacion, AnchoFijo.Traza],
+        Observabilidad: [AnchoFijo.Telemetria],
+        Terminal: [Mix.Tasks.AnchoFijo.Detectar]
       ]
     ]
   end
