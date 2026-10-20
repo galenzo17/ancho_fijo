@@ -1,12 +1,12 @@
 ---
-prompt: 0010
+prompt: 0020
 fecha: 2026-10-16T19:43:29-03:00
 autor: Agustín Bereciartúa <bereciartua.agustin@gmail.com>
 modelo: claude-fable-5-1
 issue: 11
 ---
 
-# 0010 — Idempotencia de lotes (issue #11)
+# 0020 — Idempotencia de lotes (issue #11)
 
 **Contexto:** el mismo archivo procesado dos veces es el error más caro de
 una nómina, y la librería es la que ve el archivo completo antes de que
