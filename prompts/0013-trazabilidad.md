@@ -1,12 +1,12 @@
 ---
-prompt: 0009
+prompt: 0013
 fecha: 2026-10-16T18:44:08-03:00
 autor: Agustín Bereciartúa <bereciartua.agustin@gmail.com>
 modelo: claude-fable-5-1
 issue: 7
 ---
 
-# 0009 — Trazabilidad por registro y huella del lote (issue #7)
+# 0013 — Trazabilidad por registro y huella del lote (issue #7)
 
 **Contexto:** el registro que devuelve `parsear/3` es un mapa con los valores
 del layout y nada más. Los diagnósticos traen `:linea`; los registros
