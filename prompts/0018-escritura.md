@@ -1,12 +1,12 @@
 ---
-prompt: 0009
+prompt: 0018
 fecha: 2026-10-16T19:28:30-03:00
 autor: Agustín Bereciartúa <bereciartua.agustin@gmail.com>
 modelo: claude-fable-5-1
 issue: 2
 ---
 
-# 0009 — Escritura con el mismo layout (issue #2)
+# 0018 — Escritura con el mismo layout (issue #2)
 
 **Contexto:** la librería solo leía. Para mandarle una nómina al banco había
 que generarla con el formato del anexo, que ya estaba escrito una vez: el

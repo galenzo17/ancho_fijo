@@ -164,4 +164,4 @@ Las que la convención tuvo que zanjar y no eran obvias:
 | [0015](0015-behaviour-tipo.md) | Issue #12: behaviour `AnchoFijo.Tipo` | Los cinco tipos como implementaciones, `tipo: MiApp.Hora`, verificación al construir el layout |
 | [0016](0016-moneda.md) | Issue #9: moneda y escala | `moneda:` en `:decimal`, `AnchoFijo.Monto`, escala ISO 4217 validada, aritmética sin floats |
 | [0017](0017-benchmark.md) | Issue #6: benchmark de `stream/3` y presupuesto de memoria | `bench/`, memoria constante medida, dos cuellos de botella arreglados con antes y después |
-| [0009](0009-escritura.md) | Issue #2: escritura con el mismo layout | `AnchoFijo.escribir/3`, `Escritor.stream/3`, `Campo.formatear/3`, round-trip como propiedad |
+| [0018](0018-escritura.md) | Issue #2: escritura con el mismo layout | `AnchoFijo.escribir/3`, `Escritor.stream/3`, `Campo.formatear/3`, round-trip como propiedad |
