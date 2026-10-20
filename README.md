@@ -103,6 +103,25 @@ El reporte completo trae `:largos`, `:largo_consistente?`, `:largo_predominante`
 `:termina_con_terminador?`, `:delimitadores`, `:delimitador_sugerido` y
 `:probablemente_ancho_fijo?`. Ver `AnchoFijo.Detector`.
 
+### Desde la terminal
+
+El día uno no hay proyecto ni `iex`: hay un archivo que llegó por correo. La
+misma pregunta, como comando:
+
+```
+$ mix ancho_fijo.detectar nomina.txt
+nomina.txt: probablemente de ancho fijo
+  3 líneas · largo 48 bytes, consistente · ascii · LF
+  - todas las 3 líneas miden 48 bytes
+  - todos los bytes son ASCII: latin-1 y UTF-8 dan el mismo resultado en este archivo
+  - las líneas terminan en LF (\n), estilo Unix
+```
+
+`--layout nomina.exs` contrasta con un layout, `--json` imprime el reporte
+para `jq`, y el código de salida sirve para un script de validación previa:
+`0` si parece ancho fijo y concuerda, `1` si no, `2` si no se pudo leer.
+Ver `mix help ancho_fijo.detectar`.
+
 ## Después se parsea
 
 El layout es data: una lista de campos con nombre, largo, tipo y opciones de
@@ -170,6 +189,29 @@ rescatar.
 En estricto la lista solo puede traer advertencias: un error habría cortado. Y
 un error corta también con las advertencias de las líneas ya leídas, que se van
 con él: no hay resultado parcial que anotar.
+
+### Cuando no hay nada que hacer salvo fallar
+
+Un script de migración, un `Mix.Task`, un pipeline donde un archivo malo no
+deja nada que rescatar: ahí la tupla estorba. `parsear!/3` y `detectar!/2`
+siguen la convención de la stdlib, devuelven el valor o levantan
+`AnchoFijo.Error`, cuyo mensaje es el reporte de los diagnósticos:
+
+```elixir
+registros = AnchoFijo.parsear!(layout, "nomina.txt")
+# ** (AnchoFijo.Error) línea 2: se esperaban 48 bytes, llegaron 46; posible campo faltante o archivo delimitado
+```
+
+Con `modo: :tolerante` el `!` levanta igual si hay filas malas, pero la
+excepción trae **todos** los errores del archivo, no el primero: es la
+combinación para el script que tiene que morir, pero cuyo operador necesita la
+lista completa para corregir el archivo de una vez. La alternativa, devolver las
+filas buenas y descartar los diagnósticos, habría hecho del `!` un atajo que
+pierde información en silencio, y un `!` no es un atajo: es otro contrato.
+
+Lo que el `!` no devuelve son las advertencias. Son filas que se leyeron bien
+bajo un supuesto que el layout declaró, y la función devuelve un solo valor. Si
+importan, `parsear/3` las trae en la tercera posición.
 
 ### Archivos grandes
 
@@ -294,6 +336,51 @@ Enum.map(layout.advertencias, &AnchoFijo.Diagnostico.mensaje/1)
 #   si el formato tiene relleno ahí, ignore esta advertencia"]
 ```
 
+## Los datos personales no viajan en los diagnósticos
+
+El mensaje que se pega en un correo para el banco es el mismo que termina en un
+`Logger.error`, en Sentry y en un ticket. Si el campo que falló es un RUT o un
+nombre, ese es el camino por el que los datos de miles de beneficiarios salen
+del sistema sin que nadie lo haya decidido (Ley 19.628 en Chile, GDPR si hay
+clientes europeos). Lo incómodo es que la información que hace útil al
+diagnóstico es la misma que no debería viajar.
+
+Un campo se declara sensible en el layout, y `:rut` lo es por default:
+
+```elixir
+[nombre: :beneficiario, largo: 20, sensible: true]
+```
+
+Sus diagnósticos muestran la **forma** del valor, no el valor, en
+`Diagnostico.mensaje/1`, `reporte/1`, `to_string/1` e `inspect/1`:
+
+```
+línea 7, campo :rut (posiciones 1-10): se esperaban un RUT con dígito verificador,
+llegaron <10 caracteres: 4 dígitos, 1 letra, 3 dígitos, "-", 1 dígito>; ...
+```
+
+La forma es la política de redacción, y es una decisión. Una máscara parcial
+(`1234****-*`) deja ver lo suficiente para reidentificar —cuatro dígitos de un
+RUT dejan diez mil candidatos— y oculta justo lo que hace falta para depurar.
+La supresión total no dice nada. La forma dice que hay una letra donde debía
+haber un dígito, y en qué posición, sin decir cuál. El largo no se oculta: es
+el ancho del campo, que el layout ya declara.
+
+El valor completo sigue en `:recibido` del struct, y `mensaje(d, revelar: true)`
+o `reporte(lista, revelar: true)` lo muestran para uso local e interactivo. La
+redacción es de las representaciones, no del dato: quien lo necesita lo lee a
+propósito, y el camino accidental —`Logger.error(inspect(diagnostico))`— no lo
+lleva. Es el mismo patrón que `redact: true` en Ecto.
+
+Lo que no se redacta, y por qué: un byte inválido y su posición (`el byte 0xC9
+en la posición 14`) no es un dato personal y es el diagnóstico entero de un
+problema de encoding; la medida de una línea corta es un número; y las
+observaciones de `detectar/2` citan a lo sumo un byte y un delimitador, nunca
+el contenido de un campo. Las entradas que no son binarios se describen por
+tipo ("una lista de 3 elementos") en vez de imprimirse. Hay un test que
+recorre cada tipo de campo y cada falla posible y verifica la ausencia del
+valor en cada representación.
+
 ## Trazabilidad: del registro al byte, y la huella del lote
 
 Cuando el banco rechaza una nómina de 40.000 líneas, la conversación es "el
@@ -395,6 +482,19 @@ conversión previa es una línea de `iconv`.
 
 **Solo lectura en 0.2.** Sin escritura de archivos y sin multiregistro
 (header/detalle/trailer). Ver el [CHANGELOG](CHANGELOG.md).
+
+**Dos formas de fallar, y solo dos.** Un problema con los datos es un
+`AnchoFijo.Diagnostico`, como valor o dentro de `AnchoFijo.Error`. Un problema
+con la llamada —una opción que no existe, un valor de otro tipo— es un
+`ArgumentError` que nombra la función y la opción, como en la stdlib: no es un
+diagnóstico porque no hay nada que mandarle al banco. Una clave desconocida en
+un layout (`enconding:`, `precison:`) también es un error de la definición, no
+algo que se ignora: dejaría un layout distinto del que se escribió sin ninguna
+señal. Los módulos de apoyo (`AnchoFijo.Rut`, `AnchoFijo.Transcodificacion`,
+`AnchoFijo.Campo.extraer/3`) usan guardas y levantan `FunctionClauseError` ante
+tipos equivocados, igual que `String.upcase(42)`; el contrato de las dos formas
+es de los puntos de entrada. Hay un test que le pasa basura a cada uno para
+sostenerlo.
 
 ## Documentación
 

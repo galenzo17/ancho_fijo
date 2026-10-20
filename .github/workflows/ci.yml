@@ -149,3 +149,33 @@ jobs:
           key: ${{ steps.plt.outputs.cache-primary-key }}
 
       - run: mix dialyzer --format github
+
+  prompts:
+    name: Registro de prompts
+    runs-on: ubuntu-24.04
+    steps:
+      # Historia completa: la verificación lee el commit que agregó cada archivo.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Instalar Erlang y Elixir
+        id: beam
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.20"
+          otp-version: "28"
+
+      - name: Cache de deps y _build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-prompts-${{ steps.beam.outputs.elixir-version }}-${{ steps.beam.outputs.otp-version }}-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            mix-prompts-${{ steps.beam.outputs.elixir-version }}-${{ steps.beam.outputs.otp-version }}-
+
+      - run: mix deps.get
+
+      - run: mix prompts.verificar
