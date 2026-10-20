@@ -19,6 +19,12 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- `traza: true` en `parsear/3` y `stream/3`: cada registro trae la clave
+  reservada `:__traza__` con un `AnchoFijo.Traza` (línea, offset de byte,
+  largo). `AnchoFijo.Traza.linea_original/2` recupera la línea desde el
+  contenido. Un campo no se puede llamar `:__traza__`.
+- `AnchoFijo.huella/2`: SHA-256 del lote con los terminadores normalizados a
+  LF, calculado por bloques; `normalizar: false` para los bytes exactos.
 - `sensible: true` en los campos del layout (`:rut` lo es por default). Los
   diagnósticos de un campo sensible muestran la forma del valor y no el valor
   en `Diagnostico.mensaje/1`, `reporte/1`, `to_string/1` e `inspect/1`;

@@ -304,6 +304,17 @@ defmodule AnchoFijo.Campo do
     end)
   end
 
+  defp validar_nombre(%__MODULE__{nombre: :__traza__}) do
+    [
+      falla(
+        :__traza__,
+        "un :nombre que no sea :__traza__",
+        :__traza__,
+        "es la clave reservada para la traza del registro (ver AnchoFijo.Traza)"
+      )
+    ]
+  end
+
   defp validar_nombre(%__MODULE__{nombre: nombre}) when is_atom(nombre) and not is_nil(nombre),
     do: []
 

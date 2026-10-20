@@ -71,7 +71,7 @@ defmodule AnchoFijo.MixProject do
       groups_for_modules: [
         "Definición del formato": [AnchoFijo.Layout, AnchoFijo.Campo, AnchoFijo.Rut],
         Diagnóstico: [AnchoFijo.Detector, AnchoFijo.Diagnostico, AnchoFijo.Error],
-        Lectura: [AnchoFijo.Parser, AnchoFijo.Transcodificacion],
+        Lectura: [AnchoFijo.Parser, AnchoFijo.Transcodificacion, AnchoFijo.Traza],
         Terminal: [Mix.Tasks.AnchoFijo.Detectar]
       ]
     ]

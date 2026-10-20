@@ -82,6 +82,7 @@ defmodule AnchoFijo do
   alias AnchoFijo.Diagnostico
   alias AnchoFijo.Layout
   alias AnchoFijo.Parser
+  alias AnchoFijo.Traza
 
   @doc """
   Interroga una muestra —binario o ruta— y devuelve un reporte del archivo.
@@ -186,4 +187,13 @@ defmodule AnchoFijo do
   """
   @spec stream(Layout.t() | Enumerable.t(), term(), keyword()) :: Enumerable.t()
   defdelegate stream(layout, entrada, opts \\ []), to: Parser
+
+  @doc """
+  Huella SHA-256 del lote, estable entre corridas e insensible al estilo de
+  terminador de línea. Ver `AnchoFijo.Traza.huella/2`.
+
+      iex> {:ok, "sha256:" <> _hex} = AnchoFijo.huella("001\\n002\\n")
+  """
+  @spec huella(term(), keyword()) :: {:ok, String.t()} | {:error, [Diagnostico.t()]}
+  defdelegate huella(entrada, opts \\ []), to: Traza
 end
