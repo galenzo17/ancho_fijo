@@ -100,3 +100,39 @@ escribir.(
     "\r\n"
   )
 )
+
+# Nómina multiregistro estilo banco chileno: header (01), detalles (02) y
+# trailer (09) con cantidad y suma de montos. El header mide 40, el detalle
+# 50 y el trailer 24: cada tipo tiene su propio largo.
+header = fn empresa, fecha, glosa ->
+  "01" <> String.pad_trailing(empresa, 10) <> fecha <> String.pad_trailing(glosa, 20)
+end
+
+detalle = fn rut, nombre, monto, cuenta ->
+  "02" <>
+    String.pad_trailing(rut, 10) <>
+    String.pad_trailing(nombre, 20) <>
+    String.pad_leading(monto, 10, "0") <> String.pad_leading(cuenta, 8, "0")
+end
+
+trailer = fn cantidad, total ->
+  "09" <> String.pad_leading(cantidad, 6, "0") <> String.pad_leading(total, 16, "0")
+end
+
+# Los RUT llevan el dígito verificador correcto: en el multiregistro los
+# campos son :rut y se validan al leer.
+rut = fn cuerpo -> "#{cuerpo}-#{AnchoFijo.Rut.digito_verificador(cuerpo)}" end
+
+detalles = [
+  detalle.(rut.(12_345_678), "JUAN PEREZ SOTO", "125000", "11223344"),
+  detalle.(rut.(98_765_432), "ANA MARIA ROJAS", "9990050", "55667788"),
+  detalle.(rut.(11_111_111), "PEDRO GONZALEZ", "45", "99001122")
+]
+
+escribir.(
+  "nomina_multiregistro.txt",
+  lineas.(
+    [header.(rut.(76_543_210), "20240115", "SUELDOS ENERO") | detalles] ++
+      [trailer.("3", "10115095")]
+  )
+)

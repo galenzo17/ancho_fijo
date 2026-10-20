@@ -224,11 +224,52 @@ importan, `parsear/3` las trae en la tercera posición.
 |> Enum.reduce(0, fn {unidades, _precision}, total -> total + unidades end)
 ```
 
+Medido sobre un archivo de 100 MB (dos millones de líneas): `stream/3` lo
+recorre en 5 segundos con un pico de heap de 34 KB, que no depende del
+tamaño del archivo; `parsear/3` en modo tolerante tarda el doble y retiene
+1,2 GB, porque devuelve los dos millones de registros. Los números, la
+máquina y el script están en `bench/README.md`.
+
 `stream/3` emite `{:ok, registro, advertencias}` o `{:error, diagnosticos}` por
 línea. Qué hacer con los errores es decisión del consumidor: acumular todos los
 diagnósticos de un archivo de 2 GB para devolverlos al final anularía el punto de
 ser lazy. Las advertencias viajan pegadas a su registro por la misma razón: no
 hay dónde juntarlas.
+
+### Escribir con el mismo layout
+
+Para mandarle la nómina al banco hay que generarla con el formato del anexo,
+y el formato ya está escrito una vez. `escribir/3` es el inverso de
+`parsear/3`, y la propiedad que lo define es el round-trip: lo que se escribe
+se vuelve a leer igual.
+
+```elixir
+{:ok, contenido, []} = AnchoFijo.escribir(layout, registros)
+File.write!("nomina.txt", contenido)
+
+# o línea por línea, sin armar el archivo en memoria:
+layout
+|> AnchoFijo.Escritor.stream(registros)
+|> Stream.map(fn {:ok, linea, _advertencias} -> linea end)
+|> Stream.into(File.stream!("nomina.txt"))
+|> Stream.run()
+```
+
+No hay modo tolerante para escribir: una nómina con una fila menos es otro
+archivo, y mandarlo es peor que no mandarlo. Si algún valor no se puede
+escribir, `escribir/3` devuelve todos los diagnósticos de todos los
+registros, con el número de registro, el campo, las posiciones y la causa.
+
+**Lo que no cabe no se trunca.** Un monto truncado es otro monto, un RUT
+truncado es otra persona, una glosa truncada es la única de las tres que a
+veces se acepta. Por eso un valor más ancho que su campo es un error, y
+`truncar: true` existe solo para `:texto`, con una advertencia por cada
+campo recortado. El texto se rellena del lado que `:trim` recorta al leer,
+los números con ceros a la izquierda y el signo solo en los negativos, un
+`{unidades, precision}` tiene que traer la precisión del campo (escalar es
+donde se pierde el peso), y el encoding del layout se respeta: con
+`encoding: :latin1` el archivo sale en latin-1, y un carácter que latin-1 no
+tiene es un diagnóstico con el carácter y su posición.
 
 ### Líneas cortas por relleno recortado
 
@@ -274,13 +315,65 @@ completa con 2 caracteres, no con los 0 que sugeriría contar bytes. Con
 repetido tantas veces como bytes faltan no reconstruye la línea, y ese campo no
 entra en la zona reponible.
 
+## Header, detalle y trailer
+
+Las nóminas y cartolas reales traen varios tipos de registro, cada línea dice
+cuál es en sus primeras posiciones, el orden importa y el trailer trae
+totales que tienen que cuadrar. `AnchoFijo.Multiregistro` es un layout de
+layouts más esas reglas, y `parsear/3` y `stream/3` lo aceptan en lugar del
+layout:
+
+```elixir
+nomina = AnchoFijo.Multiregistro.nuevo!(
+  discriminador: [posicion: 1, largo: 2],
+  registros: [
+    header:  [valor: "01", cantidad: :uno,          layout: layout_header],
+    detalle: [valor: "02", cantidad: :al_menos_uno, layout: layout_detalle],
+    trailer: [valor: "09", cantidad: :uno,          layout: layout_trailer]
+  ],
+  controles: [
+    [en: :trailer, campo: :cantidad, cuenta: :detalle],
+    [en: :trailer, campo: :total, suma: {:detalle, :monto}]
+  ]
+)
+
+{:ok, registros, []} = AnchoFijo.parsear(nomina, "nomina.txt")
+# [header: %{...}, detalle: %{...}, detalle: %{...}, trailer: %{...}]
+
+AnchoFijo.Multiregistro.agrupar(nomina, registros)
+# %{header: %{...}, detalle: [%{...}, %{...}], trailer: %{...}}
+```
+
+Las decisiones, y por qué:
+
+- **Los registros vuelven como `{tipo, mapa}` en el orden del archivo**, no
+  como un mapa por tipo. El orden es parte del dato (hay formatos que
+  intercalan tipos) y es lo único que `stream/3` puede emitir de a uno.
+  `agrupar/2` arma el mapa por tipo para el caso común.
+- **La estructura se valida al pasar; los controles, al final.** Un
+  discriminador desconocido, un `:detalle` después del `:trailer`, un
+  segundo `:header` o un `:trailer` que falta son diagnósticos
+  `:estructura`, con la causa probable de siempre ("suele ser un archivo
+  pegado a otro"). Los totales necesitan todos los detalles, así que se
+  comparan al llegar al fin del archivo: diagnósticos `:control` que dicen
+  el valor calculado, el declarado y de qué se calculó.
+- **En `stream/3` los controles salen como último elemento.** Un
+  `{:error, diagnosticos}` después del último registro si algo no cuadra o
+  falta un registro obligatorio, y nada si todo cuadra. El acumulador lleva
+  cuentas y sumas, no registros: la memoria sigue siendo constante.
+- **En modo tolerante los controles se calculan sobre lo que se pudo leer.**
+  Un detalle ilegible produce su diagnóstico y además el del total que ya no
+  cuadra. Los dos son ciertos y el segundo es el que el banco va a reportar.
+- **Las sumas son sobre enteros o `{unidades, precision}`**, nunca floats;
+  con precisiones distintas se comparan a la mayor.
+
 ## Tipos de campo
 
 | tipo | valor devuelto | opciones |
 | --- | --- | --- |
 | `:texto` | `String.t()` en UTF-8 | `:trim`, `:relleno`, `:opcional` |
 | `:entero` | `integer()` | `:opcional`, `:signo` |
-| `:decimal` | `{unidades, precision}` | `:precision` (obligatoria), `:separador`, `:signo` |
+| `:decimal` | `{unidades, precision}`; con `:moneda`, un `AnchoFijo.Monto` | `:precision` (obligatoria sin `:moneda`), `:moneda`, `:separador`, `:signo` |
 | `:fecha` | `Date.t()` | `:formato` (obligatorio), `:opcional` |
 | `:rut` | `String.t()` canónico, `"12345678-5"`; solo el cuerpo con `dv: :ausente` | `:dv`, `:opcional` |
 
@@ -288,6 +381,14 @@ Un monto de `0000125000` con `precision: 2` se lee como `{125000, 2}`: 125.000
 unidades mínimas con escala 2, es decir 1.250,00. Nunca hay un float en el
 camino. Un monto que pasó por punto flotante deja de cuadrar con la contabilidad
 del banco y nadie sabe dónde se perdió el peso.
+
+`:moneda` convierte el `:decimal` en un `AnchoFijo.Monto` con su código ISO
+4217, y la precisión deja de declararse: es la escala de la moneda. CLP no
+tiene decimales, USD tiene dos, KWD tres; `moneda: :clp` con `precision: 2`
+es un layout inválido, porque leer pesos chilenos divididos por cien es el
+error que nadie nota hasta la conciliación. `Monto.sumar/2` exige la misma
+moneda y devuelve un diagnóstico si no; `total/1`, `formatear/2` y
+`a_decimal/1` para quien tenga `Decimal`. Nunca hay un float en el camino.
 
 `:signo` es `:inicial` por default: `-0125000`. Los formatos heredados de
 mainframe escriben el signo después de los dígitos, `0125000-`, y para leerlos
@@ -306,6 +407,48 @@ DV.
 `:formato` no tiene default a propósito. Adivinar si `01022024` es el 1 de
 febrero o el 2 de enero es exactamente el error silencioso que esta librería
 existe para impedir: un campo `:fecha` sin `:formato` es un layout inválido.
+
+## Tipos propios
+
+Los cinco tipos son implementaciones del behaviour `AnchoFijo.Tipo`, y un
+tipo que solo tiene sentido para un usuario —`:hora`, `:codigo_sucursal`, el
+enum de "tipo de movimiento" de su banco— se agrega sin tocar la librería:
+un módulo con `opciones/0`, `validar/1` y `leer/3`, y `tipo: MiApp.Hora` en
+el layout.
+
+```elixir
+defmodule MiApp.Hora do
+  @behaviour AnchoFijo.Tipo
+  alias AnchoFijo.Tipo
+
+  @impl true
+  def opciones, do: []
+
+  @impl true
+  def validar(campo), do: if(campo.largo == 4, do: [], else: [Tipo.falla(campo, "un :largo de 4", campo.largo, nil)])
+
+  @impl true
+  def leer("", campo, contexto), do: {:error, Tipo.vacio(campo, contexto)}
+
+  def leer(<<h::binary-2, m::binary-2>>, campo, contexto) do
+    case Time.new(String.to_integer(h), String.to_integer(m), 0) do
+      {:ok, hora} -> {:ok, hora}
+      _ -> {:error, Tipo.diagnostico(campo, contexto, esperado: "una hora HHMM", recibido: inspect(h <> m))}
+    end
+  end
+end
+
+[nombre: :hora_pago, largo: 4, tipo: MiApp.Hora]
+```
+
+`validar/1` corre al construir el layout, no al parsear: un `:fecha` sin
+`:formato` sigue siendo un layout inválido, y un tipo propio puede exigir lo
+mismo. Los diagnósticos que produce con `Tipo.diagnostico/3` son
+indistinguibles de los internos. Que el módulo implemente el behaviour se
+verifica también al construir el layout, con `Code.ensure_loaded?/1` por
+delante: un módulo que no existe o no implementa los callbacks es un
+diagnóstico `:layout`, no un `UndefinedFunctionError` en la línea 40.000. El
+ejemplo completo, con una opción propia, está en `AnchoFijo.Tipo`.
 
 ## El layout se valida antes de ver el archivo
 
@@ -428,6 +571,66 @@ dato). Con `normalizar: false` se calcula sobre los bytes exactos, que es lo
 que da `sha256sum`. Se calcula por bloques, así que un archivo de gigabytes
 no se carga en memoria.
 
+## Observabilidad
+
+Una librería que procesa archivos de 2 GB de noche y no emite un solo evento
+es una caja negra. `ancho_fijo` emite eventos de `:telemetry` con el patrón
+`start`/`stop`/`exception` del ecosistema, bajo el prefijo `[:ancho_fijo, ...]`,
+para `parsear/3`, `detectar/2` y `stream/3`. Suscribirse son tres líneas:
+
+```elixir
+:telemetry.attach("nomina", [:ancho_fijo, :parsear, :stop], fn _evento, medidas, metadata, _ ->
+  Logger.info("#{metadata.layout}: #{medidas.registros} registros, #{medidas.errores} errores")
+end, nil)
+```
+
+El `stop` de `parsear/3` trae `duration`, `lineas`, `registros`, `errores` y
+`advertencias`; el de `stream/3` lo mismo, contado en el acumulador del stream
+sin acumular registros ni romper la laziness, y sale también si la
+enumeración se corta. No hay un evento por línea que falla: en un archivo con
+10.000 filas malas serían 10.000 eventos, cada uno con un diagnóstico que
+puede traer datos personales. El contrato completo, evento por evento, está
+en `AnchoFijo.Telemetria`.
+
+`:telemetry` es una dependencia **opcional**: hay que agregarla al proyecto
+para recibir los eventos. Ver la decisión más abajo.
+
+## Idempotencia: reconocer el archivo que ya se procesó
+
+El error operacional más caro de una nómina no es una fila mal parseada: es
+el mismo archivo procesado dos veces, por un reintento manual, un cron que
+corrió dos veces o un correo reenviado. La librería es el punto natural para
+detectarlo, porque ve el archivo completo antes de que exista un solo
+registro en la base de datos.
+
+```elixir
+layout = AnchoFijo.Layout.nuevo!(identidad: [campos: [:lote, :fecha]], campos: [...])
+
+{:ok, identidad} = AnchoFijo.identidad(layout, "nomina.txt")
+# %AnchoFijo.Identidad{declarada: %{lote: 1, fecha: ~D[2024-01-15]}, huella: "sha256:...", nombre: "nomina.txt"}
+
+case AnchoFijo.Identidad.cotejar(identidad, identidades_ya_procesadas) do
+  :nueva -> procesar(...)
+  {:duplicada, vista} -> rechazar("ya se procesó el #{vista.nombre}")
+  {:conflicto, diagnostico, _vista} -> escalar(AnchoFijo.Diagnostico.mensaje(diagnostico))
+end
+```
+
+Tres fuentes, en orden de confiabilidad decreciente: lo que el archivo
+declara de sí mismo (el número de lote y la fecha del header, que el layout
+señala con `identidad:`), la huella del contenido, y el nombre del archivo,
+que es informativo y nada más. La huella manda: el mismo contenido es un
+duplicado aunque cambie el nombre. Y la misma identidad declarada con otro
+contenido **no es un duplicado, es algo peor**: el emisor reutilizó el número
+de lote o alguien editó el archivo, y tiene su propio diagnóstico.
+
+**La frontera.** La librería no persiste nada ni tiene estado: recibe las
+identidades que el llamador ya vio, responde, y punto. El día en que un
+parser abre una tabla o un ETS deja de ser un parser, y además decide por el
+usuario cuánto tiempo recordar y qué hacer con un duplicado. Eso es del
+sistema que paga: guardar la huella y lo declarado de cada archivo procesado
+y consultarlos antes de empezar.
+
 ## Decisiones y trade-offs
 
 **Las posiciones se cuentan en bytes, no en caracteres.** Un formato de ancho
@@ -480,9 +683,6 @@ Agregar una tabla de transcodificación por cada codepage del mundo es cómo un
 paquete chico deja de estar terminado. El diagnóstico apunta al problema y la
 conversión previa es una línea de `iconv`.
 
-**Solo lectura en 0.2.** Sin escritura de archivos y sin multiregistro
-(header/detalle/trailer). Ver el [CHANGELOG](CHANGELOG.md).
-
 **Dos formas de fallar, y solo dos.** Un problema con los datos es un
 `AnchoFijo.Diagnostico`, como valor o dentro de `AnchoFijo.Error`. Un problema
 con la llamada —una opción que no existe, un valor de otro tipo— es un
@@ -495,6 +695,33 @@ señal. Los módulos de apoyo (`AnchoFijo.Rut`, `AnchoFijo.Transcodificacion`,
 tipos equivocados, igual que `String.upcase(42)`; el contrato de las dos formas
 es de los puntos de entrada. Hay un test que le pasa basura a cada uno para
 sostenerlo.
+
+**`:telemetry` es opcional, y el paquete sigue sin dependencias de runtime.**
+Las dos opciones eran declararla obligatoria (30 KB, sin dependencias, ya
+instalada en cualquier app Phoenix) o `optional: true` con una decisión en
+tiempo de compilación. Se eligió la segunda porque la promesa de cero
+dependencias vale sobre todo fuera de Phoenix: el script de migración, el
+`Mix.Task`, el `escript` donde cada dependencia es fricción y nadie va a
+mirar un dashboard. El costo es un `if Code.ensure_loaded?(:telemetry)` en el
+cuerpo de un módulo: con la dependencia presente las llamadas se compilan,
+sin ella no existe ni una, y en runtime no hay ningún `if`. La parte fea:
+si se agrega `:telemetry` después de haber compilado `ancho_fijo`, hay que
+recompilarlo (`mix deps.compile ancho_fijo --force`). Está en la doc del
+módulo.
+
+**`moneda:` devuelve un struct; sin `moneda:` sigue la tupla.** Las tres
+opciones eran seguir con `{unidades, precision}` y solo validar (cero
+migración, pero sumar CLP con USD sigue sin quejarse), `{unidades, precision,
+moneda}` (rompe todo el pattern matching publicado en Hex) o un struct. Se
+eligió el struct, pero solo cuando el layout declara la moneda: quien no la
+declara no cambia una línea, y quien la declara pidió a propósito un valor
+que sabe de qué moneda es. `%AnchoFijo.Monto{}` tiene tres campos, cinco
+operaciones sobre enteros y un `Inspect`; no es una librería de dinero
+disfrazada, y `a_decimal/1` entrega el monto a quien sí tenga una. La tabla
+ISO 4217 es acotada a propósito: todas las monedas con escala distinta de
+dos, que son las que importan, más las de la región y las de reserva. Una
+moneda que falta con `:precision` explícita se acepta con una advertencia
+del layout; sin `:precision`, es un error.
 
 ## Documentación
 

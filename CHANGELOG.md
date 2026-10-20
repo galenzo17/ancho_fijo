@@ -19,6 +19,51 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- `AnchoFijo.identidad/3` y `AnchoFijo.Identidad`: la identidad del lote
+  desde lo que el archivo declara (`identidad: [campos: [...]]` en el
+  layout, leído del primer registro), la huella y el nombre. `cotejar/2`
+  contra las identidades ya vistas responde `:nueva`, `{:duplicada, _}` o
+  `{:conflicto, diagnostico, _}`; `duplicada?/2`. Sin estado ni
+  persistencia. Diagnóstico nuevo `:identidad`.
+- `AnchoFijo.Multiregistro`: archivos con header, detalle y trailer. Un
+  discriminador por posición, un layout por tipo con cantidad (`:uno`,
+  `:opcional`, `:varios`, `:al_menos_uno`) y orden, y controles cruzados
+  (`cuenta:` y `suma:`) del trailer contra los detalles. `parsear/3` y
+  `stream/3` lo aceptan en lugar del layout; los registros vuelven como
+  `{tipo, mapa}` en el orden del archivo y `agrupar/2` los junta por tipo.
+  Diagnósticos nuevos `:estructura` y `:control`.
+- Fixture `nomina_multiregistro.txt`.
+- `AnchoFijo.escribir/3`: el inverso de `parsear/3`. Escribe registros con
+  el layout, todo o nada, con todos los diagnósticos si algo no se puede
+  escribir. `AnchoFijo.Escritor.stream/3` es la versión lazy y
+  `AnchoFijo.Campo.formatear/3` el inverso de `extraer/3`. Opciones
+  `:terminador` y `truncar: true` (solo `:texto`, con advertencia
+  `:campo_truncado`). Respeta encoding, unidad, relleno, signo, separador
+  y formato de fecha; el round-trip con `parsear/3` es una propiedad.
+- `moneda: :clp` en campos `:decimal`: el valor es un `AnchoFijo.Monto`
+  (unidades, precisión, moneda) y la precisión se toma de la escala ISO 4217
+  de la moneda; declararla distinta es un layout inválido. Una moneda fuera
+  de la tabla con `:precision` es una advertencia del layout; sin
+  `:precision`, un error.
+- `AnchoFijo.Monto`: `nuevo/2,3`, `cero/1`, `sumar/2`, `sumar!/2`, `restar/2`,
+  `negar/1`, `total/1,2`, `formatear/2`, `a_decimal/1`, `escala/1`,
+  `monedas/0`. Monedas distintas son un diagnóstico de tipo `:moneda`.
+- `Decimal` como dependencia opcional, solo para `a_decimal/1`.
+- Behaviour `AnchoFijo.Tipo` con `opciones/0`, `validar/1`, `leer/3` y el
+  opcional `escribir/2`. Los cinco tipos internos son implementaciones
+  (`AnchoFijo.Tipo.Texto`, `.Entero`, `.Decimal`, `.Fecha`, `.Rut`) y un
+  layout acepta `tipo: MiApp.Hora` con un módulo propio; sus opciones quedan
+  en `campo.opciones`. Un módulo que no existe o no implementa el behaviour
+  es un diagnóstico `:layout`. `Tipo.diagnostico/3`, `Tipo.vacio/2` y
+  `Tipo.falla/4` para que los diagnósticos propios sean indistinguibles.
+- `AnchoFijo.Campo` tiene `:modulo` (el tipo resuelto) y `:opciones`, y
+  `Campo.texto?/1`.
+- Eventos de `:telemetry` bajo `[:ancho_fijo, ...]`: `parsear` y `detectar`
+  con `start`/`stop`/`exception` vía `:telemetry.span/3`, y `stream` con
+  `start`/`stop` contados en el acumulador. Medidas de `stop`: `duration`,
+  `lineas`, `registros`, `errores`, `advertencias`. El contrato está en
+  `AnchoFijo.Telemetria`. La dependencia es opcional
+  (`{:telemetry, "~> 1.3", optional: true}`); sin ella no se emite nada.
 - `traza: true` en `parsear/3` y `stream/3`: cada registro trae la clave
   reservada `:__traza__` con un `AnchoFijo.Traza` (línea, offset de byte,
   largo). `AnchoFijo.Traza.linea_original/2` recupera la línea desde el
@@ -48,10 +93,23 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Cambiado
 
+- `parsear/3` parte y numera las líneas de a una en vez de materializar la
+  lista completa antes de procesar la primera: en modo `:estricto` sobre un
+  archivo de 100 MB con la primera fila mala en la línea 1000, de 0,46 s y
+  390 MB de heap a 0,02 s y nada medible.
+- Conversión de campos sin regex (`solo_digitos?`, fechas en ceros) y
+  validación UTF-8 con `String.valid?/1` por delante: una línea de cuatro
+  campos pasa de 3,2 µs a 1,9 µs, y `stream/3` sobre 100 MB de 7,7 s a
+  5,2 s.
+- Una opción de campo que ningún tipo conoce (`precison: 2`) es un
+  diagnóstico `:layout`, en vez de ignorarse.
 - Un diagnóstico `:entrada` por un argumento que no es binario describe el
   tipo del argumento ("una lista de 3 elementos") en vez de imprimirlo.
 
 ### Infraestructura
+
+- `bench/generar.exs` y `bench/parseo.exs`: fixture grande, Benchee y un
+  medidor de memoria pico por proceso. Resultados en `bench/README.md`.
 
 - `mix prompts.verificar`: el registro de `prompts/` se verifica contra git
   (numeración, frontmatter, fecha y autor del commit que agregó cada archivo,

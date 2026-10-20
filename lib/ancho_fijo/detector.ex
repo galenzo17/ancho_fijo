@@ -64,6 +64,7 @@ defmodule AnchoFijo.Detector do
   alias AnchoFijo.Entrada
   alias AnchoFijo.Layout
   alias AnchoFijo.Opciones
+  alias AnchoFijo.Telemetria
   alias AnchoFijo.Transcodificacion
 
   @lineas_default 200
@@ -112,10 +113,19 @@ defmodule AnchoFijo.Detector do
   def detectar(entrada, opts \\ []) do
     opts = Opciones.validar!(opts, opciones_de_detectar(), "AnchoFijo.detectar/2")
 
-    with {:ok, layout} <- coercer_layout(Keyword.get(opts, :layout)),
-         {:ok, muestra, truncada?} <- Entrada.leer_muestra(entrada, opts) do
-      {:ok, analizar(muestra, truncada?, Keyword.put(opts, :layout, layout))}
-    end
+    Telemetria.span(:detectar, %{desde: Entrada.origen(entrada, opts)}, fn ->
+      with {:ok, layout} <- coercer_layout(Keyword.get(opts, :layout)),
+           {:ok, muestra, truncada?} <- Entrada.leer_muestra(entrada, opts) do
+        reporte = analizar(muestra, truncada?, Keyword.put(opts, :layout, layout))
+
+        {{:ok, reporte}, %{lineas: reporte.lineas_analizadas, bytes: byte_size(muestra)},
+         %{resultado: :ok, probablemente_ancho_fijo?: reporte.probablemente_ancho_fijo?}}
+      else
+        {:error, diagnosticos} ->
+          {{:error, diagnosticos}, %{lineas: 0, bytes: 0},
+           %{resultado: :error, probablemente_ancho_fijo?: nil}}
+      end
+    end)
   end
 
   @doc """

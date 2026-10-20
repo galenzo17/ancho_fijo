@@ -82,6 +82,7 @@ defmodule AnchoFijo.Parser do
   alias AnchoFijo.Entrada
   alias AnchoFijo.Layout
   alias AnchoFijo.Opciones
+  alias AnchoFijo.Telemetria
   alias AnchoFijo.Transcodificacion
   alias AnchoFijo.Traza
 
@@ -107,22 +108,49 @@ defmodule AnchoFijo.Parser do
   @spec parsear(Layout.t() | Enumerable.t(), term(), keyword()) :: resultado()
   def parsear(layout, entrada, opts \\ []) do
     opts = Opciones.validar!(opts, opciones_de_parsear(), "AnchoFijo.parsear/3")
+    metadata = %{modo: Keyword.get(opts, :modo, :estricto), desde: Entrada.origen(entrada, opts)}
 
+    Telemetria.span(:parsear, metadata, fn ->
+      case preparar_parseo(layout, entrada, opts) do
+        {:ok, layout, numeradas} ->
+          {resultado, lineas} = procesar(numeradas, layout, metadata.modo)
+          {medidas, extra} = Telemetria.medir_parseo(resultado, lineas)
+          {resultado, medidas, Map.merge(extra, metadata_de_layout(layout))}
+
+        {:error, diagnosticos} ->
+          # La misma forma que un stop exitoso: un handler que lee
+          # `metadata.layout` o `medidas.registros` no puede reventar (y ser
+          # desenganchado por telemetry) porque el layout no se pudo construir.
+          {medidas, extra} = Telemetria.medir_parseo({:error, diagnosticos}, 0)
+          {{:error, diagnosticos}, medidas, Map.merge(extra, metadata_de_layout(nil))}
+      end
+    end)
+  end
+
+  defp preparar_parseo(layout, entrada, opts) do
     with {:ok, layout} <- Layout.coercer(layout),
          {:ok, contenido} <- Entrada.leer(entrada, opts) do
-      contenido
-      |> numerar(Keyword.get(opts, :traza, false))
-      |> seleccionar(opts)
-      |> procesar(layout, Keyword.get(opts, :modo, :estricto))
+      numeradas =
+        contenido
+        |> numerar(Keyword.get(opts, :traza, false))
+        |> seleccionar(opts)
+
+      {:ok, layout, numeradas}
     end
   end
+
+  defp metadata_de_layout(%Layout{} = layout) do
+    %{layout: layout.nombre, encoding: layout.encoding, unidad: layout.unidad}
+  end
+
+  defp metadata_de_layout(nil), do: %{layout: nil, encoding: nil, unidad: nil}
 
   # Sin traza, el camino es el de siempre: partir y numerar. Con traza, cada
   # línea conserva su terminador para saber dónde empieza la siguiente, y la
   # tupla lleva la traza en vez del número solo. `parsear_linea/3` recibe el
   # número en los dos casos; la traza se pega al registro al final.
   defp numerar(contenido, false) do
-    contenido |> Entrada.dividir() |> Enum.with_index(1)
+    contenido |> Entrada.dividir_lazy() |> Stream.with_index(1)
   end
 
   defp numerar(contenido, true) do
@@ -240,10 +268,14 @@ defmodule AnchoFijo.Parser do
     opts = Opciones.validar!(opts, opciones_de_stream(), "AnchoFijo.stream/3")
     layout = coercer!(layout)
 
-    case fuente(entrada, opts) do
-      {:ok, lineas} -> encadenar(lineas, layout, opts)
-      {:error, diagnosticos} -> [{:error, diagnosticos}]
-    end
+    resultados =
+      case fuente(entrada, opts) do
+        {:ok, lineas} -> encadenar(lineas, layout, opts)
+        {:error, diagnosticos} -> [{:error, diagnosticos}]
+      end
+
+    metadata = Map.put(metadata_de_layout(layout), :desde, Entrada.origen(entrada, opts))
+    Telemetria.instrumentar_stream(resultados, metadata)
   end
 
   # Con traza, las líneas tienen que llegar con sus bytes exactos para que el
@@ -365,47 +397,53 @@ defmodule AnchoFijo.Parser do
 
   defp seleccionar(numeradas, opts) do
     numeradas
-    |> Enum.drop(Keyword.get(opts, :saltar, 0))
-    |> filtrar_vacias(Keyword.get(opts, :omitir_vacias, true))
+    |> Stream.drop(Keyword.get(opts, :saltar, 0))
+    |> descartar_vacias(Keyword.get(opts, :omitir_vacias, true))
   end
 
-  defp filtrar_vacias(numeradas, true) do
-    Enum.reject(numeradas, fn {linea, _marca} -> linea == "" end)
-  end
-
-  defp filtrar_vacias(numeradas, _false), do: numeradas
-
+  # Las líneas llegan de a una y se cuentan al pasar: en estricto el archivo
+  # no se parte entero para mirar las primeras mil, así que la cuenta que
+  # sale es la de las líneas leídas, no la del archivo. Devuelve el resultado
+  # y esa cuenta, que es lo que `AnchoFijo.Telemetria` mide.
+  #
   # En estricto un error aborta el archivo completo y las advertencias de las
   # líneas ya leídas se descartan: no hay resultado parcial que anotar. Las
   # advertencias solo viajan cuando el archivo entero se pudo leer.
   defp procesar(numeradas, layout, :estricto) do
     resultado =
-      Enum.reduce_while(numeradas, {[], []}, fn {linea, marca}, {registros, advertencias} ->
+      Enum.reduce_while(numeradas, {[], [], 0}, fn {linea, marca},
+                                                   {registros, advertencias, lineas} ->
         case parsear_marcada(layout, linea, marca) do
           {:ok, registro, nuevas} ->
-            {:cont, {[registro | registros], apilar(nuevas, advertencias)}}
+            {:cont, {[registro | registros], apilar(nuevas, advertencias), lineas + 1}}
 
           {:error, diagnosticos} ->
-            {:halt, {:error, diagnosticos}}
+            {:halt, {:error, diagnosticos, lineas + 1}}
         end
       end)
 
     case resultado do
-      {:error, diagnosticos} -> {:error, diagnosticos}
-      {registros, advertencias} -> {:ok, Enum.reverse(registros), Enum.reverse(advertencias)}
+      {:error, diagnosticos, lineas} ->
+        {{:error, diagnosticos}, lineas}
+
+      {registros, advertencias, lineas} ->
+        {{:ok, Enum.reverse(registros), Enum.reverse(advertencias)}, lineas}
     end
   end
 
   defp procesar(numeradas, layout, :tolerante) do
-    {registros, diagnosticos} =
-      Enum.reduce(numeradas, {[], []}, fn {linea, marca}, {registros, diagnosticos} ->
+    {registros, diagnosticos, lineas} =
+      Enum.reduce(numeradas, {[], [], 0}, fn {linea, marca}, {registros, diagnosticos, lineas} ->
         case parsear_marcada(layout, linea, marca) do
-          {:ok, registro, nuevas} -> {[registro | registros], apilar(nuevas, diagnosticos)}
-          {:error, nuevos} -> {registros, apilar(nuevos, diagnosticos)}
+          {:ok, registro, nuevas} ->
+            {[registro | registros], apilar(nuevas, diagnosticos), lineas + 1}
+
+          {:error, nuevos} ->
+            {registros, apilar(nuevos, diagnosticos), lineas + 1}
         end
       end)
 
-    {:ok, Enum.reverse(registros), Enum.reverse(diagnosticos)}
+    {{:ok, Enum.reverse(registros), Enum.reverse(diagnosticos)}, lineas}
   end
 
   defp apilar([], acumulados), do: acumulados
@@ -489,7 +527,7 @@ defmodule AnchoFijo.Parser do
         zona = sumar_no_declarado(zona, Campo.fin(campo))
 
         cond do
-          campo.tipo != :texto -> {:halt, cerrar(zona)}
+          not Campo.texto?(campo) -> {:halt, cerrar(zona)}
           not reponible?(campo.relleno, unidad) -> {:halt, cerrar(zona)}
           zona.caracter in [nil, campo.relleno] -> {:cont, sumar_campo(zona, campo)}
           true -> {:halt, cerrar(zona)}

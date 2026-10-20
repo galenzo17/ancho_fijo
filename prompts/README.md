@@ -160,3 +160,10 @@ Las que la convención tuvo que zanjar y no eran obvias:
 | [0011](0011-prompts-auditables.md) | Issue #17: historial de prompts auditable | `mix prompts.verificar`, frontmatter verificado contra git, job en CI |
 | [0012](0012-datos-sensibles.md) | Issue #8: datos personales en los diagnósticos | `sensible: true`, forma en vez de valor, `revelar: true`, `inspect` redactado |
 | [0013](0013-trazabilidad.md) | Issue #7: trazabilidad por registro y huella del lote | `traza: true` con `:__traza__`, `AnchoFijo.Traza`, `huella/2` normalizada |
+| [0014](0014-telemetria.md) | Issue #13: instrumentación con `:telemetry` | `AnchoFijo.Telemetria`, `span/3`, eventos de `parsear`, `detectar` y `stream`, dependencia opcional |
+| [0015](0015-behaviour-tipo.md) | Issue #12: behaviour `AnchoFijo.Tipo` | Los cinco tipos como implementaciones, `tipo: MiApp.Hora`, verificación al construir el layout |
+| [0016](0016-moneda.md) | Issue #9: moneda y escala | `moneda:` en `:decimal`, `AnchoFijo.Monto`, escala ISO 4217 validada, aritmética sin floats |
+| [0017](0017-benchmark.md) | Issue #6: benchmark de `stream/3` y presupuesto de memoria | `bench/`, memoria constante medida, dos cuellos de botella arreglados con antes y después |
+| [0018](0018-escritura.md) | Issue #2: escritura con el mismo layout | `AnchoFijo.escribir/3`, `Escritor.stream/3`, `Campo.formatear/3`, round-trip como propiedad |
+| [0019](0019-multiregistro.md) | Issue #1: header, detalle y trailer | `AnchoFijo.Multiregistro`, discriminador, orden y cantidad, controles cruzados, stream con cierre |
+| [0020](0020-idempotencia.md) | Issue #11: idempotencia de lotes | `AnchoFijo.Identidad`, tres fuentes, `cotejar/2` con duplicado y conflicto, sin estado |

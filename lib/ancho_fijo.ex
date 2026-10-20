@@ -45,6 +45,7 @@ defmodule AnchoFijo do
   | `detectar/2` | interrogar el archivo antes de escribir el layout |
   | `parsear/3` | leer un archivo completo, estricto o tolerante |
   | `stream/3` | leer un archivo grande de forma lazy |
+  | `escribir/3` | generar un archivo con el mismo layout |
   | `AnchoFijo.Layout.nuevo/1` | definir y validar el formato |
 
   `detectar!/2`, `parsear!/3` y `AnchoFijo.Layout.nuevo!/1` son las mismas
@@ -72,15 +73,19 @@ defmodule AnchoFijo do
   funciones con `!`, y `ArgumentError` cuando la llamada está mal hecha: una
   opción que no existe, un valor de otro tipo. Ver `AnchoFijo.Error`.
 
-  ## Alcance de 0.1
+  ## Header, detalle y trailer
 
-  Solo lectura. Sin escritura de archivos y sin multiregistro
-  (header/detalle/trailer): ver el `CHANGELOG.md`.
+  Un archivo con varios tipos de registro se describe con
+  `AnchoFijo.Multiregistro`, y `parsear/3` y `stream/3` lo aceptan en lugar
+  del layout.
   """
 
   alias AnchoFijo.Detector
   alias AnchoFijo.Diagnostico
+  alias AnchoFijo.Escritor
+  alias AnchoFijo.Identidad
   alias AnchoFijo.Layout
+  alias AnchoFijo.Multiregistro
   alias AnchoFijo.Parser
   alias AnchoFijo.Traza
 
@@ -142,8 +147,14 @@ defmodule AnchoFijo do
 
   Ver `AnchoFijo.Parser` para las opciones y la diferencia entre los modos.
   """
-  @spec parsear(Layout.t() | Enumerable.t(), term(), keyword()) :: Parser.resultado()
-  defdelegate parsear(layout, entrada, opts \\ []), to: Parser
+  @spec parsear(Layout.t() | Multiregistro.t() | Enumerable.t(), term(), keyword()) ::
+          Parser.resultado() | {:ok, [Multiregistro.registro()], [Diagnostico.t()]}
+  def parsear(layout, entrada, opts \\ [])
+
+  def parsear(%Multiregistro{} = multi, entrada, opts),
+    do: Multiregistro.parsear(multi, entrada, opts)
+
+  def parsear(layout, entrada, opts), do: Parser.parsear(layout, entrada, opts)
 
   @doc """
   Igual que `parsear/3`, pero devuelve solo los registros o levanta `AnchoFijo.Error`.
@@ -185,8 +196,13 @@ defmodule AnchoFijo do
 
   Ver `AnchoFijo.Parser.stream/3` para el detalle.
   """
-  @spec stream(Layout.t() | Enumerable.t(), term(), keyword()) :: Enumerable.t()
-  defdelegate stream(layout, entrada, opts \\ []), to: Parser
+  @spec stream(Layout.t() | Multiregistro.t() | Enumerable.t(), term(), keyword()) :: Enumerable.t()
+  def stream(layout, entrada, opts \\ [])
+
+  def stream(%Multiregistro{} = multi, entrada, opts),
+    do: Multiregistro.stream(multi, entrada, opts)
+
+  def stream(layout, entrada, opts), do: Parser.stream(layout, entrada, opts)
 
   @doc """
   Huella SHA-256 del lote, estable entre corridas e insensible al estilo de
@@ -196,4 +212,32 @@ defmodule AnchoFijo do
   """
   @spec huella(term(), keyword()) :: {:ok, String.t()} | {:error, [Diagnostico.t()]}
   defdelegate huella(entrada, opts \\ []), to: Traza
+
+  @doc """
+  Escribe registros con el mismo layout que los lee: el inverso de `parsear/3`.
+
+      iex> layout = [campos: [[nombre: :codigo, largo: 3, tipo: :entero], [nombre: :glosa, largo: 5]]]
+      iex> AnchoFijo.escribir(layout, [%{codigo: 7, glosa: "ab"}, %{codigo: 42, glosa: "cde"}])
+      {:ok, "007ab   \\n042cde  \\n", []}
+
+  Todo o nada: si algún valor no se puede escribir, devuelve todos los
+  diagnósticos. Ver `AnchoFijo.Escritor`, y `AnchoFijo.Escritor.stream/3`
+  para la versión lazy.
+  """
+  @spec escribir(Layout.t() | Enumerable.t(), Enumerable.t(), keyword()) ::
+          {:ok, binary(), [Diagnostico.t()]} | {:error, [Diagnostico.t()]}
+  defdelegate escribir(layout, registros, opts \\ []), to: Escritor
+
+  @doc """
+  La identidad del lote: lo que el archivo declara, su huella y su nombre.
+  Para reconocer un archivo reprocesado antes de pagar dos veces. Ver
+  `AnchoFijo.Identidad`.
+
+      iex> {:ok, identidad} = AnchoFijo.identidad([campos: [[nombre: :a, largo: 3]]], "001\\n002\\n")
+      iex> {identidad.declarada, String.starts_with?(identidad.huella, "sha256:")}
+      {nil, true}
+  """
+  @spec identidad(Layout.t() | Enumerable.t(), term(), keyword()) ::
+          {:ok, Identidad.t()} | {:error, [Diagnostico.t()]}
+  defdelegate identidad(layout, entrada, opts \\ []), to: Identidad
 end
