@@ -53,6 +53,8 @@ defmodule AnchoFijo.MixProject do
       licenses: ["MIT"],
       maintainers: ["Agustin Bereciartua"],
       files: ~w(lib mix.exs README.md CHANGELOG.md LICENSE .formatter.exs),
+      # La verificación de prompts/ es del repositorio, no del paquete.
+      exclude_patterns: [~r"lib/mix/tasks/prompts\."],
       links: %{
         "GitHub" => @source_url,
         "Changelog" => "#{@source_url}/blob/main/CHANGELOG.md"

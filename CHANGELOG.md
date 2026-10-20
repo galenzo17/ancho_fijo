@@ -35,6 +35,10 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Infraestructura
 
+- `mix prompts.verificar`: el registro de `prompts/` se verifica contra git
+  (numeración, frontmatter, fecha y autor del commit que agregó cada archivo,
+  secciones e índice), con `--corregir` para alinear el frontmatter. Corre
+  como job propio en CI. No forma parte del paquete publicado.
 - CI en GitHub Actions: la suite corre en Elixir 1.14, 1.16, 1.18 y 1.20 con
   warnings como errores; formato, credo, dialyzer (con el PLT en caché) y
   cobertura con umbral del 90 % corren en la versión más nueva.
