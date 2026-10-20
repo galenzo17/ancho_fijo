@@ -73,10 +73,14 @@ defmodule AnchoFijo.Transcodificacion do
     end
   end
 
+  # `String.valid?/1` es un BIF y decide el caso común (la línea es UTF-8
+  # válido) en una fracción de lo que cuesta recorrerla en Elixir; el
+  # recorrido que ubica el byte inválido se hace solo cuando lo hay.
   def a_utf8(binario, :utf8) when is_binary(binario) do
-    case primer_byte_invalido(binario) do
-      nil -> validar_controles(binario)
-      detalle -> {:error, detalle}
+    if String.valid?(binario) do
+      validar_controles(binario)
+    else
+      {:error, primer_byte_invalido(binario)}
     end
   end
 
@@ -214,19 +218,26 @@ defmodule AnchoFijo.Transcodificacion do
   defp control_en_bytes(<<_byte, resto::binary>>, posicion),
     do: control_en_bytes(resto, posicion + 1)
 
+  # Sobre un binario ya validado como UTF-8, los únicos controles que no son
+  # ASCII son U+0080..U+009F, que se codifican como 0xC2 seguido de
+  # 0x80..0x9F. Un recorrido por bytes alcanza y cuesta la mitad que
+  # decodificar cada punto de código.
   defp control_en_codepoints(<<>>, _posicion), do: nil
 
   defp control_en_codepoints(<<?\t, resto::binary>>, posicion),
     do: control_en_codepoints(resto, posicion + 1)
 
-  defp control_en_codepoints(<<punto::utf8, _resto::binary>>, posicion)
-       when punto in 0x00..0x1F or punto in 0x7F..0x9F do
-    %{motivo: :caracter_de_control, posicion: posicion, byte: punto}
+  defp control_en_codepoints(<<byte, _resto::binary>>, posicion)
+       when byte in 0x00..0x1F or byte == 0x7F do
+    %{motivo: :caracter_de_control, posicion: posicion, byte: byte}
   end
 
-  defp control_en_codepoints(<<punto::utf8, resto::binary>>, posicion) do
-    control_en_codepoints(resto, posicion + byte_size(<<punto::utf8>>))
+  defp control_en_codepoints(<<0xC2, byte, _resto::binary>>, posicion) when byte in 0x80..0x9F do
+    %{motivo: :caracter_de_control, posicion: posicion, byte: byte}
   end
+
+  defp control_en_codepoints(<<_byte, resto::binary>>, posicion),
+    do: control_en_codepoints(resto, posicion + 1)
 
   defp hex(byte) do
     byte |> Integer.to_string(16) |> String.pad_leading(2, "0")

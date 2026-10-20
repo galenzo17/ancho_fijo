@@ -1,3 +1,10 @@
+---
+prompt: 0002
+fecha: 2026-08-06T17:42:34-04:00
+autor: Agustin Bereciartua <bereciartua.agustin@gmail.com>
+modelo: no registrado
+---
+
 # 0002 — Mantener un directorio de prompts
 
 **Fecha:** 2026-08-06

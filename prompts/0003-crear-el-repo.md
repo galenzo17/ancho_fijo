@@ -1,3 +1,10 @@
+---
+prompt: 0003
+fecha: 2026-08-06T17:44:15-04:00
+autor: Agustin Bereciartua <bereciartua.agustin@gmail.com>
+modelo: no registrado
+---
+
 # 0003 — Crear el repositorio
 
 **Fecha:** 2026-08-06

@@ -56,8 +56,41 @@ defmodule AnchoFijo.Entrada do
   def es_ruta?(entrada, opts) when is_binary(entrada), do: ruta?(entrada, opts)
   def es_ruta?(_entrada, _opts), do: false
 
+  # De dónde viene la entrada, para la metadata de telemetría: `:archivo`,
+  # `:contenido` o `:enumerable`. No lee nada.
+  @doc false
+  @spec origen(term(), keyword()) :: :archivo | :contenido | :enumerable | :otro
+  def origen(entrada, opts) when is_binary(entrada) do
+    if ruta?(entrada, opts), do: :archivo, else: :contenido
+  end
+
+  def origen(entrada, _opts) do
+    if enumerable?(entrada), do: :enumerable, else: :otro
+  end
+
   @spec dividir(binary()) :: [binary()]
   def dividir(binario), do: String.split(binario, ["\r\n", "\n", "\r"])
+
+  # Las mismas piezas que `dividir/1`, pero de a una: `parsear/3` en modo
+  # estricto corta en la primera línea mala, y partir y numerar dos millones
+  # de líneas para mirar mil es lo que lo hacía ocupar cuatro veces el
+  # archivo. Cada pieza es un sub-binario del original, sin copia.
+  @spec dividir_lazy(binary()) :: Enumerable.t()
+  def dividir_lazy(binario) do
+    patron = :binary.compile_pattern(["\r\n", "\n", "\r"])
+    tamano = byte_size(binario)
+
+    Stream.unfold(0, fn
+      nil ->
+        nil
+
+      desde ->
+        case :binary.match(binario, patron, scope: {desde, tamano - desde}) do
+          {hasta, largo} -> {binary_part(binario, desde, hasta - desde), hasta + largo}
+          :nomatch -> {binary_part(binario, desde, tamano - desde), nil}
+        end
+    end)
+  end
 
   # Como `dividir/1`, pero cada línea conserva su terminador, que es lo que
   # hace falta para saber en qué byte empieza la siguiente. Es lo mismo que
@@ -223,11 +256,28 @@ defmodule AnchoFijo.Entrada do
   defp descripcion_motivo(:eisdir), do: "la ruta es un directorio, no un archivo"
   defp descripcion_motivo(motivo), do: "error del sistema de archivos: #{inspect(motivo)}"
 
+  # El término no se inspecciona entero: una lista de líneas o un mapa con
+  # datos terminarían en el mensaje, y el mensaje termina en el log.
+  @doc false
+  @spec describir(term()) :: String.t()
+  def describir(termino) when is_integer(termino), do: "un entero"
+  def describir(termino) when is_float(termino), do: "un float"
+  def describir(nil), do: "nil"
+  def describir(termino) when is_boolean(termino), do: "un booleano"
+  def describir(termino) when is_atom(termino), do: "un átomo"
+  def describir(termino) when is_binary(termino), do: "un binario de #{byte_size(termino)} bytes"
+  def describir(termino) when is_list(termino), do: "una lista de #{length(termino)} elementos"
+  def describir(termino) when is_struct(termino), do: "un %#{inspect(termino.__struct__)}{}"
+  def describir(termino) when is_map(termino), do: "un mapa de #{map_size(termino)} claves"
+  def describir(termino) when is_tuple(termino), do: "una tupla de #{tuple_size(termino)}"
+  def describir(termino) when is_function(termino), do: "una función"
+  def describir(_termino), do: "un término de otro tipo"
+
   defp no_es_entrada(entrada) do
     Diagnostico.nuevo(
       tipo: :entrada,
       esperado: "un binario con el contenido, una ruta a un archivo o un enumerable de líneas",
-      recibido: inspect(entrada),
+      recibido: describir(entrada),
       causa_probable: "el argumento de entrada no es de un tipo que se pueda leer"
     )
   end
