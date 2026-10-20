@@ -122,11 +122,10 @@ defmodule AnchoFijo.ParserTest do
       assert length(registros) == 3
     end
 
-    test "un modo desconocido se diagnostica en vez de fallar silenciosamente" do
-      {:error, [diagnostico]} =
+    test "un modo desconocido es un error de la llamada, no del archivo" do
+      assert_raise ArgumentError, ~r/la opción :modo espera :estricto o :tolerante/, fn ->
         Parser.parsear(layout_nomina(), leer("nomina_correcta.txt"), modo: :permisivo)
-
-      assert diagnostico.esperado == ":modo en [:estricto, :tolerante]"
+      end
     end
   end
 
