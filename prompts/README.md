@@ -160,4 +160,4 @@ Las que la convención tuvo que zanjar y no eran obvias:
 | [0011](0011-prompts-auditables.md) | Issue #17: historial de prompts auditable | `mix prompts.verificar`, frontmatter verificado contra git, job en CI |
 | [0012](0012-datos-sensibles.md) | Issue #8: datos personales en los diagnósticos | `sensible: true`, forma en vez de valor, `revelar: true`, `inspect` redactado |
 | [0013](0013-trazabilidad.md) | Issue #7: trazabilidad por registro y huella del lote | `traza: true` con `:__traza__`, `AnchoFijo.Traza`, `huella/2` normalizada |
-| [0009](0009-telemetria.md) | Issue #13: instrumentación con `:telemetry` | `AnchoFijo.Telemetria`, `span/3`, eventos de `parsear`, `detectar` y `stream`, dependencia opcional |
+| [0014](0014-telemetria.md) | Issue #13: instrumentación con `:telemetry` | `AnchoFijo.Telemetria`, `span/3`, eventos de `parsear`, `detectar` y `stream`, dependencia opcional |

@@ -1,12 +1,12 @@
 ---
-prompt: 0009
+prompt: 0014
 fecha: 2026-10-16T18:49:22-03:00
 autor: Agustín Bereciartúa <bereciartua.agustin@gmail.com>
 modelo: claude-fable-5-1
 issue: 13
 ---
 
-# 0009 — Instrumentación con `:telemetry` (issue #13)
+# 0014 — Instrumentación con `:telemetry` (issue #13)
 
 **Contexto:** la librería no emitía un solo evento. Cuando el proceso
 nocturno se demora el triple no hay forma de saber si fue el I/O, la
