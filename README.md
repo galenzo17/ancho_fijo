@@ -28,7 +28,7 @@ error diga qué pasó en vez de `{:error, :invalid}`.
 
 ```elixir
 def deps do
-  [{:ancho_fijo, "~> 0.3.0"}]
+  [{:ancho_fijo, "~> 0.3.1"}]
 end
 ```
 
