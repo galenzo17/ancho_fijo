@@ -50,6 +50,13 @@ propio.
    la ventana es un diagnóstico y no un `00`.
 4. **`:fecha_hora` es `NaiveDateTime`.** Un archivo de ancho fijo no trae
    zona horaria; ponerle UTC sería inventar un dato.
-5. **El relleno no se valida en el patrón, sí los separadores.** Un
+5. **En `:hora` los ceros son la medianoche, no "sin dato".** La propiedad
+   de round-trip generó `00:00:00`, lo serializó como `0000` y la lectura
+   lo rechazó como vacío: `00000000` no puede ser una fecha, pero `0000` sí
+   es una hora. Solo los blancos son "sin hora".
+6. **El patrón se corta por tamaño del literal, no con `^literal::binary`.**
+   Ese patrón recién compila en Elixir 1.16 y el paquete soporta 1.14; la
+   prueba de humo como dependencia en 1.14 lo encontró antes que CI.
+7. **El relleno no se valida en el patrón, sí los separadores.** Un
    `31-01-2024` en un campo `"DD/MM/AAAA"` es un diagnóstico que nombra
    el patrón, no "caracteres no numéricos".
