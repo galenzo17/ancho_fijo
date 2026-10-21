@@ -181,3 +181,4 @@ Las que la convención tuvo que zanjar y no eran obvias:
 | [0032](0032-decimal-interop.md) | Issue #52: interoperar con `Decimal` | `como: :decimal`, `decimales_como:`, escritura desde `Decimal`, entero o string, `Monto.desde_decimal/2` |
 | [0033](0033-escribir-multiregistro.md) | Issue #54: escribir un Multiregistro | `Multiregistro.escribir/3` con controles calculados, `agrupar_por:`, sumas sobre `Monto` y `Decimal` |
 | [0034](0034-diagnosticos-usuario.md) | Issue #55: diagnósticos para el usuario final | `mensaje/2` con idioma y audiencia, `a_mapa/2`, `desde_mapa/1`, `Jason.Encoder` opcional, `resumen/2` |
+| [0035](0035-documentar.md) | Issue #56: la especificación desde el layout | `Documentacion.documentar/2` en Markdown, CSV y JSON, `mix ancho_fijo.documentar`, `descripcion:` y `ejemplo:` |

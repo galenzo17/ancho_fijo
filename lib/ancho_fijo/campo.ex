@@ -57,6 +57,9 @@ defmodule AnchoFijo.Campo do
       en esas posiciones. Ver `AnchoFijo.Tipo.Constante`.
     * `:dv` — en `:rut`: `:validar` (default), `:no_validar` o `:ausente`. Ver
       `AnchoFijo.Rut`.
+    * `:descripcion` y `:ejemplo` — texto libre para la especificación que
+      genera `AnchoFijo.Documentacion` (y `mix ancho_fijo.documentar`). El
+      parser los ignora.
     * `:sensible` — si es `true`, los diagnósticos del campo muestran la forma
       del valor y no el valor en `AnchoFijo.Diagnostico.mensaje/1` y en
       `inspect/1`. Default `false`, salvo en `:rut`, donde es `true`: un RUT
@@ -91,7 +94,19 @@ defmodule AnchoFijo.Campo do
   alias AnchoFijo.Tipo
   alias AnchoFijo.Transcodificacion
 
-  @comunes [:nombre, :posicion, :largo, :tipo, :opcional, :trim, :relleno, :sensible, :encoding]
+  @comunes [
+    :nombre,
+    :posicion,
+    :largo,
+    :tipo,
+    :opcional,
+    :trim,
+    :relleno,
+    :sensible,
+    :encoding,
+    :descripcion,
+    :ejemplo
+  ]
   @de_tipos_internos [
     reparar_doble_codificacion: false,
     precision: nil,
@@ -137,6 +152,8 @@ defmodule AnchoFijo.Campo do
           trim: :ambos | :izquierda | :derecha | false,
           relleno: String.t(),
           encoding: :utf8 | :latin1 | nil,
+          descripcion: String.t() | nil,
+          ejemplo: String.t() | nil,
           reparar_doble_codificacion: boolean(),
           precision: non_neg_integer() | nil,
           separador: :implicito | :punto | :coma,
@@ -160,6 +177,8 @@ defmodule AnchoFijo.Campo do
             trim: :ambos,
             relleno: " ",
             encoding: nil,
+            descripcion: nil,
+            ejemplo: nil,
             reparar_doble_codificacion: false,
             precision: nil,
             separador: :implicito,
@@ -323,6 +342,11 @@ defmodule AnchoFijo.Campo do
       when is_integer(posicion) and posicion > 0 and is_integer(largo) and largo > 0 do
     posicion + largo - 1
   end
+
+  @doc false
+  # El código ISO de la moneda, para la documentación.
+  @spec nombre_moneda(Monto.moneda()) :: String.t()
+  def nombre_moneda(moneda), do: Monto.codigo(moneda)
 
   @doc """
   Nombre de la unidad de medida, para redactar diagnósticos.
@@ -505,8 +529,17 @@ defmodule AnchoFijo.Campo do
       validar_relleno(campo),
       validar_opcional(campo),
       validar_sensible(campo),
-      validar_encoding(campo)
+      validar_encoding(campo),
+      validar_texto_libre(campo, :descripcion),
+      validar_texto_libre(campo, :ejemplo)
     ])
+  end
+
+  defp validar_texto_libre(%__MODULE__{nombre: nombre} = campo, opcion) do
+    case Map.fetch!(campo, opcion) do
+      valor when is_nil(valor) or is_binary(valor) -> []
+      otro -> [falla(nombre, "#{inspect(opcion)} como texto, o ninguno", otro, nil)]
+    end
   end
 
   defp validar_encoding(%__MODULE__{encoding: encoding}) when encoding in [nil, :utf8, :latin1],

@@ -49,6 +49,8 @@ defmodule Mix.Tasks.AnchoFijo.Detectar do
   use Mix.Task
 
   alias AnchoFijo.Diagnostico
+  alias AnchoFijo.Json
+  alias Mix.Tasks.AnchoFijo.Carga
 
   @opciones [lineas: :integer, bytes: :integer, layout: :string, json: :boolean]
 
@@ -108,23 +110,7 @@ defmodule Mix.Tasks.AnchoFijo.Detectar do
     end
   end
 
-  defp cargar_layout(ruta) do
-    {definicion, _binding} = Code.eval_file(ruta)
-
-    case definicion do
-      %AnchoFijo.Multiregistro{} = multi ->
-        {:ok, multi}
-
-      definicion ->
-        case AnchoFijo.Layout.coercer(definicion) do
-          {:ok, layout} -> {:ok, layout}
-          {:error, diagnosticos} -> {:error, "\n" <> Diagnostico.reporte(diagnosticos)}
-        end
-    end
-  rescue
-    error in [Code.LoadError, File.Error] -> {:error, Exception.message(error)}
-    error -> {:error, "el archivo no evalúa: " <> Exception.message(error)}
-  end
+  defp cargar_layout(ruta), do: Carga.cargar_layout(ruta)
 
   defp imprimir(ruta, reporte, opts) do
     if Keyword.get(opts, :json, false) do
@@ -190,53 +176,10 @@ defmodule Mix.Tasks.AnchoFijo.Detectar do
     if reporte.probablemente_ancho_fijo? and desacuerdos_con_layout(reporte) == 0, do: 0, else: 1
   end
 
-  # `exit({:shutdown, n})` es la forma en que una tarea Mix fija el código de
-  # salida del proceso sin matar la VM, lo que la deja testeable con
-  # `catch_exit/1`. `Mix.raise/2` con `:exit_status` existe recién en Elixir
-  # 1.14.0 y de todos modos imprime el mensaje con formato de excepción.
-  @spec abortar(String.t()) :: no_return()
-  defp abortar(mensaje) do
-    Mix.shell().error(mensaje)
-    exit({:shutdown, 2})
-  end
+  defp abortar(mensaje), do: Carga.abortar(mensaje)
 
   defp salir(0), do: :ok
   defp salir(codigo), do: exit({:shutdown, codigo})
 
-  # JSON a mano, sin dependencia: el reporte tiene una forma conocida (mapas,
-  # listas, binarios, átomos, enteros, booleanos y nil) y un encoder para eso
-  # son treinta líneas. Agregar Jason al paquete para un flag de una tarea
-  # sería la primera dependencia de runtime de la librería, por un caso que
-  # el usuario puede no usar nunca. El test valida la salida con un decoder de
-  # verdad, que sí es una dependencia de test.
-  defp a_json(valor) when is_map(valor) do
-    valor
-    |> Enum.sort()
-    |> Enum.map_join(",", fn {clave, valor} -> a_json(clave_json(clave)) <> ":" <> a_json(valor) end)
-    |> then(&("{" <> &1 <> "}"))
-  end
-
-  defp a_json(valor) when is_list(valor), do: "[" <> Enum.map_join(valor, ",", &a_json/1) <> "]"
-  defp a_json(nil), do: "null"
-  defp a_json(true), do: "true"
-  defp a_json(false), do: "false"
-  defp a_json(valor) when is_atom(valor), do: a_json(Atom.to_string(valor))
-  defp a_json(valor) when is_integer(valor), do: Integer.to_string(valor)
-  defp a_json(valor) when is_binary(valor), do: "\"" <> escapar(valor) <> "\""
-
-  defp clave_json(clave) when is_binary(clave), do: clave
-  defp clave_json(clave) when is_atom(clave), do: Atom.to_string(clave)
-  defp clave_json(clave) when is_integer(clave), do: Integer.to_string(clave)
-
-  defp escapar(texto) do
-    texto
-    |> String.replace("\\", "\\\\")
-    |> String.replace("\"", "\\\"")
-    |> String.replace("\n", "\\n")
-    |> String.replace("\r", "\\r")
-    |> String.replace("\t", "\\t")
-    |> String.replace(~r/[\x00-\x1F]/, fn <<c>> ->
-      "\\u" <> String.pad_leading(Integer.to_string(c, 16), 4, "0")
-    end)
-  end
+  defp a_json(valor), do: Json.codificar(valor)
 end

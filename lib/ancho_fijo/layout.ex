@@ -221,6 +221,22 @@ defmodule AnchoFijo.Layout do
   def coercer(%__MODULE__{} = layout), do: {:ok, layout}
   def coercer(atributos), do: nuevo(atributos)
 
+  @doc "Como `coercer/1`, pero levanta `AnchoFijo.Error`."
+  @spec coercer!(t() | term()) :: t()
+  def coercer!(layout) do
+    case coercer(layout) do
+      {:ok, layout} -> layout
+      {:error, diagnosticos} -> raise AnchoFijo.Error, diagnosticos
+    end
+  end
+
+  @doc """
+  La especificación del layout como texto, para el documento que se manda
+  al banco o al cliente. Ver `AnchoFijo.Documentacion.documentar/2`.
+  """
+  @spec documentar(t() | term(), keyword()) :: String.t()
+  def documentar(layout, opts \\ []), do: AnchoFijo.Documentacion.documentar(layout, opts)
+
   @doc """
   Largo total de línea que el layout espera.
 
