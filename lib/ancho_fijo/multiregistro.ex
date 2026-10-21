@@ -30,11 +30,27 @@ defmodule AnchoFijo.Multiregistro do
 
     * `:nombre` — opcional, para los mensajes y la telemetría, como el
       `:nombre` de un `AnchoFijo.Layout`.
-    * `:discriminador` — `[posicion: 1, largo: 2]`: dónde dice cada línea
-      qué es, en bytes de la línea cruda. O `[campo: :tipo]`: el campo
-      `:constante` que cada layout declara con ese nombre, en la misma
-      posición y con el mismo largo en todos; así el literal de cada tipo
-      se escribe una sola vez, en su layout.
+    * `:discriminador` — cómo se sabe de qué tipo es cada línea:
+        * `[posicion: 1, largo: 2]`: por un código en esas posiciones, en
+          bytes de la línea cruda, comparado con el `:valor` de cada tipo.
+        * `[campo: :tipo]`: lo mismo, con la posición, el largo y los
+          valores tomados del campo `:constante` que cada layout declara
+          con ese nombre (en la misma posición y con el mismo largo en
+          todos); así el literal de cada tipo se escribe una sola vez.
+        * `[por: :largo]`: por el largo de la línea, que tiene que ser el
+          `largo` del layout de exactamente un tipo. Dos tipos que miden
+          lo mismo son una definición inválida: no se pueden distinguir.
+        * `[por: :posicion_en_archivo]`: por dónde está la línea; cada
+          tipo declara `ubicacion: :primera`, `:ultima` o `:resto` (a lo
+          más uno de cada). Es para los formatos cuyo header y trailer no
+          traen código ni miden distinto. En un stream, la última línea
+          se reconoce con una línea de anticipación, así que la memoria
+          sigue siendo constante.
+        * `[por: fun]`: una función `(linea, numero) -> tipo | nil` para lo
+          que no cabe en lo anterior. `nil` es "ningún tipo" y produce un
+          diagnóstico `:estructura`. Una función no se puede serializar ni
+          contrastar desde `AnchoFijo.detectar/2`, que solo cuenta lo que
+          devuelve: úsela cuando ninguna de las otras formas alcance.
     * `:registros` — una keyword list de tipo a definición, en el orden
       esperado en el archivo. Cada definición tiene `:layout` (un
       `AnchoFijo.Layout` o su definición), `:cantidad`: `:uno` (exactamente
@@ -120,19 +136,27 @@ defmodule AnchoFijo.Multiregistro do
   @type tipo :: atom()
   @type registro :: {tipo(), Parser.registro()}
 
-  @type definicion :: %{valores: [binary()], layout: Layout.t(), cantidad: cantidad()}
+  @type definicion :: %{
+          valores: [binary()],
+          layout: Layout.t(),
+          cantidad: cantidad(),
+          ubicacion: ubicacion() | nil
+        }
 
   @type control ::
           %{en: tipo(), campo: atom(), cuenta: tipo()}
           | %{en: tipo(), campo: atom(), suma: {tipo(), atom()}}
 
+  @type discriminador ::
+          %{optional(:campo) => atom(), posicion: pos_integer(), largo: pos_integer()}
+          | %{por: :largo | :posicion_en_archivo}
+          | %{por: :funcion, funcion: (binary(), pos_integer() -> tipo() | nil)}
+
+  @type ubicacion :: :primera | :resto | :ultima
+
   @type t :: %__MODULE__{
           nombre: String.t() | nil,
-          discriminador: %{
-            optional(:campo) => atom(),
-            posicion: pos_integer(),
-            largo: pos_integer()
-          },
+          discriminador: discriminador(),
           registros: [{tipo(), definicion()}],
           controles: [control()],
           orden: :estricto | :libre
@@ -214,32 +238,41 @@ defmodule AnchoFijo.Multiregistro do
     end
   end
 
-  defp validar_discriminador(nil),
-    do: {:error, [falla("un :discriminador con :posicion y :largo, o con :campo", nil, nil)]}
+  @formas "un :discriminador con :posicion y :largo, con :campo, o con :por " <>
+            "(:largo, :posicion_en_archivo o una función de dos argumentos)"
+
+  defp validar_discriminador(nil), do: {:error, [falla(@formas, nil, nil)]}
 
   defp validar_discriminador(discriminador) do
     campo = get(discriminador, :campo)
     posicion = get(discriminador, :posicion, 1)
     largo = get(discriminador, :largo)
+    por = get(discriminador, :por)
 
     cond do
-      por_campo?(campo, largo) ->
+      por == :largo and solo_por?(discriminador) ->
+        {:ok, %{por: :largo}}
+
+      por == :posicion_en_archivo and solo_por?(discriminador) ->
+        {:ok, %{por: :posicion_en_archivo}}
+
+      is_function(por, 2) and solo_por?(discriminador) ->
+        {:ok, %{por: :funcion, funcion: por}}
+
+      is_nil(por) and por_campo?(campo, largo) ->
         {:ok, %{campo: campo}}
 
-      por_posicion?(campo, posicion, largo) ->
+      is_nil(por) and por_posicion?(campo, posicion, largo) ->
         {:ok, %{posicion: posicion, largo: largo}}
 
       true ->
-        {:error,
-         [
-           falla(
-             "un :discriminador con :posicion entera 1-based y :largo mayor que cero, " <>
-               "o con :campo (el nombre de un campo :constante de cada layout)",
-             inspect(discriminador),
-             nil
-           )
-         ]}
+        {:error, [falla(@formas, inspect(discriminador), nil)]}
     end
+  end
+
+  defp solo_por?(discriminador) do
+    is_nil(get(discriminador, :campo)) and is_nil(get(discriminador, :largo)) and
+      is_nil(get(discriminador, :posicion))
   end
 
   defp por_campo?(campo, largo), do: is_atom(campo) and not is_nil(campo) and is_nil(largo)
@@ -295,7 +328,13 @@ defmodule AnchoFijo.Multiregistro do
 
     case {problemas, Layout.coercer(get(definicion, :layout))} do
       {[], {:ok, layout}} ->
-        {:ok, %{valores: get(definicion, :valor), layout: layout, cantidad: cantidad}}
+        {:ok,
+         %{
+           valores: get(definicion, :valor),
+           layout: layout,
+           cantidad: cantidad,
+           ubicacion: get(definicion, :ubicacion)
+         }}
 
       {problemas, {:ok, _layout}} ->
         {:error, problemas}
@@ -346,6 +385,64 @@ defmodule AnchoFijo.Multiregistro do
     end
   end
 
+  # Por largo: cada tipo mide lo que su layout; dos iguales no se distinguen.
+  defp resolver_discriminador(%{por: :largo} = discriminador, registros) do
+    repetidos =
+      registros
+      |> Enum.group_by(fn {_tipo, d} -> d.layout.largo end, fn {tipo, _d} -> tipo end)
+      |> Enum.filter(fn {_largo, tipos} -> length(tipos) > 1 end)
+
+    case repetidos do
+      [] ->
+        {:ok, discriminador, sin_valores(registros)}
+
+      [{largo, tipos} | _] ->
+        {:error,
+         [
+           falla(
+             "un largo de línea distinto por tipo de registro",
+             "#{Enum.map_join(tipos, " y ", &inspect/1)} miden #{largo}",
+             "dos tipos que miden lo mismo no se pueden distinguir por largo; " <>
+               "use un código de tipo, :posicion_en_archivo o una función"
+           )
+         ]}
+    end
+  end
+
+  # Por posición en el archivo: cada tipo dice dónde va, y a lo más uno por lugar.
+  defp resolver_discriminador(%{por: :posicion_en_archivo} = discriminador, registros) do
+    ubicaciones = Enum.map(registros, fn {tipo, d} -> {tipo, d.ubicacion} end)
+
+    invalidas =
+      for {tipo, ubicacion} <- ubicaciones, ubicacion not in [:primera, :resto, :ultima] do
+        falla(
+          "ubicacion: :primera, :resto o :ultima para #{inspect(tipo)}",
+          inspect(ubicacion),
+          "con :posicion_en_archivo cada tipo declara dónde va en el archivo"
+        )
+      end
+
+    repetidas =
+      ubicaciones
+      |> Enum.group_by(fn {_tipo, u} -> u end, fn {tipo, _u} -> tipo end)
+      |> Enum.filter(fn {u, tipos} -> u in [:primera, :resto, :ultima] and length(tipos) > 1 end)
+      |> Enum.map(fn {u, tipos} ->
+        falla(
+          "un solo tipo con ubicacion: #{inspect(u)}",
+          Enum.map_join(tipos, " y ", &inspect/1),
+          "dos tipos en el mismo lugar del archivo no se pueden distinguir"
+        )
+      end)
+
+    case invalidas ++ repetidas do
+      [] -> {:ok, discriminador, sin_valores(registros)}
+      diagnosticos -> {:error, diagnosticos}
+    end
+  end
+
+  defp resolver_discriminador(%{por: :funcion} = discriminador, registros),
+    do: {:ok, discriminador, sin_valores(registros)}
+
   defp resolver_discriminador(%{largo: largo} = discriminador, registros) do
     {definiciones, diagnosticos} =
       Enum.reduce(registros, {[], []}, fn {tipo, d}, {definiciones, diagnosticos} ->
@@ -362,6 +459,9 @@ defmodule AnchoFijo.Multiregistro do
       diagnosticos -> {:error, diagnosticos}
     end
   end
+
+  defp sin_valores(registros),
+    do: Enum.map(registros, fn {tipo, d} -> {tipo, %{d | valores: []}} end)
 
   defp valores_de(tipo, %{valores: nil, layout: layout}, discriminador) do
     constante =
@@ -539,6 +639,7 @@ defmodule AnchoFijo.Multiregistro do
             contenido
             |> Parser.numerar(Keyword.get(opts, :traza, false))
             |> Parser.seleccionar(opts)
+            |> con_ubicacion(multi)
             |> then(&recorrer(multi, &1, modo))
 
           {:error, diagnosticos} ->
@@ -560,10 +661,10 @@ defmodule AnchoFijo.Multiregistro do
   # estricto, el primer error corta y la cuenta es la de las líneas leídas.
   defp recorrer(multi, lineas, :estricto) do
     resultado =
-      Enum.reduce_while(lineas, {[], [], estado_inicial(multi), 0}, fn {linea, marca},
+      Enum.reduce_while(lineas, {[], [], estado_inicial(multi), 0}, fn {linea, marca, pista},
                                                                        {registros, advertencias,
                                                                         estado, leidas} ->
-        case paso(multi, linea, marca, estado) do
+        case paso(multi, linea, marca, pista, estado) do
           {:ok, registro, nuevas, estado} ->
             {:cont,
              {[registro | registros], Enum.reverse(nuevas, advertencias), estado, leidas + 1}}
@@ -587,10 +688,10 @@ defmodule AnchoFijo.Multiregistro do
 
   defp recorrer(multi, lineas, :tolerante) do
     {registros, diagnosticos, estado, leidas} =
-      Enum.reduce(lineas, {[], [], estado_inicial(multi), 0}, fn {linea, marca},
+      Enum.reduce(lineas, {[], [], estado_inicial(multi), 0}, fn {linea, marca, pista},
                                                                  {registros, diagnosticos, estado,
                                                                   leidas} ->
-        case paso(multi, linea, marca, estado) do
+        case paso(multi, linea, marca, pista, estado) do
           {:ok, registro, nuevos, estado} ->
             {[registro | registros], Enum.reverse(nuevos, diagnosticos), estado, leidas + 1}
 
@@ -664,13 +765,14 @@ defmodule AnchoFijo.Multiregistro do
       |> Stream.drop(Keyword.get(opts, :saltar, 0))
       |> Stream.map(fn {linea, marca} -> {sin_terminador(linea), marca} end)
       |> descartar_vacias(Keyword.get(opts, :omitir_vacias, true))
+      |> con_ubicacion(multi)
 
     Stream.transform(
       numeradas,
       fn -> {estado_inicial(multi), Telemetria.iniciar_cuentas(metadata)} end,
-      fn {linea, marca}, {estado, cuentas} ->
+      fn {linea, marca, pista}, {estado, cuentas} ->
         {resultado, estado} =
-          case paso(multi, linea, marca, estado) do
+          case paso(multi, linea, marca, pista, estado) do
             {:ok, registro, advertencias, estado} -> {{:ok, registro, advertencias}, estado}
             {:error, diagnosticos, estado} -> {{:error, diagnosticos}, estado}
           end
@@ -689,6 +791,48 @@ defmodule AnchoFijo.Multiregistro do
       fn {_estado, cuentas} -> Telemetria.cerrar_cuentas(cuentas, metadata) end
     )
   end
+
+  # Cada línea viaja con una pista para el discriminador: con
+  # :posicion_en_archivo, si es la primera, la última o una del medio; con
+  # los demás, nada. La última se reconoce con una línea de anticipación:
+  # se retiene una y se emite recién cuando llega la siguiente, o al final.
+  defp con_ubicacion(lineas, %__MODULE__{discriminador: %{por: :posicion_en_archivo}} = multi) do
+    tiene? = fn ubicacion ->
+      Enum.any?(multi.registros, fn {_, d} -> d.ubicacion == ubicacion end)
+    end
+
+    Stream.transform(
+      lineas,
+      fn -> {nil, 0} end,
+      fn {linea, marca}, {pendiente, indice} ->
+        case pendiente do
+          nil -> {[], {{linea, marca}, indice + 1}}
+          {l, m} -> {[{l, m, no_ultima(indice, tiene?)}], {{linea, marca}, indice + 1}}
+        end
+      end,
+      fn
+        {nil, _indice} = acumulado -> {[], acumulado}
+        {{l, m}, indice} = acumulado -> {[{l, m, ultima(indice, tiene?)}], acumulado}
+      end,
+      fn _acumulado -> :ok end
+    )
+  end
+
+  defp con_ubicacion(lineas, _multi),
+    do: Stream.map(lineas, fn {linea, marca} -> {linea, marca, nil} end)
+
+  defp no_ultima(1, tiene?), do: if(tiene?.(:primera), do: :primera, else: :resto)
+  defp no_ultima(_indice, _tiene?), do: :resto
+
+  defp ultima(1, tiene?) do
+    cond do
+      tiene?.(:primera) -> :primera
+      tiene?.(:ultima) -> :ultima
+      true -> :resto
+    end
+  end
+
+  defp ultima(_indice, tiene?), do: if(tiene?.(:ultima), do: :ultima, else: :resto)
 
   defp marcar(registro, %Traza{} = traza), do: Map.put(registro, Traza.clave(), traza)
   defp marcar(registro, _numero), do: registro
@@ -721,10 +865,10 @@ defmodule AnchoFijo.Multiregistro do
 
   # `marca` es el número de línea, o la traza entera cuando se pidió; en el
   # segundo caso el mapa sale con la clave reservada, como en `Parser`.
-  defp paso(%__MODULE__{} = multi, linea, marca, estado) when is_binary(linea) do
+  defp paso(%__MODULE__{} = multi, linea, marca, pista, estado) when is_binary(linea) do
     numero = Parser.numero_de(marca)
 
-    with {:ok, tipo, definicion} <- discriminar(multi, linea, numero),
+    with {:ok, tipo, definicion} <- discriminar(multi, linea, numero, pista),
          {:ok, estado} <- avanzar(multi, tipo, definicion, numero, estado),
          {:ok, registro, advertencias} <- Parser.parsear_linea(definicion.layout, linea, numero) do
       registro = marcar(registro, marca)
@@ -735,7 +879,7 @@ defmodule AnchoFijo.Multiregistro do
     end
   end
 
-  defp paso(_multi, otro, marca, estado) do
+  defp paso(_multi, otro, marca, _pista, estado) do
     {:error,
      [
        Diagnostico.nuevo(
@@ -749,14 +893,20 @@ defmodule AnchoFijo.Multiregistro do
   end
 
   # Público sin doc: `AnchoFijo.Identidad` lo usa para saber de qué tipo es
-  # el primer registro antes de leerlo con un layout.
+  # el primer registro antes de leerlo con un layout, y `AnchoFijo.Detector`
+  # para contar las líneas de cada tipo. La pista es la ubicación de la línea
+  # en el archivo (`:primera`, `:resto`, `:ultima`), que solo el
+  # discriminador por posición en el archivo mira.
   @doc false
-  @spec discriminar(t(), binary(), pos_integer()) ::
+  @spec discriminar(t(), binary(), pos_integer(), ubicacion() | nil) ::
           {:ok, tipo(), definicion()} | {:error, [Diagnostico.t()]}
+  def discriminar(multi, linea, numero, pista \\ nil)
+
   def discriminar(
         %__MODULE__{discriminador: %{posicion: posicion, largo: largo}} = multi,
         linea,
-        numero
+        numero,
+        _pista
       ) do
     desde = posicion - 1
 
@@ -766,6 +916,105 @@ defmodule AnchoFijo.Multiregistro do
       {:error, [linea_corta(posicion, desde + largo, byte_size(linea), numero)]}
     end
   end
+
+  def discriminar(%__MODULE__{discriminador: %{por: :largo}} = multi, linea, numero, _pista) do
+    case Enum.find(multi.registros, fn {_tipo, d} -> largo_de(linea, d.layout) == d.layout.largo end) do
+      {tipo, definicion} ->
+        {:ok, tipo, definicion}
+
+      nil ->
+        largos =
+          Enum.map_join(multi.registros, ", ", fn {tipo, d} ->
+            "#{d.layout.largo} (#{inspect(tipo)})"
+          end)
+
+        {:error,
+         [
+           Diagnostico.nuevo(
+             tipo: :estructura,
+             linea: numero,
+             esperado: "una línea que mida lo que algún tipo declara: #{largos}",
+             recibido: "#{byte_size(linea)} bytes",
+             causa_probable:
+               "ningún tipo de registro mide eso; la línea está corrida, trae relleno de más " <>
+                 "o es de un tipo que el formato agregó"
+           )
+         ]}
+    end
+  end
+
+  def discriminar(
+        %__MODULE__{discriminador: %{por: :posicion_en_archivo}} = multi,
+        _linea,
+        numero,
+        pista
+      ) do
+    case Enum.find(multi.registros, fn {_tipo, d} -> d.ubicacion == pista end) do
+      {tipo, definicion} ->
+        {:ok, tipo, definicion}
+
+      nil ->
+        {:error,
+         [
+           Diagnostico.nuevo(
+             tipo: :estructura,
+             linea: numero,
+             esperado: "un tipo de registro con ubicacion: #{inspect(pista)}",
+             recibido: "ninguno declarado",
+             causa_probable:
+               "el archivo tiene líneas en una posición que la definición no contempla"
+           )
+         ]}
+    end
+  end
+
+  def discriminar(
+        %__MODULE__{discriminador: %{por: :funcion, funcion: funcion}} = multi,
+        linea,
+        numero,
+        _pista
+      ) do
+    case funcion.(linea, numero) do
+      nil ->
+        {:error,
+         [
+           Diagnostico.nuevo(
+             tipo: :estructura,
+             linea: numero,
+             esperado: "un tipo de registro de #{inspect(Keyword.keys(multi.registros))}",
+             recibido: "nil de la función de discriminación",
+             causa_probable: "la función no reconoció la línea como ningún tipo"
+           )
+         ]}
+
+      tipo ->
+        case Keyword.fetch(multi.registros, tipo) do
+          {:ok, definicion} ->
+            {:ok, tipo, definicion}
+
+          :error ->
+            {:error,
+             [
+               Diagnostico.nuevo(
+                 tipo: :estructura,
+                 linea: numero,
+                 esperado: "un tipo de registro de #{inspect(Keyword.keys(multi.registros))}",
+                 recibido: inspect(tipo),
+                 causa_probable:
+                   "la función de discriminación devolvió un tipo que no está en :registros"
+               )
+             ]}
+        end
+    end
+  end
+
+  # El largo de la línea cruda en la unidad del layout del tipo: en bytes, o
+  # en caracteres si el layout mide así y el encoding es multibyte. Público
+  # sin doc para que `AnchoFijo.Detector` compare igual.
+  @doc false
+  @spec largo_de(binary(), Layout.t()) :: non_neg_integer()
+  def largo_de(linea, %Layout{unidad: :caracteres, encoding: :utf8}), do: String.length(linea)
+  def largo_de(linea, _layout), do: byte_size(linea)
 
   defp buscar_tipo(%__MODULE__{} = multi, valor, numero) do
     case Enum.find(multi.registros, fn {_tipo, d} -> valor in d.valores end) do

@@ -86,6 +86,13 @@ defmodule Mix.Tasks.AnchoFijo.DetectarTest do
       refute salida =~ "desacuerdo"
     end
 
+    test "un multiregistro en --layout cuenta las líneas por tipo" do
+      {0, salida, ""} =
+        correr([ruta("nomina_sin_codigo.txt"), "--layout", ruta("multiregistro_sin_codigo.exs")])
+
+      assert salida =~ "multiregistro con discriminador por largo de línea: de 5 líneas"
+    end
+
     test "un layout que no concuerda se reporta y sale con 1" do
       layout = Path.join(System.tmp_dir!(), "layout_60_#{System.unique_integer([:positive])}.exs")
       File.write!(layout, "[campos: [[nombre: :todo, largo: 60]]]")

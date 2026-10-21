@@ -249,6 +249,46 @@ defmodule AnchoFijo.DetectorTest do
              )
     end
 
+    test "con un multiregistro, dice el criterio y cuántas líneas son de cada tipo" do
+      {multi, _} = Code.eval_file(ruta("multiregistro_sin_codigo.exs"))
+
+      assert {:ok, reporte} = Detector.detectar(ruta("nomina_sin_codigo.txt"), layout: multi)
+
+      assert "multiregistro con discriminador por largo de línea: de 5 líneas, 1 :header, 3 :detalle, 1 :trailer, 0 sin tipo" in reporte.observaciones
+
+      # Tres largos de línea, pero cada una de un tipo: sí es de ancho fijo.
+      assert reporte.probablemente_ancho_fijo?
+      refute Enum.any?(reporte.observaciones, &String.contains?(&1, "sospechosas"))
+      refute Enum.any?(reporte.observaciones, &String.contains?(&1, "según el layout"))
+
+      assert {:ok, reporte} =
+               Detector.detectar(leer("nomina_sin_codigo.txt") <> "CORTA\n", layout: multi)
+
+      assert Enum.any?(
+               reporte.observaciones,
+               &String.contains?(&1, "1 sin tipo; las líneas sin tipo son un diagnóstico")
+             )
+
+      refute reporte.probablemente_ancho_fijo?
+
+      assert Detector.contrastar(reporte, multi) == []
+
+      assert {:ok, %{observaciones: observaciones}} =
+               Detector.detectar(leer("nacha_ppd.txt"), layout: AnchoFijo.Formatos.nacha())
+
+      assert List.last(observaciones) =~
+               "por código en las posiciones 1-2: de 20 líneas, 1 :encabezado_de_archivo"
+
+      # Una línea de un tipo que no mide lo que ese tipo declara.
+      por_funcion = %{multi | discriminador: %{por: :funcion, funcion: fn _, _ -> :detalle end}}
+      assert {:ok, reporte} = Detector.detectar(leer("nomina_sin_codigo.txt"), layout: por_funcion)
+
+      assert List.last(reporte.observaciones) =~
+               "por función (no contrastable: se cuenta lo que devuelve): de 5 líneas, 0 :header, 5 :detalle, 0 :trailer, 0 sin tipo; 2 líneas no miden lo que su tipo declara"
+
+      refute reporte.probablemente_ancho_fijo?
+    end
+
     test "un layout inválido devuelve sus propios diagnósticos" do
       {:ok, reporte} = Detector.detectar(leer("nomina_correcta.txt"))
 

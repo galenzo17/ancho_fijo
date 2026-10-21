@@ -297,6 +297,231 @@ defmodule AnchoFijo.MultiregistroTest do
     end
   end
 
+  describe "discriminador sin código de tipo" do
+    # El multiregistro del fixture, con el discriminador que se pida.
+    defp sin_codigo(discriminador, extra \\ %{}) do
+      {multi, _} = Code.eval_file(ruta("multiregistro_sin_codigo.exs"))
+
+      # Con :posicion_en_archivo entran solo los tipos con ubicación declarada.
+      registros =
+        multi.registros
+        |> Enum.reject(fn {tipo, _} -> extra != %{} and not Map.has_key?(extra, tipo) end)
+        |> Enum.map(fn {tipo, d} ->
+          {tipo,
+           [cantidad: d.cantidad, layout: d.layout, ubicacion: Map.get(extra, tipo)]
+           |> Enum.reject(fn {_, v} -> is_nil(v) end)}
+        end)
+
+      controles =
+        if Keyword.has_key?(registros, :trailer) and Keyword.has_key?(registros, :detalle),
+          do: [
+            [en: :trailer, campo: :cantidad, cuenta: :detalle],
+            [en: :trailer, campo: :total, suma: {:detalle, :monto}]
+          ],
+          else: []
+
+      Multiregistro.nuevo!(discriminador: discriminador, registros: registros, controles: controles)
+    end
+
+    defp tipos(registros), do: Enum.map(registros, &elem(&1, 0))
+
+    test "por largo: el fixture se lee, cuadra y se vuelve a escribir byte a byte" do
+      multi = sin_codigo(por: :largo)
+      contenido = leer("nomina_sin_codigo.txt")
+
+      assert {:ok, registros, []} = AnchoFijo.parsear(multi, contenido)
+      assert tipos(registros) == [:header, :detalle, :detalle, :detalle, :trailer]
+      assert Multiregistro.agrupar(multi, registros).trailer.total == {1_128_604, 2}
+
+      escrito =
+        Enum.map_join(registros, fn {tipo, mapa} ->
+          {:ok, linea, []} =
+            AnchoFijo.escribir(Keyword.fetch!(multi.registros, tipo).layout, [mapa])
+
+          linea
+        end)
+
+      assert escrito == contenido
+
+      del_stream = multi |> AnchoFijo.stream(ruta("nomina_sin_codigo.txt")) |> Enum.to_list()
+      assert Enum.map(del_stream, fn {:ok, r, []} -> r end) == registros
+    end
+
+    test "por largo: una línea que no mide lo de ningún tipo es un diagnóstico de estructura" do
+      multi = sin_codigo(por: :largo)
+
+      assert {:error, [d]} = AnchoFijo.parsear(multi, "76543210-320240115SUELDOS ENERO \nCORTA\n")
+      assert %Diagnostico{tipo: :estructura, linea: 2, recibido: "5 bytes"} = d
+
+      assert d.esperado ==
+               "una línea que mida lo que algún tipo declara: 32 (:header), 40 (:detalle), 20 (:trailer)"
+    end
+
+    test "por largo: dos tipos que miden lo mismo es una definición inválida" do
+      assert {:error, [d]} =
+               Multiregistro.nuevo(
+                 discriminador: [por: :largo],
+                 registros: [
+                   h: [layout: [campos: [[nombre: :a, largo: 5]]]],
+                   d: [layout: [campos: [[nombre: :b, largo: 5]]]]
+                 ]
+               )
+
+      assert d.esperado == "un largo de línea distinto por tipo de registro"
+      assert d.recibido == ":h y :d miden 5"
+    end
+
+    test "por posición en el archivo: primera, resto y última" do
+      multi =
+        sin_codigo([por: :posicion_en_archivo], %{
+          header: :primera,
+          detalle: :resto,
+          trailer: :ultima
+        })
+
+      assert {:ok, registros, []} = AnchoFijo.parsear(multi, ruta("nomina_sin_codigo.txt"))
+      assert tipos(registros) == [:header, :detalle, :detalle, :detalle, :trailer]
+
+      del_stream = multi |> AnchoFijo.stream(ruta("nomina_sin_codigo.txt")) |> Enum.to_list()
+      assert Enum.map(del_stream, fn {:ok, r, []} -> r end) == registros
+    end
+
+    test "por posición en el archivo: el stream sigue siendo lazy con una línea de anticipación" do
+      multi =
+        sin_codigo([por: :posicion_en_archivo], %{
+          header: :primera,
+          detalle: :resto,
+          trailer: :ultima
+        })
+
+      detalle = "12345678-5JUAN PEREZ SOTO 00001250001122\n"
+      infinito = Stream.cycle(["76543210-320240115SUELDOS ENERO \n", detalle])
+
+      assert [{:ok, {:header, _}, []}, {:ok, {:detalle, _}, []}] =
+               multi |> AnchoFijo.stream(infinito) |> Enum.take(2)
+    end
+
+    test "por posición en el archivo: un archivo de una línea es la primera, y falta el resto" do
+      multi =
+        sin_codigo([por: :posicion_en_archivo], %{
+          header: :primera,
+          detalle: :resto,
+          trailer: :ultima
+        })
+
+      assert {:error, diagnosticos} = AnchoFijo.parsear(multi, "76543210-320240115SUELDOS ENERO \n")
+
+      assert Enum.map(diagnosticos, & &1.esperado) == [
+               "un registro :detalle en el archivo",
+               "un registro :trailer en el archivo"
+             ]
+
+      solo_detalles = sin_codigo([por: :posicion_en_archivo], %{detalle: :resto})
+
+      assert {:ok, [detalle: _, detalle: _], []} =
+               AnchoFijo.parsear(
+                 solo_detalles,
+                 "12345678-5JUAN PEREZ SOTO 00001250001122\n98765432-5ANA MARIA ROJAS 00009990055566\n"
+               )
+    end
+
+    test "por posición en el archivo: la ubicación se valida" do
+      assert {:error, [d]} =
+               Multiregistro.nuevo(
+                 discriminador: [por: :posicion_en_archivo],
+                 registros: [h: [layout: [campos: [[nombre: :a, largo: 5]]]]]
+               )
+
+      assert d.esperado == "ubicacion: :primera, :resto o :ultima para :h"
+
+      assert {:error, [d]} =
+               Multiregistro.nuevo(
+                 discriminador: [por: :posicion_en_archivo],
+                 registros: [
+                   h: [ubicacion: :primera, layout: [campos: [[nombre: :a, largo: 5]]]],
+                   x: [ubicacion: :primera, layout: [campos: [[nombre: :a, largo: 5]]]]
+                 ]
+               )
+
+      assert d.esperado == "un solo tipo con ubicacion: :primera"
+      assert d.recibido == ":h y :x"
+    end
+
+    test "por posición en el archivo: sin tipo para una ubicación es un diagnóstico al leer" do
+      multi = sin_codigo([por: :posicion_en_archivo], %{header: :primera, trailer: :ultima})
+
+      assert {:error, [%Diagnostico{tipo: :estructura, linea: 2} = d]} =
+               AnchoFijo.parsear(multi, leer("nomina_sin_codigo.txt"))
+
+      assert d.esperado == "un tipo de registro con ubicacion: :resto"
+    end
+
+    test "por función: la función decide, y nil o un tipo desconocido son diagnósticos" do
+      por_largo = fn linea, _numero ->
+        case byte_size(linea) do
+          32 -> :header
+          40 -> :detalle
+          20 -> :trailer
+          _ -> nil
+        end
+      end
+
+      multi = sin_codigo(por: por_largo)
+      assert {:ok, registros, []} = AnchoFijo.parsear(multi, ruta("nomina_sin_codigo.txt"))
+      assert tipos(registros) == [:header, :detalle, :detalle, :detalle, :trailer]
+
+      assert {:error,
+              [%Diagnostico{tipo: :estructura, recibido: "nil de la función de discriminación"}]} =
+               AnchoFijo.parsear(multi, "CORTA\n")
+
+      otro = sin_codigo(por: fn _linea, _numero -> :inexistente end)
+
+      assert {:error, [%Diagnostico{tipo: :estructura, recibido: ":inexistente"} = d]} =
+               AnchoFijo.parsear(otro, "CORTA\n")
+
+      assert d.causa_probable =~ "no está en :registros"
+    end
+
+    test "la identidad declarada se lee con la primera línea, con cualquier discriminador" do
+      multi =
+        sin_codigo([por: :posicion_en_archivo], %{
+          header: :primera,
+          detalle: :resto,
+          trailer: :ultima
+        })
+
+      header = Keyword.fetch!(multi.registros, :header).layout
+
+      con_identidad =
+        AnchoFijo.Layout.nuevo!(Map.from_struct(header) |> Map.put(:identidad, campos: [:fecha]))
+
+      multi = %{
+        multi
+        | registros:
+            Keyword.put(multi.registros, :header, %{
+              Keyword.fetch!(multi.registros, :header)
+              | layout: con_identidad
+            })
+      }
+
+      assert {:ok, %{declarada: %{fecha: ~D[2024-01-15]}}} =
+               AnchoFijo.identidad(multi, ruta("nomina_sin_codigo.txt"))
+    end
+
+    test "un discriminador con :por y :largo a la vez, o un :por desconocido, es inválido" do
+      for discriminador <- [[por: :largo, largo: 2], [por: :otro], [por: fn _ -> nil end]] do
+        assert {:error, [%Diagnostico{tipo: :layout} = d]} =
+                 Multiregistro.nuevo(
+                   discriminador: discriminador,
+                   registros: [h: [layout: [campos: [[nombre: :a, largo: 5]]]]]
+                 )
+
+        assert d.esperado =~
+                 "con :por (:largo, :posicion_en_archivo o una función de dos argumentos)"
+      end
+    end
+  end
+
   describe "estructura" do
     @lineas [
       "0176543210-320240115SUELDOS ENERO       ",

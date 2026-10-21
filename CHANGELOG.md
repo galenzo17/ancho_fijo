@@ -62,6 +62,17 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   largo y el valor de cada tipo del campo `:constante` con ese nombre; y
   con `[posicion:, largo:]`, `:valor` se puede omitir cuando el layout
   tiene una constante justo ahí.
+- `Multiregistro` sin código de tipo: `discriminador: [por: :largo]` elige
+  el tipo por el largo de la línea (dos tipos iguales son una definición
+  inválida); `[por: :posicion_en_archivo]` por dónde está, con
+  `ubicacion: :primera | :resto | :ultima` en cada tipo y una línea de
+  anticipación en `stream/3`; `[por: fun]` con una función
+  `(linea, numero) -> tipo | nil` para lo que no cabe en lo anterior.
+- `detectar/2` acepta un `Multiregistro` en `layout:` (también
+  `mix ancho_fijo.detectar --layout`): dice qué criterio discrimina,
+  cuántas líneas son de cada tipo, cuántas no son de ninguno y cuántas no
+  miden lo que su tipo declara, y el veredicto de ancho fijo es por tipo:
+  tres largos de línea con un tipo cada uno es un archivo de ancho fijo.
 - `detectar/2` con `layout:` cuenta en cuántas líneas de la muestra aparece
   cada literal declarado: la forma más barata de confirmar que un archivo
   es del formato que uno cree.
