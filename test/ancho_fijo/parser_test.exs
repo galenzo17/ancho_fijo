@@ -1,6 +1,42 @@
 defmodule AnchoFijo.ParserTest do
   use ExUnit.Case, async: true
 
+  describe "constantes y rellenos" do
+    @con_literales AnchoFijo.Layout.nuevo!(
+                     relleno_final: :tolerar,
+                     campos: [
+                       [nombre: :tipo, largo: 2, tipo: :constante, valor: "02"],
+                       [nombre: :monto, largo: 6, tipo: :entero],
+                       [nombre: :filler, largo: 4, tipo: :relleno],
+                       [nombre: :glosa, largo: 5]
+                     ]
+                   )
+
+    test "la constante va al registro con su literal; el relleno no va" do
+      assert {:ok, [registro], []} = AnchoFijo.parsear(@con_literales, "02000100XXXXhola \n")
+      assert registro == %{tipo: "02", monto: 100, glosa: "hola"}
+    end
+
+    test "un literal distinto es el diagnóstico de ese campo" do
+      assert {:error, [%AnchoFijo.Diagnostico{campo: :tipo, recibido: "\"09\""}]} =
+               AnchoFijo.parsear(@con_literales, "09000100XXXXhola \n")
+    end
+
+    test "un relleno al final de la línea es reponible, como un texto" do
+      layout =
+        AnchoFijo.Layout.nuevo!(
+          relleno_final: :tolerar,
+          campos: [
+            [nombre: :monto, largo: 6, tipo: :entero],
+            [nombre: :filler, largo: 4, tipo: :relleno]
+          ]
+        )
+
+      assert {:ok, [%{monto: 100}], [%{tipo: :relleno_completado}]} =
+               AnchoFijo.parsear(layout, "000100\n")
+    end
+  end
+
   import AnchoFijo.Fixtures
 
   alias AnchoFijo.Diagnostico

@@ -355,6 +355,87 @@ defmodule AnchoFijo.EscritorTest do
     end
   end
 
+  describe "constantes y rellenos en un multiregistro" do
+    # Header, detalle y trailer con el código de tipo como constante, un
+    # literal fijo en el header y fillers en los tres.
+    @formato AnchoFijo.Multiregistro.nuevo!(
+               discriminador: [campo: :tipo],
+               registros: [
+                 header: [
+                   cantidad: :uno,
+                   layout: [
+                     campos: [
+                       [nombre: :tipo, largo: 2, tipo: :constante, valor: "01"],
+                       [nombre: :literal, largo: 10, tipo: :constante, valor: "HEADER"],
+                       [nombre: :fecha, largo: 8, tipo: :fecha, formato: :aaaammdd],
+                       [nombre: :filler, largo: 4, tipo: :relleno]
+                     ]
+                   ]
+                 ],
+                 detalle: [
+                   cantidad: :al_menos_uno,
+                   layout: [
+                     campos: [
+                       [nombre: :tipo, largo: 2, tipo: :constante, valor: "02"],
+                       [nombre: :monto, largo: 8, tipo: :entero],
+                       [nombre: :ceros, largo: 3, tipo: :relleno, relleno: "0"],
+                       [nombre: :glosa, largo: 11]
+                     ]
+                   ]
+                 ],
+                 trailer: [
+                   cantidad: :uno,
+                   layout: [
+                     campos: [
+                       [nombre: :tipo, largo: 2, tipo: :constante, valor: "09"],
+                       [nombre: :cantidad, largo: 3, tipo: :entero],
+                       [nombre: :total, largo: 8, tipo: :entero],
+                       [nombre: :filler, largo: 11, tipo: :relleno]
+                     ]
+                   ]
+                 ]
+               ],
+               controles: [
+                 [en: :trailer, campo: :cantidad, cuenta: :detalle],
+                 [en: :trailer, campo: :total, suma: {:detalle, :monto}]
+               ]
+             )
+
+    @archivo "01HEADER    20240131    \n" <>
+               "0200001000000PAGO ENERO \n" <>
+               "0200000250000AJUSTE     \n" <>
+               "0900200001250           \n"
+
+    test "round-trip byte a byte, sin literales ni rellenos en los mapas" do
+      assert {:ok, registros, []} = AnchoFijo.parsear(@formato, @archivo)
+
+      assert [
+               header: %{tipo: "01", literal: "HEADER", fecha: ~D[2024-01-31]},
+               detalle: %{tipo: "02", monto: 1000, glosa: "PAGO ENERO"},
+               detalle: %{tipo: "02", monto: 250, glosa: "AJUSTE"},
+               trailer: %{tipo: "09", cantidad: 2, total: 1250}
+             ] = registros
+
+      refute Enum.any?(registros, fn {_, m} ->
+               Map.has_key?(m, :filler) or Map.has_key?(m, :ceros)
+             end)
+
+      escritos =
+        for {tipo, mapa} <- registros do
+          layout = Keyword.fetch!(@formato.registros, tipo).layout
+          {:ok, linea, []} = AnchoFijo.escribir(layout, [Map.drop(mapa, [:tipo, :literal])])
+          linea
+        end
+
+      assert IO.iodata_to_binary(escritos) == @archivo
+    end
+
+    test "el discriminador por campo toma posición, largo y valores de las constantes" do
+      assert @formato.discriminador == %{campo: :tipo, posicion: 1, largo: 2}
+      assert Enum.map(@formato.registros, fn {_, d} -> d.valores end) == [["01"], ["02"], ["09"]]
+    end
+  end
+
   describe "stream/3" do
     test "emite una línea por registro, lazy, y el error en su posición" do
       layout = Layout.nuevo!(campos: [[nombre: :n, largo: 2, tipo: :entero]])

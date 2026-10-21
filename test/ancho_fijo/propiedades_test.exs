@@ -157,10 +157,15 @@ defmodule AnchoFijo.PropiedadesTest do
 
     # Es la mutación que importa: el archivo mide lo que debe, pasa cualquier
     # chequeo de largo, y trae un byte latin-1 donde el layout declaró UTF-8.
+    # Un byte dentro de un :relleno no se lee y no se diagnostica, a propósito:
+    # la posición mutada se elige entre las que algún campo lee.
     property "cambiar un byte por uno latin-1 produce un diagnóstico de encoding" do
+      con_lectura =
+        filter(layout_con_registro(), &Enum.any?(&1.campos, fn c -> c.tipo != :relleno end), 500)
+
       check all(
-              %{layout: layout, linea: linea} <- layout_con_registro(),
-              posicion <- integer(0..(byte_size(linea) - 1)),
+              %{layout: layout, linea: linea} <- con_lectura,
+              posicion <- member_of(posiciones_leidas(layout)),
               byte <- integer(0xC0..0xFF)
             ) do
         mutada = reemplazar_byte(linea, posicion, byte)
@@ -270,6 +275,15 @@ defmodule AnchoFijo.PropiedadesTest do
         assert diagnostico.causa_probable =~ "#{recorte} bytes menos por línea"
       end
     end
+  end
+
+  # Las posiciones 0-based que ocupan los campos que sí se leen.
+  defp posiciones_leidas(layout) do
+    layout.campos
+    |> Enum.reject(&AnchoFijo.Campo.relleno?/1)
+    |> Enum.flat_map(fn campo ->
+      Enum.to_list((campo.posicion - 1)..(campo.posicion + campo.largo - 2))
+    end)
   end
 
   defp reemplazar_byte(binario, posicion, byte) do

@@ -336,6 +336,18 @@ nomina = AnchoFijo.Multiregistro.nuevo!(
     [en: :trailer, campo: :total, suma: {:detalle, :monto}]
   ]
 )
+```
+
+Cuando cada layout declara su código de tipo como un campo `:constante`, el
+discriminador apunta al campo y los valores salen de los literales:
+
+```elixir
+layout_header = [campos: [[nombre: :tipo, largo: 2, tipo: :constante, valor: "01"], ...]]
+
+nomina = AnchoFijo.Multiregistro.nuevo!(
+  discriminador: [campo: :tipo],
+  registros: [header: [cantidad: :uno, layout: layout_header], ...]
+)
 
 {:ok, registros, []} = AnchoFijo.parsear(nomina, "nomina.txt")
 # [header: %{...}, detalle: %{...}, detalle: %{...}, trailer: %{...}]
@@ -396,6 +408,8 @@ y la fecha en que se consultó. Se agregan de a uno y completos: Previred
 | `:decimal` | `{unidades, precision}`; con `:moneda`, un `AnchoFijo.Monto` | `:precision` (obligatoria sin `:moneda`), `:moneda`, `:separador`, `:signo` |
 | `:fecha` | `Date.t()` | `:formato` (obligatorio), `:opcional` |
 | `:rut` | `String.t()` canónico, `"12345678-5"`; solo el cuerpo con `dv: :ausente` | `:dv`, `:opcional` |
+| `:constante` | el literal declarado en `:valor`, verificado contra la línea | `:valor` (obligatorio), `:relleno` |
+| `:relleno` | nada: el campo no aparece en el registro | `:relleno` |
 
 Un monto de `0000125000` con `precision: 2` se lee como `{125000, 2}`: 125.000
 unidades mínimas con escala 2, es decir 1.250,00. Nunca hay un float en el
@@ -427,6 +441,19 @@ DV.
 `:formato` no tiene default a propósito. Adivinar si `01022024` es el 1 de
 febrero o el 2 de enero es exactamente el error silencioso que esta librería
 existe para impedir: un campo `:fecha` sin `:formato` es un layout inválido.
+
+`:constante` y `:relleno` son las posiciones cuyo valor lo pone el formato y
+no el dato: el código de tipo de registro, un literal como `"HEADER H2H"`,
+los *fillers*. Al leer, un literal distinto al declarado es un diagnóstico
+con `esperado` y `recibido`, y un relleno no se lee ni va al registro. Al
+escribir, los dos se emiten sin que estén en el mapa; un literal distinto en
+el mapa es un diagnóstico, porque no es un dato distinto, es otro formato.
+
+```elixir
+[nombre: :tipo_registro, largo: 2, tipo: :constante, valor: "01"]
+[nombre: :filler, largo: 946, tipo: :relleno]                 # espacios
+[nombre: :ceros, largo: 15, tipo: :relleno, relleno: "0"]
+```
 
 ## Tipos propios
 
