@@ -78,6 +78,72 @@ defmodule AnchoFijo.IdentidadTest do
     end
   end
 
+  describe "identidad/3 con un Multiregistro" do
+    test "la identidad declarada sale del header NACHA" do
+      assert {:ok, identidad} =
+               AnchoFijo.identidad(AnchoFijo.Formatos.nacha(), ruta("nacha_ppd.txt"))
+
+      assert identidad.declarada == %{
+               immediate_origin: "991000012",
+               file_creation_date: "240115",
+               file_creation_time: "0930",
+               file_id_modifier: "A"
+             }
+
+      assert identidad.nombre == "nacha_ppd.txt"
+      assert {:ok, por_huella} = AnchoFijo.huella(ruta("nacha_ppd.txt"))
+      assert identidad.huella == por_huella
+    end
+
+    test "un archivo que no empieza por el tipo que declara la identidad es un diagnóstico" do
+      sin_header = leer("nacha_ppd.txt") |> String.split("\n") |> Enum.drop(1) |> Enum.join("\n")
+
+      assert {:error, [%Diagnostico{tipo: :identidad, linea: 1} = d]} =
+               AnchoFijo.identidad(AnchoFijo.Formatos.nacha(), sin_header)
+
+      assert d.esperado =~ "un primer registro :encabezado_de_archivo"
+      assert d.recibido == ":encabezado_de_lote"
+    end
+
+    test "un primer registro de un tipo desconocido es el diagnóstico de estructura" do
+      assert {:error, [%Diagnostico{tipo: :estructura, linea: 1}]} =
+               AnchoFijo.identidad(AnchoFijo.Formatos.nacha(), "XX\n")
+    end
+
+    test "un multiregistro sin identidad declarada en ningún tipo es solo la huella" do
+      multi =
+        AnchoFijo.Multiregistro.nuevo!(
+          discriminador: [largo: 1],
+          registros: [d: [valor: "D", layout: [campos: [[nombre: :t, largo: 1]]]]]
+        )
+
+      assert {:ok, %Identidad{declarada: nil}} = AnchoFijo.identidad(multi, "D\nD\n")
+    end
+
+    test "el tipo que declara la identidad no tiene que ser el primero de :registros" do
+      multi =
+        AnchoFijo.Multiregistro.nuevo!(
+          discriminador: [largo: 1],
+          registros: [
+            x: [valor: "X", cantidad: :opcional, layout: [campos: [[nombre: :t, largo: 1]]]],
+            h: [
+              valor: "H",
+              cantidad: :uno,
+              layout: [
+                identidad: [campos: [:lote]],
+                campos: [[nombre: :t, largo: 1], [nombre: :lote, largo: 3, tipo: :entero]]
+              ]
+            ]
+          ]
+        )
+
+      assert {:ok, %Identidad{declarada: %{lote: 7}}} = AnchoFijo.identidad(multi, "H007\n")
+
+      assert {:error, [%Diagnostico{tipo: :identidad, recibido: ":x"}]} =
+               AnchoFijo.identidad(multi, "X\nH007\n")
+    end
+  end
+
   describe "cotejar/2 y duplicada?/2" do
     test "el mismo archivo dos veces es duplicado, por huella, aunque cambie el nombre" do
       {:ok, primera} = AnchoFijo.identidad(@layout, @archivo)

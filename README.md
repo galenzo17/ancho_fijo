@@ -636,6 +636,10 @@ case AnchoFijo.Identidad.cotejar(identidad, identidades_ya_procesadas) do
 end
 ```
 
+Con un `AnchoFijo.Multiregistro` la identidad declarada sale del header, que
+tiene su propio layout: `AnchoFijo.identidad(AnchoFijo.Formatos.nacha(), ruta)`
+trae el *immediate origin*, la fecha, la hora y el *file ID modifier*.
+
 Tres fuentes, en orden de confiabilidad decreciente: lo que el archivo
 declara de sí mismo (el número de lote y la fecha del header, que el layout
 señala con `identidad:`), la huella del contenido, y el nombre del archivo,

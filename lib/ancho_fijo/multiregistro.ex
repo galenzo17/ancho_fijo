@@ -618,11 +618,16 @@ defmodule AnchoFijo.Multiregistro do
      ], estado}
   end
 
-  defp discriminar(
-         %__MODULE__{discriminador: %{posicion: posicion, largo: largo}} = multi,
-         linea,
-         numero
-       ) do
+  # Público sin doc: `AnchoFijo.Identidad` lo usa para saber de qué tipo es
+  # el primer registro antes de leerlo con un layout.
+  @doc false
+  @spec discriminar(t(), binary(), pos_integer()) ::
+          {:ok, tipo(), definicion()} | {:error, [Diagnostico.t()]}
+  def discriminar(
+        %__MODULE__{discriminador: %{posicion: posicion, largo: largo}} = multi,
+        linea,
+        numero
+      ) do
     desde = posicion - 1
 
     if byte_size(linea) >= desde + largo do

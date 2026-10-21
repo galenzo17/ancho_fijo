@@ -155,6 +155,17 @@ defmodule AnchoFijo.Formatos.NachaTest do
       end
     end
 
+    test "el encabezado de archivo declara la identidad del archivo" do
+      assert Nacha.encabezado_de_archivo().identidad == %{
+               campos: [
+                 :immediate_origin,
+                 :file_creation_date,
+                 :file_creation_time,
+                 :file_id_modifier
+               ]
+             }
+    end
+
     test "los nombres de los campos son los de la especificación" do
       assert Enum.map(Nacha.entrada().campos, & &1.nombre) == [
                :record_type_code,
