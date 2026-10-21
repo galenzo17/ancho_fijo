@@ -253,6 +253,6 @@ jobs:
           true = String.contains?(d.causa_probable, "agregue {:decimal")
           {:error, [%AnchoFijo.Diagnostico{campo: :monto} = d]} = AnchoFijo.escribir([campos: [[nombre: :monto, largo: 8, tipo: :decimal, precision: 2]]], [%{monto: "12.50"}])
           true = String.contains?(d.causa_probable, "Decimal, que no está disponible")
-          {:ok, "00001250\n", []} = AnchoFijo.escribir([campos: [[nombre: :monto, largo: 8, tipo: :decimal, precision: 2]]], [%{monto: 12}])
+          {:ok, "00001200\n", []} = AnchoFijo.escribir([campos: [[nombre: :monto, largo: 8, tipo: :decimal, precision: 2]]], [%{monto: 12}])
           IO.puts("ancho_fijo " <> to_string(Application.spec(:ancho_fijo, :vsn)) <> " funciona como dependencia")
           '
