@@ -173,3 +173,4 @@ Las que la convención tuvo que zanjar y no eran obvias:
 | [0024](0024-multiregistro-opciones.md) | Issue #38: opciones, traza y telemetría del Multiregistro | `Opciones.validar!/3`, `traza: true`, eventos `parsear` y `stream`, `:nombre`, claves desconocidas |
 | [0025](0025-escritor-opciones.md) | Issue #39: Escritor con opciones validadas y telemetría | `ArgumentError` por terminador u opción inválida, eventos `escribir` y `escribir_stream` |
 | [0026](0026-identidad-multiregistro.md) | Issue #40: la identidad de un Multiregistro está en el header | `identidad/3` con `%Multiregistro{}`, `identidad:` en el header NACHA, diagnóstico por tipo inesperado |
+| [0027](0027-tests-escritura-tipos.md) | Issue #41: tests de escritura para tipos propios y `Monto` | `TipoHora.escribir/2`, tipos de prueba para cada falla, generador con moneda, cobertura sin `test/support` |

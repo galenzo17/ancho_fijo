@@ -62,6 +62,52 @@ defmodule AnchoFijo.TipoHora do
     do: {:ok, String.to_integer(h), String.to_integer(m), String.to_integer(s)}
 
   defp partes(_texto, _segundos?), do: :error
+
+  # El inverso de leer/3: HHMM, o HHMMSS con `segundos: true`. Un valor que
+  # no es un Time es la causa que Campo.formatear/3 va a poner en el
+  # diagnóstico.
+  @impl true
+  def escribir(%Time{} = hora, campo) do
+    formato = if Map.get(campo.opciones, :segundos, false), do: "%H%M%S", else: "%H%M"
+    {:ok, Calendar.strftime(hora, formato)}
+  end
+
+  def escribir(_otro, _campo), do: {:error, "se esperaba un Time"}
+end
+
+defmodule AnchoFijo.TipoSoloLectura do
+  @moduledoc false
+  # Un tipo propio que no implementa escribir/2: se lee, no se escribe.
+  @behaviour AnchoFijo.Tipo
+
+  @impl true
+  def opciones, do: []
+
+  @impl true
+  def validar(_campo), do: []
+
+  @impl true
+  def leer(texto, _campo, _contexto), do: {:ok, texto}
+end
+
+defmodule AnchoFijo.TipoAnchoEquivocado do
+  @moduledoc false
+  # Un escribir/2 que devuelve un texto de otro ancho que el del campo: el
+  # bug más fácil de cometer en un tipo propio, y la librería tiene que
+  # atajarlo antes de que la línea salga corrida.
+  @behaviour AnchoFijo.Tipo
+
+  @impl true
+  def opciones, do: []
+
+  @impl true
+  def validar(_campo), do: []
+
+  @impl true
+  def leer(texto, _campo, _contexto), do: {:ok, texto}
+
+  @impl true
+  def escribir(valor, _campo), do: {:ok, valor <> "!"}
 end
 
 defmodule AnchoFijo.TipoIncompleto do

@@ -235,6 +235,126 @@ defmodule AnchoFijo.EscritorTest do
     end
   end
 
+  describe "tipos propios: escribir/2 del behaviour" do
+    @horas Layout.nuevo!(
+             campos: [
+               [nombre: :hora, largo: 4, tipo: AnchoFijo.TipoHora],
+               [nombre: :exacta, largo: 6, tipo: AnchoFijo.TipoHora, segundos: true],
+               [nombre: :libre, largo: 4, tipo: AnchoFijo.TipoHora, opcional: true]
+             ]
+           )
+
+    test "round-trip: lo que el tipo lee, lo escribe igual" do
+      linea = "0930123456    \n"
+      assert {:ok, [registro], []} = AnchoFijo.parsear(@horas, linea)
+      assert registro == %{hora: ~T[09:30:00], exacta: ~T[12:34:56], libre: nil}
+      assert {:ok, ^linea, []} = AnchoFijo.escribir(@horas, [registro])
+    end
+
+    test "un tipo sin escribir/2 solo sabe leer, y el diagnóstico lo dice" do
+      layout = Layout.nuevo!(campos: [[nombre: :x, largo: 3, tipo: AnchoFijo.TipoSoloLectura]])
+      assert {:ok, [%{x: "abc"}], []} = AnchoFijo.parsear(layout, "abc\n")
+
+      assert {:error, [d]} = AnchoFijo.escribir(layout, [%{x: "abc"}])
+      assert %Diagnostico{campo: :x, linea: 1, esperado: "un tipo que implemente escribir/2"} = d
+      assert d.recibido == "AnchoFijo.TipoSoloLectura"
+      assert d.causa_probable =~ "solo sabe leer; implemente escribir/2"
+    end
+
+    test "un escribir/2 que devuelve {:error, causa} es un diagnóstico con esa causa" do
+      assert {:error, [d]} = AnchoFijo.escribir(@horas, [%{hora: "0930", exacta: ~T[00:00:00]}])
+
+      assert %Diagnostico{campo: :hora, esperado: "un valor que AnchoFijo.TipoHora sepa escribir"} =
+               d
+
+      assert d.recibido == ~s|"0930"|
+      assert d.causa_probable == "se esperaba un Time"
+    end
+
+    test "un escribir/2 que devuelve un texto del ancho equivocado no corre la línea" do
+      layout = Layout.nuevo!(campos: [[nombre: :x, largo: 3, tipo: AnchoFijo.TipoAnchoEquivocado]])
+
+      assert {:error, [d]} = AnchoFijo.escribir(layout, [%{x: "abc"}])
+      assert %Diagnostico{campo: :x, esperado: "un texto de exactamente 3 posiciones"} = d
+      assert d.causa_probable =~ "no cabe"
+    end
+
+    test "el ancho del texto del tipo propio se mide en la unidad del layout" do
+      layout =
+        Layout.nuevo!(
+          campos: [[nombre: :x, largo: 3, tipo: AnchoFijo.TipoAnchoEquivocado]],
+          unidad: :caracteres
+        )
+
+      assert {:ok, "añ!\n", []} = AnchoFijo.escribir(layout, [%{x: "añ"}])
+    end
+
+    test "nil en un campo propio opcional es blanco; sin opcional, es un error" do
+      assert {:ok, "0930000000    \n", []} =
+               AnchoFijo.escribir(@horas, [%{hora: ~T[09:30:00], exacta: ~T[00:00:00]}])
+
+      assert {:error, [%Diagnostico{campo: :hora}]} =
+               AnchoFijo.escribir(@horas, [%{exacta: ~T[00:00:00]}])
+    end
+  end
+
+  describe "un :decimal con moneda escribe un AnchoFijo.Monto" do
+    @con_moneda Layout.nuevo!(
+                  campos: [
+                    [nombre: :clp, largo: 10, tipo: :decimal, moneda: :clp],
+                    [nombre: :usd, largo: 10, tipo: :decimal, moneda: :usd, signo: :final]
+                  ]
+                )
+
+    test "round-trip: parsear y escribir dan la misma línea" do
+      linea = "0000125000000012500-\n"
+      assert {:ok, [registro], []} = AnchoFijo.parsear(@con_moneda, linea)
+
+      assert registro == %{
+               clp: AnchoFijo.Monto.nuevo(125_000, :clp),
+               usd: AnchoFijo.Monto.nuevo(-12_500, :usd)
+             }
+
+      assert {:ok, ^linea, []} = AnchoFijo.escribir(@con_moneda, [registro])
+    end
+
+    test "la tupla {unidades, precision} también se acepta, con la precisión de la moneda" do
+      assert {:ok, "00001250000000012500\n", []} =
+               AnchoFijo.escribir(@con_moneda, [%{clp: {125_000, 0}, usd: {12_500, 2}}])
+
+      assert {:error, [%Diagnostico{campo: :clp} = d]} =
+               AnchoFijo.escribir(@con_moneda, [%{clp: {125_000, 2}, usd: {12_500, 2}}])
+
+      assert d.esperado == "un monto {unidades, 0} con la precisión del campo"
+    end
+
+    test "un Monto de otra moneda es un diagnóstico, no una conversión silenciosa" do
+      registro = %{clp: AnchoFijo.Monto.nuevo(125_000, :usd), usd: AnchoFijo.Monto.nuevo(1, :usd)}
+
+      assert {:error, [%Diagnostico{campo: :clp} = d]} = AnchoFijo.escribir(@con_moneda, [registro])
+      assert d.esperado == "un AnchoFijo.Monto en CLP con precisión 0"
+      assert d.recibido == "#AnchoFijo.Monto<1.250,00 USD>"
+      assert d.causa_probable =~ "otra moneda o de otra precisión"
+    end
+
+    test "un Monto de la moneda pero con otra precisión también" do
+      registro = %{
+        clp: AnchoFijo.Monto.nuevo(125_000, 2, :clp),
+        usd: AnchoFijo.Monto.nuevo(1, :usd)
+      }
+
+      assert {:error, [%Diagnostico{campo: :clp, recibido: "#AnchoFijo.Monto<1.250,00 CLP>"}]} =
+               AnchoFijo.escribir(@con_moneda, [registro])
+    end
+
+    test "un Monto en un campo sin moneda es un valor de otro tipo" do
+      layout = Layout.nuevo!(campos: [[nombre: :m, largo: 6, tipo: :decimal, precision: 2]])
+
+      assert {:error, [%Diagnostico{esperado: "un monto {unidades, 2}"}]} =
+               AnchoFijo.escribir(layout, [%{m: AnchoFijo.Monto.nuevo(100, :usd)}])
+    end
+  end
+
   describe "stream/3" do
     test "emite una línea por registro, lazy, y el error en su posición" do
       layout = Layout.nuevo!(campos: [[nombre: :n, largo: 2, tipo: :entero]])
