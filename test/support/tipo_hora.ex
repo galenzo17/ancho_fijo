@@ -73,6 +73,16 @@ defmodule AnchoFijo.TipoHora do
   end
 
   def escribir(_otro, _campo), do: {:error, "se esperaba un Time"}
+
+  @impl true
+  def generador(campo) do
+    segundos? = Map.get(campo.opciones, :segundos, false)
+
+    StreamData.map(StreamData.integer(0..86_399), fn n ->
+      hora = Time.add(~T[00:00:00], n, :second)
+      if segundos?, do: hora, else: %{hora | second: 0}
+    end)
+  end
 end
 
 defmodule AnchoFijo.TipoSoloLectura do

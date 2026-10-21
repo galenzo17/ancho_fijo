@@ -655,6 +655,42 @@ delante: un módulo que no existe o no implementa los callbacks es un
 diagnóstico `:layout`, no un `UndefinedFunctionError` en la línea 40.000. El
 ejemplo completo, con una opción propia, está en `AnchoFijo.Tipo`.
 
+## Probar tu layout
+
+Quien adopta la librería escribe siempre los mismos tests. `AnchoFijo.Test`
+los deja en una línea cada uno, y con `StreamData` el round-trip se vuelve
+una propiedad sobre registros generados a partir del layout:
+
+```elixir
+defmodule MiApp.NominaTest do
+  use ExUnit.Case
+  use ExUnitProperties
+  import AnchoFijo.Test
+
+  @layout MiApp.Nomina.layout()
+
+  test "una línea válida" do
+    assert_parsea(@layout, "12345678-5JUAN PEREZ  0012345620240131", %{rut: "12345678-5", monto: {123_456, 2}, ...})
+  end
+
+  test "un monto con letras se diagnostica en el monto" do
+    @layout |> AnchoFijo.parsear("12345678-5JUAN PEREZ  00AB345620240131\n") |> assert_diagnostico(campo: :monto)
+  end
+
+  property "escribir y leer da lo mismo para cualquier registro" do
+    check all registro <- AnchoFijo.Test.Generadores.registro(@layout), do: assert_round_trip(@layout, registro)
+  end
+end
+```
+
+Los generadores respetan cada campo (largo, signo, precisión o moneda,
+formato de fecha, dígito verificador del RUT, opcionales, constantes) y
+generan también la lista de `{tipo, mapa}` de un multiregistro;
+`linea_invalida/1` da una línea con un campo roto anotado para probar que el
+diagnóstico apunta donde debe. Un tipo propio participa con el callback
+opcional `generador/1`. La propia suite de la librería corre estas
+propiedades sobre sus fixtures, NACHA incluido.
+
 ## El layout se valida antes de ver el archivo
 
 ```elixir

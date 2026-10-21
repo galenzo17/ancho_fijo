@@ -97,6 +97,7 @@ defmodule AnchoFijo.MixProject do
         Escritura: [AnchoFijo.Escritor],
         Observabilidad: [AnchoFijo.Telemetria],
         Documentación: [AnchoFijo.Documentacion],
+        Tests: [AnchoFijo.Test, AnchoFijo.Test.Generadores],
         Terminal: [Mix.Tasks.AnchoFijo.Detectar, Mix.Tasks.AnchoFijo.Documentar],
         "Formatos incluidos": [AnchoFijo.Formatos, AnchoFijo.Formatos.Nacha]
       ]
