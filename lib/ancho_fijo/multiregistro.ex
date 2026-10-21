@@ -244,29 +244,31 @@ defmodule AnchoFijo.Multiregistro do
   defp validar_discriminador(nil), do: {:error, [falla(@formas, nil, nil)]}
 
   defp validar_discriminador(discriminador) do
+    case {get(discriminador, :por), solo_por?(discriminador)} do
+      {nil, _} -> validar_por_valor(discriminador)
+      {por, true} -> validar_por(por, discriminador)
+      {_por, false} -> {:error, [falla(@formas, inspect(discriminador), nil)]}
+    end
+  end
+
+  defp validar_por(:largo, _discriminador), do: {:ok, %{por: :largo}}
+  defp validar_por(:posicion_en_archivo, _discriminador), do: {:ok, %{por: :posicion_en_archivo}}
+
+  defp validar_por(fun, _discriminador) when is_function(fun, 2),
+    do: {:ok, %{por: :funcion, funcion: fun}}
+
+  defp validar_por(_otro, discriminador),
+    do: {:error, [falla(@formas, inspect(discriminador), nil)]}
+
+  defp validar_por_valor(discriminador) do
     campo = get(discriminador, :campo)
     posicion = get(discriminador, :posicion, 1)
     largo = get(discriminador, :largo)
-    por = get(discriminador, :por)
 
     cond do
-      por == :largo and solo_por?(discriminador) ->
-        {:ok, %{por: :largo}}
-
-      por == :posicion_en_archivo and solo_por?(discriminador) ->
-        {:ok, %{por: :posicion_en_archivo}}
-
-      is_function(por, 2) and solo_por?(discriminador) ->
-        {:ok, %{por: :funcion, funcion: por}}
-
-      is_nil(por) and por_campo?(campo, largo) ->
-        {:ok, %{campo: campo}}
-
-      is_nil(por) and por_posicion?(campo, posicion, largo) ->
-        {:ok, %{posicion: posicion, largo: largo}}
-
-      true ->
-        {:error, [falla(@formas, inspect(discriminador), nil)]}
+      por_campo?(campo, largo) -> {:ok, %{campo: campo}}
+      por_posicion?(campo, posicion, largo) -> {:ok, %{posicion: posicion, largo: largo}}
+      true -> {:error, [falla(@formas, inspect(discriminador), nil)]}
     end
   end
 
