@@ -23,6 +23,31 @@ defmodule AnchoFijo.Diagnostico do
   3 AM necesita una pista de dónde mirar, no solo la constatación de que algo
   falló.
 
+  ## Para el usuario final y para una API
+
+  El mensaje de arriba es para quien integra. Una pantalla de carga de
+  archivos necesita otra cosa: decirle al usuario "línea 42: el monto no es
+  válido" en su idioma, sin opciones ni nombres de módulos, y una API
+  necesita el diagnóstico como JSON. Para eso:
+
+    * `mensaje/2` con `audiencia: :usuario` omite la causa probable (que
+      habla de opciones del layout) y la sintaxis de átomos, y con
+      `idioma: :en` redacta el marco en inglés. Lo que los tipos describen
+      en `:esperado` y `:recibido` ("8 dígitos con 2 decimales implícitos")
+      se muestra tal cual: es prosa que la librería produce en español.
+    * `a_mapa/2` y `desde_mapa/1`: el diagnóstico como mapa de claves
+      estables, con el mensaje incluido, y la vuelta. Con `Jason` en el
+      proyecto, un diagnóstico se codifica a JSON directo (`Jason.Encoder`
+      opcional, con la misma estrategia que `Decimal`).
+    * `resumen/2`: totales por gravedad, por tipo y por campo, las primeras
+      líneas afectadas y el veredicto (`:aceptable`,
+      `:aceptable_con_observaciones` o `:rechazable`), con un texto en el
+      idioma pedido. Es lo que una pantalla de carga muestra arriba de la
+      tabla.
+
+  Todas respetan `:sensible`: el valor redactado no sale en ninguna, salvo
+  con `revelar: true`.
+
   ## Datos personales
 
   El mismo mensaje que se pega en un correo termina en un `Logger.error`, en
@@ -280,17 +305,145 @@ defmodule AnchoFijo.Diagnostico do
       "campo :rut: se esperaban un RUT, llegaron <10 caracteres: 4 dígitos, 1 letra, 3 dígitos, \\"-\\", 1 dígito>"
       iex> Diagnostico.mensaje(d, revelar: true)
       "campo :rut: se esperaban un RUT, llegaron \\"1234A678-5\\""
+
+  Con `audiencia: :usuario` y/o `idioma: :en`, el mensaje para una pantalla
+  de carga, sin la causa probable ni la sintaxis de átomos:
+
+      iex> alias AnchoFijo.Diagnostico
+      iex> d = Diagnostico.nuevo(tipo: :campo_invalido, linea: 42, campo: :monto, posicion: {11, 22},
+      ...>   esperado: "8 dígitos con 2 decimales implícitos", recibido: ~s("AB"),
+      ...>   causa_probable: "hay caracteres no numéricos; declare separador: :punto si el archivo usa punto")
+      iex> Diagnostico.mensaje(d)
+      "línea 42, campo :monto (posiciones 11-22): se esperaban 8 dígitos con 2 decimales implícitos, llegaron \\"AB\\"; hay caracteres no numéricos; declare separador: :punto si el archivo usa punto"
+      iex> Diagnostico.mensaje(d, idioma: :en)
+      "line 42, field :monto (positions 11-22): expected 8 dígitos con 2 decimales implícitos, got \\"AB\\"; hay caracteres no numéricos; declare separador: :punto si el archivo usa punto"
+      iex> Diagnostico.mensaje(d, audiencia: :usuario)
+      "Línea 42, campo monto: el valor no es válido (se esperaba 8 dígitos con 2 decimales implícitos, llegó \\"AB\\")."
+      iex> Diagnostico.mensaje(d, audiencia: :usuario, idioma: :en)
+      "Line 42, field monto: the value is not valid (expected 8 dígitos con 2 decimales implícitos, got \\"AB\\")."
   """
   @spec mensaje(t(), keyword()) :: String.t()
   def mensaje(%__MODULE__{} = diagnostico, opts \\ []) do
     revelar? = Keyword.get(opts, :revelar, false)
+    idioma = Keyword.get(opts, :idioma, :es)
+    d = visible(diagnostico, revelar?)
 
-    IO.iodata_to_binary([
-      contexto(diagnostico),
-      ": ",
-      nucleo(visible(diagnostico, revelar?)),
-      causa(diagnostico)
-    ])
+    case Keyword.get(opts, :audiencia, :desarrollador) do
+      :usuario -> para_usuario(d, idioma)
+      _desarrollador -> para_desarrollador(d, idioma)
+    end
+  end
+
+  defp para_desarrollador(%__MODULE__{} = d, idioma) do
+    IO.iodata_to_binary([contexto(d, idioma), ": ", nucleo(d, idioma), causa(d)])
+  end
+
+  # Para el usuario: dónde, qué clase de problema (por tipo, en su idioma) y
+  # el detalle entre paréntesis. Sin la causa probable, que habla de opciones
+  # del layout, y sin los dos puntos de los átomos.
+  defp para_usuario(%__MODULE__{} = d, idioma) do
+    donde = ubicacion_para_usuario(d, idioma)
+    detalle = detalle_para_usuario(d, idioma)
+    frase = explicacion(d.tipo, idioma)
+
+    frase = if donde == "", do: mayuscula_inicial(frase), else: frase
+    IO.iodata_to_binary([donde, frase, detalle, "."])
+  end
+
+  defp mayuscula_inicial(texto) do
+    {primera, resto} = String.split_at(texto, 1)
+    String.upcase(primera) <> resto
+  end
+
+  defp ubicacion_para_usuario(%__MODULE__{linea: nil, campo: nil}, _idioma), do: ""
+
+  defp ubicacion_para_usuario(%__MODULE__{} = d, idioma) do
+    partes =
+      [
+        d.linea && "#{palabra(:linea, idioma, :mayuscula)} #{d.linea}",
+        d.campo &&
+          "#{palabra(:campo, idioma, if(d.linea, do: :minuscula, else: :mayuscula))} #{d.campo}"
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    Enum.join(partes, ", ") <> ": "
+  end
+
+  defp detalle_para_usuario(%__MODULE__{esperado: nil, recibido: nil}, _idioma), do: ""
+
+  defp detalle_para_usuario(%__MODULE__{esperado: esperado, recibido: nil}, idioma),
+    do: " (#{palabra(:se_esperaba, idioma)} #{esperado})"
+
+  defp detalle_para_usuario(%__MODULE__{esperado: nil, recibido: recibido}, idioma),
+    do: " (#{palabra(:llego, idioma)} #{recibido})"
+
+  defp detalle_para_usuario(%__MODULE__{esperado: esperado, recibido: recibido}, idioma),
+    do: " (#{palabra(:se_esperaba, idioma)} #{esperado}, #{palabra(:llego, idioma)} #{recibido})"
+
+  # La explicación por tipo es la única parte del mensaje que la librería
+  # puede traducir entera: lo que :esperado y :recibido describen lo redacta
+  # cada tipo, en español.
+  @explicaciones %{
+    layout: {"la definición del formato es inválida", "the format definition is invalid"},
+    entrada: {"el archivo no se pudo leer", "the file could not be read"},
+    largo_de_linea:
+      {"la línea no tiene el largo esperado", "the line does not have the expected length"},
+    encoding: {"hay caracteres que no se pueden leer", "there are characters that cannot be read"},
+    campo_invalido: {"el valor no es válido", "the value is not valid"},
+    relleno_completado:
+      {"la línea venía corta y se completó con relleno", "the line was short and was padded"},
+    moneda: {"las monedas no son compatibles", "the currencies are not compatible"},
+    campo_truncado: {"el texto no cabía y se recortó", "the text did not fit and was truncated"},
+    doble_codificacion:
+      {"el texto viene con la codificación duplicada", "the text is double-encoded"},
+    estructura:
+      {"la estructura del archivo no es la esperada", "the file structure is not the expected one"},
+    control: {"los totales no cuadran", "the totals do not add up"},
+    identidad:
+      {"el archivo ya fue procesado o su identidad no es válida",
+       "the file was already processed or its identity is not valid"}
+  }
+
+  @doc """
+  La explicación de un tipo de diagnóstico para el usuario final, en el
+  idioma pedido.
+
+      iex> AnchoFijo.Diagnostico.explicacion(:control, :en)
+      "the totals do not add up"
+  """
+  @spec explicacion(tipo(), :es | :en) :: String.t()
+  def explicacion(tipo, idioma) do
+    {es, en} =
+      Map.get(
+        @explicaciones,
+        tipo,
+        {"hay un problema con el archivo", "there is a problem with the file"}
+      )
+
+    if idioma == :en, do: en, else: es
+  end
+
+  @palabras %{
+    linea: {"línea", "line"},
+    campo: {"campo", "field"},
+    posiciones: {"posiciones", "positions"},
+    se_esperaba: {"se esperaba", "expected"},
+    llego: {"llegó", "got"},
+    se_esperaban: {"se esperaban", "expected"},
+    llegaron: {"llegaron", "got"},
+    se_recibio: {"se recibió", "got"},
+    formato_inconsistente: {"formato inconsistente", "inconsistent format"},
+    entrada: {"entrada", "input"},
+    estructura: {"estructura", "structure"},
+    layout: {"layout", "layout"},
+    moneda: {"moneda", "currency"},
+    identidad: {"identidad", "identity"}
+  }
+
+  defp palabra(clave, idioma, caja \\ :minuscula) do
+    {es, en} = Map.fetch!(@palabras, clave)
+    texto = if idioma == :en, do: en, else: es
+    if caja == :mayuscula, do: String.capitalize(texto), else: texto
   end
 
   # Lo que las representaciones de texto ven: el diagnóstico tal cual, o con
@@ -318,6 +471,207 @@ defmodule AnchoFijo.Diagnostico do
   def reporte(diagnosticos, opts \\ []) when is_list(diagnosticos) do
     Enum.map_join(diagnosticos, "\n", &mensaje(&1, opts))
   end
+
+  @doc """
+  El diagnóstico como mapa de claves estables, para una API o para
+  guardarlo: `:tipo`, `:gravedad`, `:linea`, `:campo`, `:posicion` (como
+  `[desde, hasta]`), `:esperado`, `:recibido`, `:causa_probable`,
+  `:contenido`, `:sensible` y `:mensaje`. Acepta las opciones de
+  `mensaje/2`; sin `revelar: true`, un diagnóstico sensible lleva la forma
+  del valor en `:recibido` y `nil` en `:contenido`.
+
+      iex> alias AnchoFijo.Diagnostico
+      iex> d = Diagnostico.nuevo(tipo: :largo_de_linea, linea: 3, esperado: "40 bytes", recibido: "38")
+      iex> Diagnostico.a_mapa(d)
+      %{tipo: :largo_de_linea, gravedad: :error, linea: 3, campo: nil, posicion: nil, esperado: "40 bytes", recibido: "38", causa_probable: nil, contenido: nil, sensible: false, mensaje: "línea 3: se esperaban 40 bytes, llegaron 38"}
+      iex> Diagnostico.desde_mapa(Diagnostico.a_mapa(d)) == d
+      true
+  """
+  @spec a_mapa(t(), keyword()) :: map()
+  def a_mapa(%__MODULE__{} = diagnostico, opts \\ []) do
+    d = visible(diagnostico, Keyword.get(opts, :revelar, false))
+    revelado? = not diagnostico.sensible or Keyword.get(opts, :revelar, false)
+
+    %{
+      tipo: d.tipo,
+      gravedad: d.gravedad,
+      linea: d.linea,
+      campo: d.campo,
+      posicion: d.posicion && Tuple.to_list(d.posicion),
+      esperado: d.esperado,
+      recibido: d.recibido,
+      causa_probable: d.causa_probable,
+      contenido: if(revelado?, do: d.contenido),
+      sensible: d.sensible,
+      mensaje: mensaje(diagnostico, opts)
+    }
+  end
+
+  @doc """
+  La vuelta de `a_mapa/2`: desde un mapa con claves átomo o string (como
+  llega de un JSON). Lo que no viene queda en su default; un diagnóstico
+  sensible vuelve con el valor redactado, que es lo único que viajó.
+
+      iex> alias AnchoFijo.Diagnostico
+      iex> Diagnostico.desde_mapa(%{"tipo" => "control", "linea" => 5, "campo" => "total", "posicion" => [9, 24], "esperado" => "1250", "recibido" => "1000"})
+      %AnchoFijo.Diagnostico{tipo: :control, linea: 5, campo: :total, posicion: {9, 24}, esperado: "1250", recibido: "1000"}
+  """
+  @spec desde_mapa(map()) :: t()
+  def desde_mapa(mapa) when is_map(mapa) do
+    leer = fn clave -> Map.get(mapa, clave) || Map.get(mapa, Atom.to_string(clave)) end
+    sensible? = leer.(:sensible) == true
+
+    nuevo(
+      tipo: atomo(leer.(:tipo), :campo_invalido),
+      gravedad: atomo(leer.(:gravedad), :error),
+      linea: leer.(:linea),
+      campo: atomo(leer.(:campo), nil),
+      posicion: posicion_desde(leer.(:posicion)),
+      esperado: leer.(:esperado),
+      recibido: leer.(:recibido),
+      causa_probable: leer.(:causa_probable),
+      contenido: leer.(:contenido),
+      sensible: sensible?,
+      redactado: if(sensible?, do: leer.(:recibido))
+    )
+  end
+
+  # Los tipos, gravedades y campos son átomos conocidos o declarados por el
+  # layout: `String.to_existing_atom/1` evita crear átomos desde un JSON
+  # ajeno; uno que no existe queda como string en :campo.
+  defp atomo(nil, default), do: default
+  defp atomo(valor, _default) when is_atom(valor), do: valor
+
+  defp atomo(valor, default) when is_binary(valor) do
+    String.to_existing_atom(valor)
+  rescue
+    ArgumentError -> if is_nil(default), do: valor, else: default
+  end
+
+  defp posicion_desde([desde, hasta]) when is_integer(desde) and is_integer(hasta),
+    do: {desde, hasta}
+
+  defp posicion_desde({_, _} = posicion), do: posicion
+  defp posicion_desde(_otro), do: nil
+
+  @typedoc "El resumen de una lista de diagnósticos, para una pantalla de carga."
+  @type resumen :: %{
+          total: non_neg_integer(),
+          errores: non_neg_integer(),
+          advertencias: non_neg_integer(),
+          por_tipo: %{tipo() => non_neg_integer()},
+          por_campo: %{atom() => non_neg_integer()},
+          lineas_afectadas: [pos_integer()],
+          lineas_con_error: non_neg_integer(),
+          veredicto: :aceptable | :aceptable_con_observaciones | :rechazable,
+          texto: String.t()
+        }
+
+  @doc """
+  Resume una lista de diagnósticos: totales por gravedad, por tipo y por
+  campo, las primeras líneas afectadas (`lineas: 10` por default), cuántas
+  líneas tienen errores, y el veredicto: `:rechazable` si hay algún error,
+  `:aceptable_con_observaciones` si solo hay advertencias, `:aceptable` si
+  no hay nada. `:texto` lo dice en una frase, en el `idioma:` pedido.
+
+      iex> alias AnchoFijo.Diagnostico
+      iex> diagnosticos = [
+      ...>   Diagnostico.nuevo(tipo: :campo_invalido, linea: 2, campo: :monto),
+      ...>   Diagnostico.nuevo(tipo: :campo_invalido, linea: 7, campo: :monto),
+      ...>   Diagnostico.nuevo(tipo: :relleno_completado, gravedad: :advertencia, linea: 9)
+      ...> ]
+      iex> resumen = Diagnostico.resumen(diagnosticos)
+      iex> {resumen.veredicto, resumen.errores, resumen.advertencias, resumen.por_campo, resumen.lineas_afectadas}
+      {:rechazable, 2, 1, %{monto: 2}, [2, 7, 9]}
+      iex> resumen.texto
+      "2 errores en 2 líneas y 1 advertencia: el archivo se rechaza"
+      iex> Diagnostico.resumen(diagnosticos, idioma: :en).texto
+      "2 errors in 2 lines and 1 warning: the file is rejected"
+      iex> Diagnostico.resumen([]).texto
+      "sin observaciones: el archivo se acepta"
+  """
+  @spec resumen([t()], keyword()) :: resumen()
+  def resumen(diagnosticos, opts \\ []) when is_list(diagnosticos) do
+    {errores, advertencias} = separar(diagnosticos)
+    idioma = Keyword.get(opts, :idioma, :es)
+
+    lineas =
+      diagnosticos |> Enum.map(& &1.linea) |> Enum.reject(&is_nil/1) |> Enum.uniq() |> Enum.sort()
+
+    lineas_con_error =
+      errores |> Enum.map(& &1.linea) |> Enum.reject(&is_nil/1) |> Enum.uniq() |> length()
+
+    veredicto =
+      cond do
+        errores != [] -> :rechazable
+        advertencias != [] -> :aceptable_con_observaciones
+        true -> :aceptable
+      end
+
+    %{
+      total: length(diagnosticos),
+      errores: length(errores),
+      advertencias: length(advertencias),
+      por_tipo: Enum.frequencies_by(diagnosticos, & &1.tipo),
+      por_campo: diagnosticos |> Enum.reject(&is_nil(&1.campo)) |> Enum.frequencies_by(& &1.campo),
+      lineas_afectadas: Enum.take(lineas, Keyword.get(opts, :lineas, 10)),
+      lineas_con_error: lineas_con_error,
+      veredicto: veredicto,
+      texto:
+        texto_del_resumen(
+          length(errores),
+          lineas_con_error,
+          length(advertencias),
+          veredicto,
+          idioma
+        )
+    }
+  end
+
+  defp texto_del_resumen(0, _lineas, 0, _veredicto, :en),
+    do: "no observations: the file is accepted"
+
+  defp texto_del_resumen(0, _lineas, 0, _veredicto, _es),
+    do: "sin observaciones: el archivo se acepta"
+
+  defp texto_del_resumen(errores, lineas, advertencias, veredicto, idioma) do
+    partes =
+      [
+        if(errores > 0,
+          do:
+            "#{plural(errores, :error, idioma)} #{palabra_en(idioma)} #{plural(lineas, :linea, idioma)}"
+        ),
+        if(advertencias > 0, do: plural(advertencias, :advertencia, idioma))
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(if(idioma == :en, do: " and ", else: " y "))
+
+    cierre =
+      case {veredicto, idioma} do
+        {:rechazable, :en} -> "the file is rejected"
+        {:rechazable, _} -> "el archivo se rechaza"
+        {_, :en} -> "the file is accepted with observations"
+        {_, _} -> "el archivo se acepta con observaciones"
+      end
+
+    partes <> ": " <> cierre
+  end
+
+  defp palabra_en(:en), do: "in"
+  defp palabra_en(_es), do: "en"
+
+  defp plural(1, :error, :en), do: "1 error"
+  defp plural(n, :error, :en), do: "#{n} errors"
+  defp plural(1, :error, _es), do: "1 error"
+  defp plural(n, :error, _es), do: "#{n} errores"
+  defp plural(1, :linea, :en), do: "1 line"
+  defp plural(n, :linea, :en), do: "#{n} lines"
+  defp plural(1, :linea, _es), do: "1 línea"
+  defp plural(n, :linea, _es), do: "#{n} líneas"
+  defp plural(1, :advertencia, :en), do: "1 warning"
+  defp plural(n, :advertencia, :en), do: "#{n} warnings"
+  defp plural(1, :advertencia, _es), do: "1 advertencia"
+  defp plural(n, :advertencia, _es), do: "#{n} advertencias"
 
   @doc """
   Separa una lista de diagnósticos en errores y advertencias, en ese orden.
@@ -353,13 +707,13 @@ defmodule AnchoFijo.Diagnostico do
     Enum.all?(diagnosticos, &(&1.gravedad == :advertencia))
   end
 
-  defp contexto(%__MODULE__{} = d) do
+  defp contexto(%__MODULE__{} = d, idioma) do
     segmentos =
-      [prefijo_tipo(d.tipo), linea(d.linea), campo(d.campo, d.posicion)]
+      [prefijo_tipo(d.tipo, idioma), linea(d.linea, idioma), campo(d.campo, d.posicion, idioma)]
       |> Enum.reject(&is_nil/1)
 
     case segmentos do
-      [] -> sin_contexto(d.tipo)
+      [] -> sin_contexto(d.tipo, idioma)
       lista -> Enum.join(lista, ", ")
     end
   end
@@ -367,40 +721,49 @@ defmodule AnchoFijo.Diagnostico do
   # Un diagnóstico sin línea ni campo habla del archivo entero. Si es de
   # estructura (un trailer que no llegó), decirlo: "entrada:" culparía a la
   # lectura del archivo, que estuvo bien.
-  defp sin_contexto(:estructura), do: "estructura"
-  defp sin_contexto(_otro), do: "entrada"
+  defp sin_contexto(:estructura, idioma), do: palabra(:estructura, idioma)
+  defp sin_contexto(_otro, idioma), do: palabra(:entrada, idioma)
 
-  defp prefijo_tipo(:layout), do: "layout"
-  defp prefijo_tipo(:entrada), do: "entrada"
-  defp prefijo_tipo(:moneda), do: "moneda"
-  defp prefijo_tipo(:identidad), do: "identidad"
-  defp prefijo_tipo(_otro), do: nil
+  defp prefijo_tipo(tipo, idioma) when tipo in [:layout, :entrada, :moneda, :identidad],
+    do: palabra(tipo, idioma)
 
-  defp linea(nil), do: nil
-  defp linea(numero), do: "línea #{numero}"
+  defp prefijo_tipo(_otro, _idioma), do: nil
 
-  defp campo(nil, _posicion), do: nil
-  defp campo(nombre, nil), do: "campo #{inspect(nombre)}"
-  defp campo(nombre, {desde, hasta}), do: "campo #{inspect(nombre)} (posiciones #{desde}-#{hasta})"
+  defp linea(nil, _idioma), do: nil
+  defp linea(numero, idioma), do: "#{palabra(:linea, idioma)} #{numero}"
+
+  defp campo(nil, _posicion, _idioma), do: nil
+  defp campo(nombre, nil, idioma), do: "#{palabra(:campo, idioma)} #{inspect(nombre)}"
+
+  defp campo(nombre, {desde, hasta}, idioma),
+    do:
+      "#{palabra(:campo, idioma)} #{inspect(nombre)} (#{palabra(:posiciones, idioma)} #{desde}-#{hasta})"
 
   # El plural ("se esperaban ... llegaron") es el caso frecuente porque casi
   # siempre se habla de bytes, dígitos o caracteres. El singular queda para
-  # cuando no hay nada que contar y el sujeto es el archivo entero.
-  defp nucleo(%__MODULE__{esperado: nil, recibido: nil}), do: "formato inconsistente"
-  defp nucleo(%__MODULE__{esperado: nil, recibido: recibido}), do: "se recibió #{recibido}"
+  # cuando no hay nada que contar y el sujeto es el archivo entero. En
+  # inglés no hay distinción.
+  defp nucleo(%__MODULE__{esperado: nil, recibido: nil}, idioma),
+    do: palabra(:formato_inconsistente, idioma)
 
-  defp nucleo(%__MODULE__{tipo: tipo, esperado: esperado, recibido: nil})
-       when tipo in [:entrada, :layout, :moneda, :estructura, :control, :identidad],
-       do: "se esperaba #{esperado}"
+  defp nucleo(%__MODULE__{esperado: nil, recibido: recibido}, idioma),
+    do: "#{palabra(:se_recibio, idioma)} #{recibido}"
 
-  defp nucleo(%__MODULE__{tipo: tipo, esperado: esperado, recibido: recibido})
-       when tipo in [:entrada, :layout, :moneda, :estructura, :control, :identidad],
-       do: "se esperaba #{esperado}, llegó #{recibido}"
+  defp nucleo(%__MODULE__{esperado: esperado, recibido: nil} = d, idioma),
+    do: "#{esperaba(d, idioma)} #{esperado}"
 
-  defp nucleo(%__MODULE__{esperado: esperado, recibido: nil}), do: "se esperaban #{esperado}"
+  defp nucleo(%__MODULE__{esperado: esperado, recibido: recibido} = d, idioma),
+    do: "#{esperaba(d, idioma)} #{esperado}, #{llego(d, idioma)} #{recibido}"
 
-  defp nucleo(%__MODULE__{esperado: esperado, recibido: recibido}),
-    do: "se esperaban #{esperado}, llegaron #{recibido}"
+  @singulares [:entrada, :layout, :moneda, :estructura, :control, :identidad]
+
+  defp esperaba(%__MODULE__{tipo: tipo}, idioma) when tipo in @singulares,
+    do: palabra(:se_esperaba, idioma)
+
+  defp esperaba(_d, idioma), do: palabra(:se_esperaban, idioma)
+
+  defp llego(%__MODULE__{tipo: tipo}, idioma) when tipo in @singulares, do: palabra(:llego, idioma)
+  defp llego(_d, idioma), do: palabra(:llegaron, idioma)
 
   defp causa(%__MODULE__{causa_probable: nil}), do: ""
   defp causa(%__MODULE__{causa_probable: causa}), do: "; " <> causa
@@ -431,5 +794,17 @@ defmodule AnchoFijo.Diagnostico do
     end
 
     def inspect(diagnostico, opts), do: Inspect.Any.inspect(diagnostico, opts)
+  end
+
+  # Con Jason en el proyecto que compila la librería, un diagnóstico se
+  # codifica como su `a_mapa/1`: redactado, con el mensaje. La decisión se
+  # toma al compilar, como con :telemetry y Decimal; sin Jason no se define
+  # nada y el paquete sigue sin dependencias de runtime.
+  if Code.ensure_loaded?(Jason) do
+    defimpl Jason.Encoder do
+      def encode(diagnostico, opts) do
+        Jason.Encode.map(AnchoFijo.Diagnostico.a_mapa(diagnostico), opts)
+      end
+    end
   end
 end

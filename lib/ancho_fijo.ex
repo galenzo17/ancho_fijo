@@ -248,6 +248,17 @@ defmodule AnchoFijo do
   def escribir(layout, registros, opts), do: Escritor.escribir(layout, registros, opts)
 
   @doc """
+  Resume los diagnósticos de un archivo para una pantalla de carga: totales,
+  líneas afectadas y el veredicto. Ver `AnchoFijo.Diagnostico.resumen/2`.
+
+      iex> {:ok, _registros, diagnosticos} = AnchoFijo.parsear([campos: [[nombre: :n, largo: 3, tipo: :entero]]], "001\\nXYZ\\n003\\n", modo: :tolerante)
+      iex> AnchoFijo.resumen(diagnosticos).texto
+      "1 error en 1 línea: el archivo se rechaza"
+  """
+  @spec resumen([Diagnostico.t()], keyword()) :: Diagnostico.resumen()
+  defdelegate resumen(diagnosticos, opts \\ []), to: Diagnostico
+
+  @doc """
   La identidad del lote: lo que el archivo declara, su huella y su nombre.
   Para reconocer un archivo reprocesado antes de pagar dos veces. Ver
   `AnchoFijo.Identidad`.
