@@ -498,16 +498,17 @@ defmodule AnchoFijo.CampoTest do
       assert {:error, %{causa_probable: "el segundo 61 no existe"}} = Campo.extraer(campo, "120061")
     end
 
-    test "blancos y ceros: nil con opcional, diagnóstico sin" do
+    test "en blanco es nil con opcional y diagnóstico sin; los ceros son la medianoche" do
       campo =
         Campo.nuevo!(nombre: :h, posicion: 1, largo: 4, tipo: :hora, formato: :hhmm, opcional: true)
 
-      assert Campo.extraer(campo, "0000") == {:ok, nil}
       assert Campo.extraer(campo, "    ") == {:ok, nil}
+      assert Campo.extraer(campo, "0000") == {:ok, ~T[00:00:00]}
 
       estricta = Campo.nuevo!(nombre: :h, posicion: 1, largo: 4, tipo: :hora, formato: :hhmm)
-      assert {:error, d} = Campo.extraer(estricta, "0000")
-      assert d.causa_probable =~ "blancos o ceros para 'sin hora'"
+      assert Campo.extraer(estricta, "0000") == {:ok, ~T[00:00:00]}
+      assert {:error, d} = Campo.extraer(estricta, "    ")
+      assert d.causa_probable =~ "blancos para 'sin hora'"
     end
 
     test "un patrón de fecha en un :hora, o sin minutos, es un layout inválido" do

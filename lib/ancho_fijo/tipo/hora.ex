@@ -9,10 +9,12 @@ defmodule AnchoFijo.Tipo.Hora do
   | `:hhmm` | `0930` | 09:30:00 |
   | `"HH:MM:SS"` | `09:30:15` | 09:30:15 (patrón explícito) |
 
-  Un patrón tiene hora y minuto, y segundos si el archivo los trae. Los
-  blancos y los ceros se tratan como en `:fecha`: `nil` con
-  `opcional: true`, un diagnóstico sin eso. Una hora que no existe (`2460`)
-  es un diagnóstico con la parte que falla.
+  Un patrón tiene hora y minuto, y segundos si el archivo los trae. Un
+  campo en blanco es "sin hora": `nil` con `opcional: true`, un diagnóstico
+  sin eso. Los ceros **no**: `0000` es la medianoche, una hora que existe,
+  y se lee como `~T[00:00:00]`. Es la diferencia con `:fecha`, donde
+  `00000000` no puede ser una fecha. Una hora que no existe (`2460`) es un
+  diagnóstico con la parte que falla.
   """
 
   @behaviour AnchoFijo.Tipo
@@ -32,7 +34,7 @@ defmodule AnchoFijo.Tipo.Hora do
   def leer(texto, %Campo{} = campo, contexto) do
     {:ok, patron} = Patron.compilar(campo.formato)
 
-    if Patron.nulo?(patron, texto),
+    if texto == "",
       do: vacia(campo, patron, texto, contexto),
       else: armar(campo, patron, texto, contexto)
   end
@@ -45,7 +47,7 @@ defmodule AnchoFijo.Tipo.Hora do
        esperado: "una hora en formato #{patron.texto}",
        recibido: inspect(texto),
        causa_probable:
-         "el emisor usa blancos o ceros para 'sin hora'; declare opcional: true si es esperable"
+         "el emisor usa blancos para 'sin hora'; declare opcional: true si es esperable"
      )}
   end
 
