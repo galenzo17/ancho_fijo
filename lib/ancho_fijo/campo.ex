@@ -55,6 +55,11 @@ defmodule AnchoFijo.Campo do
       primer año de la ventana de cien. Default `2000`.
     * `:valor` — obligatorio en `:constante`: el literal que el formato fija
       en esas posiciones. Ver `AnchoFijo.Tipo.Constante`.
+    * `:campos` y `:repetir` — en `:grupo`: los campos internos y cuántas
+      veces se repiten. El `:largo` se calcula. Ver `AnchoFijo.Tipo.Grupo`.
+    * `:segun` y `:variantes` — en `:variante`: el campo anterior que elige
+      la variante y el mapa de valor a campos internos. Ver
+      `AnchoFijo.Tipo.Variante`.
     * `:dv` — en `:rut`: `:validar` (default), `:no_validar` o `:ausente`. Ver
       `AnchoFijo.Rut`.
     * `:descripcion` y `:ejemplo` — texto libre para la especificación que
@@ -78,6 +83,8 @@ defmodule AnchoFijo.Campo do
   | `:rut` | `String.t()` canónico, `"12345678-5"`; solo el cuerpo, `"12345678"`, con `dv: :ausente` |
   | `:constante` | el literal declarado en `:valor`, verificado contra la línea |
   | `:relleno` | no aparece en el registro; al escribir se emite el carácter de `:relleno` |
+  | `:grupo` | una lista de `repetir` mapas con los campos internos |
+  | `:variante` | el mapa de la variante que eligió el campo `segun` |
 
   Un `:decimal` nunca se convierte a float. Se devuelve como par
   `{unidades_minimas, precision}` —centavos y escala— porque un monto que pasa
@@ -117,7 +124,11 @@ defmodule AnchoFijo.Campo do
     formato: nil,
     pivote: nil,
     dv: :validar,
-    valor: nil
+    valor: nil,
+    campos: nil,
+    repetir: nil,
+    segun: nil,
+    variantes: nil
   ]
   @trims [:ambos, :izquierda, :derecha, false, true]
 
@@ -132,6 +143,8 @@ defmodule AnchoFijo.Campo do
           | :rut
           | :constante
           | :relleno
+          | :grupo
+          | :variante
           | module()
   @type valor ::
           String.t()
@@ -164,6 +177,10 @@ defmodule AnchoFijo.Campo do
           pivote: pos_integer() | nil,
           dv: Rut.dv(),
           valor: String.t() | nil,
+          campos: [t()] | nil,
+          repetir: pos_integer() | nil,
+          segun: atom() | nil,
+          variantes: %{term() => [t()]} | nil,
           sensible: boolean(),
           modulo: module() | nil,
           opciones: map()
@@ -189,6 +206,10 @@ defmodule AnchoFijo.Campo do
             pivote: nil,
             dv: :validar,
             valor: nil,
+            campos: nil,
+            repetir: nil,
+            segun: nil,
+            variantes: nil,
             sensible: false,
             modulo: nil,
             opciones: %{}
@@ -246,15 +267,132 @@ defmodule AnchoFijo.Campo do
           |> sensible_por_tipo(atributos)
           |> precision_por_moneda()
 
-        case validar(campo, atributos) do
-          [] -> {:ok, campo}
-          diagnosticos -> {:error, diagnosticos}
+        with {:ok, campo} <- construir_anidados(campo),
+             [] <- validar(campo, atributos) do
+          {:ok, campo}
+        else
+          {:error, diagnosticos} -> {:error, diagnosticos}
+          diagnosticos when is_list(diagnosticos) -> {:error, diagnosticos}
         end
 
       {:error, esperado} ->
         {:error, validar_sin_tipo(campo) ++ [falla(campo.nombre, esperado, campo.tipo, nil)]}
     end
   end
+
+  # Un grupo o una variante construye sus campos internos como un layout
+  # chico: posiciones encadenadas desde 1, sin solapamientos ni nombres
+  # repetidos. El largo del campo sale de ahí: el de una repetición por
+  # `repetir`, o el de la variante más ancha (o el declarado, si es mayor).
+  defp construir_anidados(%__MODULE__{modulo: Tipo.Grupo} = campo) do
+    with {:ok, campos} <- construir_internos(campo.campos, campo.nombre),
+         repetir = campo.repetir || 1,
+         {:ok, largo} <- largo_anidado(campo, AnchoFijo.Anidados.ancho_de(campos) * repetir, :igual) do
+      {:ok, %__MODULE__{campo | campos: campos, repetir: repetir, largo: largo}}
+    end
+  end
+
+  defp construir_anidados(%__MODULE__{modulo: Tipo.Variante, variantes: variantes} = campo)
+       when is_map(variantes) and map_size(variantes) > 0 do
+    construidas =
+      Enum.reduce_while(variantes, {:ok, %{}}, fn {valor, definiciones}, {:ok, acumulado} ->
+        case construir_internos(definiciones, "#{campo.nombre}{#{inspect(valor)}}") do
+          {:ok, campos} -> {:cont, {:ok, Map.put(acumulado, valor, campos)}}
+          {:error, diagnosticos} -> {:halt, {:error, diagnosticos}}
+        end
+      end)
+
+    with {:ok, variantes} <- construidas,
+         maximo =
+           variantes |> Map.values() |> Enum.map(&AnchoFijo.Anidados.ancho_de/1) |> Enum.max(),
+         {:ok, largo} <- largo_anidado(campo, maximo, :al_menos) do
+      {:ok, %__MODULE__{campo | variantes: variantes, largo: largo}}
+    end
+  end
+
+  defp construir_anidados(campo), do: {:ok, campo}
+
+  defp construir_internos(definiciones, ruta) when is_list(definiciones) and definiciones != [] do
+    {campos, diagnosticos} =
+      Enum.reduce(definiciones, {[], []}, fn definicion, {campos, diagnosticos} ->
+        case nuevo(definicion) do
+          {:ok, campo} -> {[campo | campos], diagnosticos}
+          {:error, nuevos} -> {campos, diagnosticos ++ Enum.map(nuevos, &con_ruta(&1, ruta))}
+        end
+      end)
+
+    campos = campos |> Enum.reverse() |> posicionar_internos()
+
+    case diagnosticos ++ solapados(campos, ruta) ++ repetidos(campos, ruta) do
+      [] -> {:ok, campos}
+      diagnosticos -> {:error, diagnosticos}
+    end
+  end
+
+  defp construir_internos(_otro, _ruta), do: {:ok, []}
+
+  defp posicionar_internos(campos) do
+    campos
+    |> Enum.map_reduce(1, fn %__MODULE__{} = campo, siguiente ->
+      campo = %__MODULE__{campo | posicion: campo.posicion || siguiente}
+      {campo, fin(campo) + 1}
+    end)
+    |> elem(0)
+    |> Enum.sort_by(& &1.posicion)
+  end
+
+  defp solapados(campos, ruta) do
+    campos
+    |> Enum.chunk_every(2, 1, :discard)
+    |> Enum.flat_map(fn [anterior, actual] ->
+      if actual.posicion <= fin(anterior),
+        do: [
+          falla(
+            "#{ruta}.#{actual.nombre}",
+            "que empezara en la posición #{fin(anterior) + 1} o después",
+            actual.posicion,
+            "se solapa con el campo #{inspect(anterior.nombre)} del mismo grupo"
+          )
+        ],
+        else: []
+    end)
+  end
+
+  defp repetidos(campos, ruta) do
+    campos
+    |> Enum.frequencies_by(& &1.nombre)
+    |> Enum.filter(fn {_nombre, veces} -> veces > 1 end)
+    |> Enum.map(fn {nombre, veces} ->
+      falla(ruta, "nombres únicos dentro del grupo", "#{inspect(nombre)} #{veces} veces", nil)
+    end)
+  end
+
+  defp largo_anidado(%__MODULE__{largo: nil}, calculado, _modo), do: {:ok, calculado}
+
+  defp largo_anidado(%__MODULE__{largo: largo}, calculado, :igual) when largo == calculado,
+    do: {:ok, largo}
+
+  defp largo_anidado(%__MODULE__{largo: largo}, calculado, :al_menos)
+       when is_integer(largo) and largo >= calculado,
+       do: {:ok, largo}
+
+  defp largo_anidado(%__MODULE__{} = campo, calculado, modo) do
+    {:error,
+     [
+       falla(
+         campo.nombre,
+         if(modo == :igual,
+           do: "un :largo de #{calculado}, el de una repetición por :repetir, o ninguno",
+           else: "un :largo de al menos #{calculado}, la variante más ancha, o ninguno"
+         ),
+         campo.largo,
+         "el largo de un campo anidado sale de sus campos internos"
+       )
+     ]}
+  end
+
+  defp con_ruta(%Diagnostico{campo: nombre} = d, ruta),
+    do: %Diagnostico{d | campo: "#{ruta}.#{nombre}"}
 
   # Con moneda y sin precisión, la precisión es la escala de la moneda. Con
   # las dos, `AnchoFijo.Tipo.Decimal` revisa que coincidan.
@@ -317,6 +455,16 @@ defmodule AnchoFijo.Campo do
   """
   @spec relleno?(t()) :: boolean()
   def relleno?(%__MODULE__{modulo: modulo}), do: modulo == Tipo.Relleno
+
+  @doc """
+  Si el campo es un `:grupo` o una `:variante`: se lee y se escribe campo
+  por campo, con `AnchoFijo.Anidados`.
+
+      iex> AnchoFijo.Campo.anidado?(AnchoFijo.Campo.nuevo!(nombre: :t, tipo: :grupo, repetir: 2, campos: [[nombre: :a, largo: 1]]))
+      true
+  """
+  @spec anidado?(t()) :: boolean()
+  def anidado?(%__MODULE__{tipo: tipo}), do: tipo in [:grupo, :variante]
 
   @doc """
   Si el campo es de tipo `:constante`: un literal del formato.
@@ -579,6 +727,9 @@ defmodule AnchoFijo.Campo do
     ]
   end
 
+  # El largo de un grupo o una variante sale de sus campos internos: lo que
+  # haya que reclamar lo reclama el tipo (repetir, campos, variantes).
+  defp validar_largo(%__MODULE__{tipo: tipo}) when tipo in [:grupo, :variante], do: []
   defp validar_largo(%__MODULE__{largo: largo}) when is_integer(largo) and largo > 0, do: []
 
   defp validar_largo(%__MODULE__{nombre: nombre, largo: largo}) do

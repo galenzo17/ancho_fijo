@@ -69,6 +69,7 @@ defmodule AnchoFijo.Escritor do
   de `AnchoFijo.Telemetria`.
   """
 
+  alias AnchoFijo.Anidados
   alias AnchoFijo.Campo
   alias AnchoFijo.Diagnostico
   alias AnchoFijo.Layout
@@ -259,13 +260,13 @@ defmodule AnchoFijo.Escritor do
                                                      {segmentos, cursor, advertencias, errores} ->
         hueco = String.duplicate(" ", campo.posicion - cursor)
 
-        case Campo.formatear(campo, Map.get(registro, campo.nombre), contexto) do
+        case formatear(campo, registro, contexto) do
           {:ok, texto, nuevas} ->
             {[texto, hueco | segmentos], Campo.fin(campo) + 1, Enum.reverse(nuevas, advertencias),
              errores}
 
-          {:error, diagnostico} ->
-            {segmentos, Campo.fin(campo) + 1, advertencias, [diagnostico | errores]}
+          {:error, nuevos} ->
+            {segmentos, Campo.fin(campo) + 1, advertencias, Enum.reverse(nuevos, errores)}
         end
       end)
 
@@ -292,6 +293,19 @@ defmodule AnchoFijo.Escritor do
          causa_probable: "cada registro a escribir es un mapa como los que devuelve parsear/3"
        )
      ]}
+  end
+
+  # Un grupo o una variante se escriben campo por campo, con el registro a
+  # la vista (la variante la elige otro campo); el resto, con `Campo`.
+  defp formatear(%Campo{} = campo, registro, contexto) do
+    if Campo.anidado?(campo) do
+      Anidados.escribir(campo, Map.get(registro, campo.nombre), registro, contexto)
+    else
+      case Campo.formatear(campo, Map.get(registro, campo.nombre), contexto) do
+        {:ok, texto, advertencias} -> {:ok, texto, advertencias}
+        {:error, diagnostico} -> {:error, [diagnostico]}
+      end
+    end
   end
 
   defp tipo_de(valor) when is_list(valor), do: "una lista"

@@ -720,6 +720,34 @@ Enum.map(layout.advertencias, &AnchoFijo.Diagnostico.mensaje/1)
 #   si el formato tiene relleno ahí, ignore esta advertencia"]
 ```
 
+## Grupos repetidos y variantes
+
+Dos construcciones de los formatos heredados de mainframe: un bloque de campos
+que se repite N veces (`OCCURS`), y un tramo del registro que cambia de forma
+según el valor de un campo anterior (`REDEFINES`):
+
+```elixir
+[nombre: :totales, tipo: :grupo, repetir: 3, campos: [
+  [nombre: :moneda, largo: 3],
+  [nombre: :importe, largo: 10, tipo: :decimal, precision: 2]
+]]
+# registro.totales == [%{moneda: "CLP", importe: {125_000, 2}}, %{moneda: "USD", ...}, %{moneda: "EUR", ...}]
+
+[nombre: :destino, tipo: :variante, segun: :tipo_cuenta, variantes: %{
+  "01" => [[nombre: :banco, largo: 3], [nombre: :cuenta, largo: 15, tipo: :entero]],
+  "02" => [[nombre: :clabe, largo: 18]]
+}]
+# registro.destino == %{banco: "001", cuenta: 12_345_678}  ó  %{clabe: "0123..."}
+```
+
+El largo del grupo se calcula (`repetir` por el de una repetición) y las
+variantes miden lo mismo, o el campo declara un `largo` y las más cortas se
+completan. Un valor sin variante es un diagnóstico que lista las declaradas, y
+un campo interno roto se diagnostica con su ruta y su posición absoluta en la
+línea: `campo totales[2].importe (posiciones 29-38)`. La escritura es
+simétrica, `documentar` muestra los campos internos con posiciones relativas, y
+los generadores de `AnchoFijo.Test` producen la lista y la variante correctas.
+
 ## Encodings mezclados por campo
 
 Un caso frecuente en las respuestas de los bancos: el archivo se mide en

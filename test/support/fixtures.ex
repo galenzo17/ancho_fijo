@@ -48,6 +48,37 @@ defmodule AnchoFijo.Fixtures do
   end
 
   @doc false
+  # La nómina con un grupo repetido (tres totales por moneda) y una variante
+  # (el destino según el tipo de cuenta): 69 posiciones.
+  def layout_anidado do
+    AnchoFijo.Layout.nuevo!(
+      nombre: "nómina anidada",
+      campos: [
+        [nombre: :tipo_cuenta, largo: 2],
+        [nombre: :rut, largo: 10, tipo: :rut],
+        [
+          nombre: :totales,
+          tipo: :grupo,
+          repetir: 3,
+          campos: [
+            [nombre: :moneda, largo: 3],
+            [nombre: :importe, largo: 10, tipo: :decimal, precision: 2]
+          ]
+        ],
+        [
+          nombre: :destino,
+          tipo: :variante,
+          segun: :tipo_cuenta,
+          variantes: %{
+            "01" => [[nombre: :banco, largo: 3], [nombre: :cuenta, largo: 15, tipo: :entero]],
+            "02" => [[nombre: :clabe, largo: 18]]
+          }
+        ]
+      ]
+    )
+  end
+
+  @doc false
   # Layout con la glosa al final, que es donde los formatos reales ponen el
   # campo de ancho variable: 60 posiciones, las últimas 30 rellenas de espacios.
   def layout_glosa(opts \\ []) do

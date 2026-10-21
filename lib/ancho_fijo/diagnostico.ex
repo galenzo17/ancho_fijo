@@ -126,7 +126,7 @@ defmodule AnchoFijo.Diagnostico do
           tipo: tipo(),
           gravedad: gravedad(),
           linea: pos_integer() | nil,
-          campo: atom() | nil,
+          campo: atom() | String.t() | nil,
           posicion: {pos_integer(), pos_integer()} | nil,
           esperado: String.t() | nil,
           recibido: String.t() | nil,
@@ -733,11 +733,16 @@ defmodule AnchoFijo.Diagnostico do
   defp linea(numero, idioma), do: "#{palabra(:linea, idioma)} #{numero}"
 
   defp campo(nil, _posicion, _idioma), do: nil
-  defp campo(nombre, nil, idioma), do: "#{palabra(:campo, idioma)} #{inspect(nombre)}"
+  defp campo(nombre, nil, idioma), do: "#{palabra(:campo, idioma)} #{nombre_de_campo(nombre)}"
 
   defp campo(nombre, {desde, hasta}, idioma),
     do:
-      "#{palabra(:campo, idioma)} #{inspect(nombre)} (#{palabra(:posiciones, idioma)} #{desde}-#{hasta})"
+      "#{palabra(:campo, idioma)} #{nombre_de_campo(nombre)} (#{palabra(:posiciones, idioma)} #{desde}-#{hasta})"
+
+  # Un átomo se muestra como átomo; la ruta de un campo anidado
+  # (`totales[2].importe`) es un string y se muestra tal cual.
+  defp nombre_de_campo(nombre) when is_binary(nombre), do: nombre
+  defp nombre_de_campo(nombre), do: inspect(nombre)
 
   # El plural ("se esperaban ... llegaron") es el caso frecuente porque casi
   # siempre se habla de bytes, dígitos o caracteres. El singular queda para

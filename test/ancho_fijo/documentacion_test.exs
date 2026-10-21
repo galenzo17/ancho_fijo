@@ -136,7 +136,8 @@ defmodule AnchoFijo.DocumentacionTest do
                  formato: nil,
                  opcional: false,
                  descripcion: nil,
-                 ejemplo: nil
+                 ejemplo: nil,
+                 relativa: false
                }
              ]
     end
