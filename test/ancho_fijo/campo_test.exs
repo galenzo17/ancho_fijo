@@ -264,7 +264,259 @@ defmodule AnchoFijo.CampoTest do
       {:error, diagnostico} =
         extraer([nombre: :a, largo: 10, tipo: :fecha, formato: :ddmmaaaa], "15-01-2024")
 
-      assert diagnostico.causa_probable =~ "se esperaban 8 dígitos"
+      assert diagnostico.causa_probable =~ "se esperaban 8 posiciones (DDMMAAAA)"
+    end
+  end
+
+  describe ":fecha con más formatos" do
+    test "cada formato con nombre lee y escribe la misma fecha" do
+      for {formato, texto} <- [
+            aaaammdd: "20240131",
+            ddmmaaaa: "31012024",
+            mmddaaaa: "01312024",
+            aammdd: "240131",
+            ddmmaa: "310124",
+            mmddaa: "013124",
+            aaaaddd: "2024031",
+            aaddd: "24031"
+          ] do
+        campo =
+          Campo.nuevo!(
+            nombre: :f,
+            posicion: 1,
+            largo: String.length(texto),
+            tipo: :fecha,
+            formato: formato
+          )
+
+        assert Campo.extraer(campo, texto) == {:ok, ~D[2024-01-31]}, "#{formato}"
+        assert Campo.formatear(campo, ~D[2024-01-31]) == {:ok, texto, []}, "#{formato}"
+      end
+    end
+
+    test "un patrón explícito con separadores" do
+      campo = Campo.nuevo!(nombre: :f, posicion: 1, largo: 10, tipo: :fecha, formato: "DD/MM/AAAA")
+      assert Campo.extraer(campo, "31/01/2024") == {:ok, ~D[2024-01-31]}
+      assert Campo.formatear(campo, ~D[2024-01-31]) == {:ok, "31/01/2024", []}
+
+      iso = Campo.nuevo!(nombre: :f, posicion: 1, largo: 10, tipo: :fecha, formato: "AAAA-MM-DD")
+      assert Campo.extraer(iso, "2024-01-31") == {:ok, ~D[2024-01-31]}
+
+      assert {:error, d} = Campo.extraer(campo, "31-01-2024")
+      assert d.causa_probable == "los separadores no están donde el patrón DD/MM/AAAA los espera"
+    end
+
+    test "el año de dos dígitos se expande con el pivote" do
+      campo = Campo.nuevo!(nombre: :f, posicion: 1, largo: 6, tipo: :fecha, formato: :aammdd)
+      assert Campo.extraer(campo, "990131") == {:ok, ~D[2099-01-31]}
+
+      con_pivote =
+        Campo.nuevo!(
+          nombre: :f,
+          posicion: 1,
+          largo: 6,
+          tipo: :fecha,
+          formato: :aammdd,
+          pivote: 1970
+        )
+
+      assert Campo.extraer(con_pivote, "690131") == {:ok, ~D[2069-01-31]}
+      assert Campo.extraer(con_pivote, "700131") == {:ok, ~D[1970-01-31]}
+      assert Campo.formatear(con_pivote, ~D[1985-06-15]) == {:ok, "850615", []}
+
+      assert {:error, d} = Campo.formatear(campo, ~D[1985-06-15])
+      assert d.causa_probable =~ "el año 1985 no cabe en dos dígitos con pivote 2000"
+    end
+
+    test "una fecha juliana que no existe, y una con ceros en un patrón con separadores" do
+      campo = Campo.nuevo!(nombre: :f, posicion: 1, largo: 7, tipo: :fecha, formato: :aaaaddd)
+
+      assert {:error, %{causa_probable: "el día 366 no existe en el año 2023"}} =
+               Campo.extraer(campo, "2023366")
+
+      assert Campo.extraer(campo, "2024366") == {:ok, ~D[2024-12-31]}
+
+      opcional =
+        Campo.nuevo!(
+          nombre: :f,
+          posicion: 1,
+          largo: 10,
+          tipo: :fecha,
+          formato: "DD/MM/AAAA",
+          opcional: true
+        )
+
+      assert Campo.extraer(opcional, "00/00/0000") == {:ok, nil}
+      assert Campo.extraer(opcional, "          ") == {:ok, nil}
+    end
+
+    test "un valor imposible es un diagnóstico, no una excepción" do
+      campo = Campo.nuevo!(nombre: :f, posicion: 1, largo: 8, tipo: :fecha, formato: :aaaammdd)
+      assert {:error, d} = Campo.extraer(campo, "20261332")
+      assert d.causa_probable == "el mes 13 no existe: puede que el formato sea el inverso"
+      assert {:error, %{causa_probable: causa}} = Campo.extraer(campo, "2026AB01")
+      assert causa == "el mes trae \"AB\", que no es numérico"
+    end
+
+    test "la definición valida el patrón" do
+      assert {:error, [d]} = Campo.nuevo(nombre: :f, largo: 8, tipo: :fecha, formato: "AAAAMMD")
+      assert d.esperado =~ "\"D\" suelto no es un token"
+
+      assert {:error, [d]} = Campo.nuevo(nombre: :f, largo: 8, tipo: :fecha, formato: "AAAAMM")
+      assert d.esperado == "un :formato con año con mes y día, o año con día del año (DDD)"
+
+      assert {:error, [d]} = Campo.nuevo(nombre: :f, largo: 8, tipo: :fecha, formato: :hhmmss)
+      assert d.esperado =~ "solo tokens de fecha"
+
+      assert {:error, [d]} = Campo.nuevo(nombre: :f, largo: 6, tipo: :fecha, formato: :aaaammdd)
+      assert d.esperado == "un :largo de al menos 8 para el formato AAAAMMDD"
+
+      assert {:error, [d]} = Campo.nuevo(nombre: :f, largo: 8, tipo: :fecha, formato: "AAAAMMDDMM")
+      assert d.esperado =~ "el mes se repite"
+
+      assert {:error, [d]} =
+               Campo.nuevo(nombre: :f, largo: 6, tipo: :fecha, formato: :aammdd, pivote: :si)
+
+      assert d.esperado =~ "un :pivote entero"
+    end
+  end
+
+  describe ":hora" do
+    test "lee y escribe HHMMSS, HHMM y un patrón con separadores" do
+      for {formato, texto, hora} <- [
+            {:hhmmss, "093015", ~T[09:30:15]},
+            {:hhmm, "0930", ~T[09:30:00]},
+            {"HH:MM:SS", "09:30:15", ~T[09:30:15]}
+          ] do
+        campo =
+          Campo.nuevo!(
+            nombre: :h,
+            posicion: 1,
+            largo: String.length(texto),
+            tipo: :hora,
+            formato: formato
+          )
+
+        assert Campo.extraer(campo, texto) == {:ok, hora}
+        assert Campo.formatear(campo, hora) == {:ok, texto, []}
+      end
+    end
+
+    test "una hora que no existe dice qué parte falla" do
+      campo = Campo.nuevo!(nombre: :h, posicion: 1, largo: 6, tipo: :hora, formato: :hhmmss)
+
+      assert {:error, %{causa_probable: "la hora 24 no existe: el día tiene 24"}} =
+               Campo.extraer(campo, "240000")
+
+      assert {:error, %{causa_probable: "el minuto 61 no existe"}} = Campo.extraer(campo, "126100")
+      assert {:error, %{causa_probable: "el segundo 61 no existe"}} = Campo.extraer(campo, "120061")
+    end
+
+    test "blancos y ceros: nil con opcional, diagnóstico sin" do
+      campo =
+        Campo.nuevo!(nombre: :h, posicion: 1, largo: 4, tipo: :hora, formato: :hhmm, opcional: true)
+
+      assert Campo.extraer(campo, "0000") == {:ok, nil}
+      assert Campo.extraer(campo, "    ") == {:ok, nil}
+
+      estricta = Campo.nuevo!(nombre: :h, posicion: 1, largo: 4, tipo: :hora, formato: :hhmm)
+      assert {:error, d} = Campo.extraer(estricta, "0000")
+      assert d.causa_probable =~ "blancos o ceros para 'sin hora'"
+    end
+
+    test "un patrón de fecha en un :hora, o sin minutos, es un layout inválido" do
+      assert {:error, [d]} = Campo.nuevo(nombre: :h, largo: 8, tipo: :hora, formato: :aaaammdd)
+      assert d.esperado =~ "solo tokens de hora"
+
+      assert {:error, [d]} = Campo.nuevo(nombre: :h, largo: 2, tipo: :hora, formato: "HH")
+      assert d.esperado == "un :formato con hora y minuto (HHMM), y segundos si los hay"
+
+      assert {:error, [d]} = Campo.nuevo(nombre: :h, largo: 4, tipo: :hora)
+      assert d.causa_probable == "el orden de una hora no se adivina: hay que declararlo"
+    end
+
+    test "escribir algo que no es Time es un diagnóstico" do
+      campo = Campo.nuevo!(nombre: :h, posicion: 1, largo: 4, tipo: :hora, formato: :hhmm)
+      assert {:error, %{esperado: "una hora (Time)"}} = Campo.formatear(campo, "0930")
+    end
+  end
+
+  describe ":fecha_hora" do
+    test "lee y escribe los formatos con nombre y un patrón ISO" do
+      for {formato, texto, valor} <- [
+            {:aaaammddhhmmss, "20240131093015", ~N[2024-01-31 09:30:15]},
+            {:aaaammddhhmm, "202401310930", ~N[2024-01-31 09:30:00]},
+            {:ddmmaaaahhmmss, "31012024093015", ~N[2024-01-31 09:30:15]},
+            {:ddmmaaaahhmm, "310120240930", ~N[2024-01-31 09:30:00]},
+            {"AAAA-MM-DD HH:MM:SS", "2024-01-31 09:30:15", ~N[2024-01-31 09:30:15]}
+          ] do
+        campo =
+          Campo.nuevo!(
+            nombre: :fh,
+            posicion: 1,
+            largo: String.length(texto),
+            tipo: :fecha_hora,
+            formato: formato
+          )
+
+        assert Campo.extraer(campo, texto) == {:ok, valor}, "#{inspect(formato)}"
+        assert Campo.formatear(campo, valor) == {:ok, texto, []}, "#{inspect(formato)}"
+      end
+    end
+
+    test "la fecha o la hora inválidas se diagnostican con su causa" do
+      campo =
+        Campo.nuevo!(
+          nombre: :fh,
+          posicion: 1,
+          largo: 14,
+          tipo: :fecha_hora,
+          formato: :aaaammddhhmmss
+        )
+
+      assert {:error, %{causa_probable: "el día no existe en ese mes"}} =
+               Campo.extraer(campo, "20230229120000")
+
+      assert {:error, %{causa_probable: "la hora 25 no existe: el día tiene 24"}} =
+               Campo.extraer(campo, "20240131250000")
+
+      assert {:error, %{esperado: "una fecha y hora válidas en formato AAAAMMDDHHMMSS"}} =
+               Campo.extraer(campo, "2024013125000X")
+    end
+
+    test "con año de dos dígitos y pivote, en blanco con opcional, y la definición" do
+      campo =
+        Campo.nuevo!(
+          nombre: :fh,
+          posicion: 1,
+          largo: 10,
+          tipo: :fecha_hora,
+          formato: "AAMMDDHHMM",
+          pivote: 1990
+        )
+
+      assert Campo.extraer(campo, "9501311200") == {:ok, ~N[1995-01-31 12:00:00]}
+      assert Campo.formatear(campo, ~N[2089-01-31 12:00:00]) == {:ok, "8901311200", []}
+
+      opcional =
+        Campo.nuevo!(
+          nombre: :fh,
+          posicion: 1,
+          largo: 14,
+          tipo: :fecha_hora,
+          formato: :aaaammddhhmmss,
+          opcional: true
+        )
+
+      assert Campo.extraer(opcional, "00000000000000") == {:ok, nil}
+
+      assert {:error, [d]} =
+               Campo.nuevo(nombre: :fh, largo: 8, tipo: :fecha_hora, formato: :aaaammdd)
+
+      assert d.esperado =~ "hora y minuto además de la fecha"
+
+      assert {:error, [d]} = Campo.nuevo(nombre: :fh, largo: 6, tipo: :fecha_hora, formato: :hhmmss)
+      assert d.esperado =~ "una fecha completa además de la hora"
     end
   end
 

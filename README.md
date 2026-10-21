@@ -406,7 +406,9 @@ y la fecha en que se consultó. Se agregan de a uno y completos: Previred
 | `:texto` | `String.t()` en UTF-8 | `:trim`, `:relleno`, `:opcional` |
 | `:entero` | `integer()` | `:opcional`, `:signo` |
 | `:decimal` | `{unidades, precision}`; con `:moneda`, un `AnchoFijo.Monto` | `:precision` (obligatoria sin `:moneda`), `:moneda`, `:separador`, `:signo` |
-| `:fecha` | `Date.t()` | `:formato` (obligatorio), `:opcional` |
+| `:fecha` | `Date.t()` | `:formato` (obligatorio), `:pivote`, `:opcional` |
+| `:hora` | `Time.t()` | `:formato` (obligatorio), `:opcional` |
+| `:fecha_hora` | `NaiveDateTime.t()` | `:formato` (obligatorio), `:pivote`, `:opcional` |
 | `:rut` | `String.t()` canónico, `"12345678-5"`; solo el cuerpo con `dv: :ausente` | `:dv`, `:opcional` |
 | `:constante` | el literal declarado en `:valor`, verificado contra la línea | `:valor` (obligatorio), `:relleno` |
 | `:relleno` | nada: el campo no aparece en el registro | `:relleno` |
@@ -441,6 +443,14 @@ DV.
 `:formato` no tiene default a propósito. Adivinar si `01022024` es el 1 de
 febrero o el 2 de enero es exactamente el error silencioso que esta librería
 existe para impedir: un campo `:fecha` sin `:formato` es un layout inválido.
+Los formatos con nombre cubren lo que traen los archivos bancarios
+(`:aaaammdd`, `:ddmmaaaa`, `:mmddaaaa`, `:aammdd`, `:ddmmaa`, `:mmddaa`,
+`:aaaaddd` y `:aaddd` julianos; `:hhmmss` y `:hhmm`; `:aaaammddhhmmss` y
+compañía), y cuando ninguno calza, `:formato` acepta un patrón de tokens con
+separadores: `"DD/MM/AAAA"`, `"AAAA-MM-DD HH:MM:SS"`. Un año de dos dígitos
+se expande con `:pivote`, el primer año de la ventana de cien (default
+`2000`): es una decisión del formato, y por eso se declara. La tabla completa
+está en `AnchoFijo.Tipo.Fecha`.
 
 `:constante` y `:relleno` son las posiciones cuyo valor lo pone el formato y
 no el dato: el código de tipo de registro, un literal como `"HEADER H2H"`,

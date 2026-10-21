@@ -175,3 +175,4 @@ Las que la convención tuvo que zanjar y no eran obvias:
 | [0026](0026-identidad-multiregistro.md) | Issue #40: la identidad de un Multiregistro está en el header | `identidad/3` con `%Multiregistro{}`, `identidad:` en el header NACHA, diagnóstico por tipo inesperado |
 | [0027](0027-tests-escritura-tipos.md) | Issue #41: tests de escritura para tipos propios y `Monto` | `TipoHora.escribir/2`, tipos de prueba para cada falla, generador con moneda, cobertura sin `test/support` |
 | [0028](0028-campos-constantes.md) | Issue #48: campos constantes y de relleno | Tipos `:constante` y `:relleno`, discriminador por campo, literales contados por `detectar` |
+| [0029](0029-fechas-y-horas.md) | Issue #49: fechas y horas con más formatos | `Tipo.Patron`, ocho formatos de fecha y patrones, `:pivote`, tipos `:hora` y `:fecha_hora` |

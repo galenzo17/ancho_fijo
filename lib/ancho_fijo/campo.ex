@@ -16,10 +16,10 @@ defmodule AnchoFijo.Campo do
     * `:largo` — entero positivo, obligatorio.
     * `:posicion` — entero positivo, 1-based. Si se omite, `AnchoFijo.Layout`
       la calcula encadenando el campo anterior.
-    * `:tipo` — `:texto` (default), `:entero`, `:decimal`, `:fecha`, `:rut`,
-      `:constante`, `:relleno`, o un módulo que implemente `AnchoFijo.Tipo`
-      para un tipo propio. Las opciones propias de ese tipo quedan en
-      `:opciones`.
+    * `:tipo` — `:texto` (default), `:entero`, `:decimal`, `:fecha`,
+      `:hora`, `:fecha_hora`, `:rut`, `:constante`, `:relleno`, o un módulo
+      que implemente `AnchoFijo.Tipo` para un tipo propio. Las opciones
+      propias de ese tipo quedan en `:opciones`.
     * `:opcional` — si es `true`, un campo en blanco (o en ceros, para fechas)
       se lee como `nil` en vez de producir un diagnóstico. Default `false`.
     * `:trim` — `:ambos` (default), `:izquierda`, `:derecha` o `false`. Solo
@@ -35,7 +35,11 @@ defmodule AnchoFijo.Campo do
     * `:signo` — en `:entero` y `:decimal`: `:inicial` (default) o `:final`.
       Con `:final` el signo va después de los dígitos, `0125000-`, como en los
       formatos heredados de mainframe.
-    * `:formato` — obligatorio en `:fecha`: `:aaaammdd` o `:ddmmaaaa`.
+    * `:formato` — obligatorio en `:fecha`, `:hora` y `:fecha_hora`: un
+      nombre (`:aaaammdd`, `:ddmmaa`, `:hhmmss`, `:aaaammddhhmmss`...) o un
+      patrón (`"DD/MM/AAAA"`). Ver `AnchoFijo.Tipo.Fecha`.
+    * `:pivote` — en `:fecha` y `:fecha_hora` con año de dos dígitos: el
+      primer año de la ventana de cien. Default `2000`.
     * `:valor` — obligatorio en `:constante`: el literal que el formato fija
       en esas posiciones. Ver `AnchoFijo.Tipo.Constante`.
     * `:dv` — en `:rut`: `:validar` (default), `:no_validar` o `:ausente`. Ver
@@ -53,6 +57,8 @@ defmodule AnchoFijo.Campo do
   | `:entero` | `integer()` |
   | `:decimal` | `{unidades, precision}`, p. ej. `{123456, 2}` para `1234.56`; con `:moneda`, un `AnchoFijo.Monto` |
   | `:fecha` | `Date.t()` |
+  | `:hora` | `Time.t()` |
+  | `:fecha_hora` | `NaiveDateTime.t()` |
   | `:rut` | `String.t()` canónico, `"12345678-5"`; solo el cuerpo, `"12345678"`, con `dv: :ausente` |
   | `:constante` | el literal declarado en `:valor`, verificado contra la línea |
   | `:relleno` | no aparece en el registro; al escribir se emite el carácter de `:relleno` |
@@ -77,14 +83,32 @@ defmodule AnchoFijo.Campo do
     moneda: nil,
     signo: :inicial,
     formato: nil,
+    pivote: nil,
     dv: :validar,
     valor: nil
   ]
   @trims [:ambos, :izquierda, :derecha, false, true]
 
   @typedoc "Un átomo de los tipos internos o un módulo que implementa `AnchoFijo.Tipo`."
-  @type tipo :: :texto | :entero | :decimal | :fecha | :rut | :constante | :relleno | module()
-  @type valor :: String.t() | integer() | {integer(), non_neg_integer()} | Date.t() | nil
+  @type tipo ::
+          :texto
+          | :entero
+          | :decimal
+          | :fecha
+          | :hora
+          | :fecha_hora
+          | :rut
+          | :constante
+          | :relleno
+          | module()
+  @type valor ::
+          String.t()
+          | integer()
+          | {integer(), non_neg_integer()}
+          | Date.t()
+          | Time.t()
+          | NaiveDateTime.t()
+          | nil
 
   @type t :: %__MODULE__{
           nombre: atom(),
@@ -98,7 +122,8 @@ defmodule AnchoFijo.Campo do
           separador: :implicito | :punto | :coma,
           moneda: Monto.moneda() | nil,
           signo: :inicial | :final,
-          formato: :aaaammdd | :ddmmaaaa | nil,
+          formato: atom() | String.t() | nil,
+          pivote: pos_integer() | nil,
           dv: Rut.dv(),
           valor: String.t() | nil,
           sensible: boolean(),
@@ -118,6 +143,7 @@ defmodule AnchoFijo.Campo do
             moneda: nil,
             signo: :inicial,
             formato: nil,
+            pivote: nil,
             dv: :validar,
             valor: nil,
             sensible: false,
@@ -784,17 +810,25 @@ defmodule AnchoFijo.Campo do
      )}
   end
 
-  defp representar(%__MODULE__{modulo: Tipo.Fecha} = campo, %Date{} = fecha, contexto) do
-    texto =
-      case campo.formato do
-        :aaaammdd -> parte(fecha.year, 4) <> parte(fecha.month, 2) <> parte(fecha.day, 2)
-        :ddmmaaaa -> parte(fecha.day, 2) <> parte(fecha.month, 2) <> parte(fecha.year, 4)
-      end
+  # Fecha, hora y fecha-hora escriben con el patrón del campo; el texto
+  # mide lo que el patrón y se completa a la derecha hasta el largo.
+  defp representar(%__MODULE__{modulo: modulo} = campo, valor, contexto)
+       when (modulo == Tipo.Fecha and is_struct(valor, Date)) or
+              (modulo == Tipo.Hora and is_struct(valor, Time)) or
+              (modulo == Tipo.FechaHora and is_struct(valor, NaiveDateTime)) do
+    case modulo.escribir(valor, campo) do
+      {:ok, texto} ->
+        {:ok, String.pad_trailing(texto, campo.largo), []}
 
-    if String.length(texto) <= campo.largo,
-      do: {:ok, String.pad_trailing(texto, campo.largo), []},
-      else:
-        {:error, no_cabe(campo, fecha, String.length(texto), "una fecha de 8 posiciones", contexto)}
+      {:error, causa} ->
+        {:error,
+         diagnostico(campo, contexto,
+           esperado:
+             "#{descripcion_de_valor(campo)} que quepa en el formato #{inspect(campo.formato)}",
+           recibido: inspect(valor),
+           causa_probable: causa
+         )}
+    end
   end
 
   defp representar(%__MODULE__{modulo: Tipo.Rut} = campo, valor, contexto) when is_binary(valor) do
@@ -898,6 +932,11 @@ defmodule AnchoFijo.Campo do
     do: "un monto {unidades, #{p}}"
 
   defp descripcion_de_valor(%__MODULE__{modulo: Tipo.Fecha}), do: "una fecha (Date)"
+  defp descripcion_de_valor(%__MODULE__{modulo: Tipo.Hora}), do: "una hora (Time)"
+
+  defp descripcion_de_valor(%__MODULE__{modulo: Tipo.FechaHora}),
+    do: "una fecha y hora (NaiveDateTime)"
+
   defp descripcion_de_valor(%__MODULE__{modulo: Tipo.Rut}), do: "un RUT como binario"
 
   # El signo ocupa una posición solo en los negativos, del lado que el layout
@@ -927,8 +966,6 @@ defmodule AnchoFijo.Campo do
 
   defp rellenar_texto(valor, %__MODULE__{relleno: relleno}, faltan),
     do: valor <> String.duplicate(relleno, faltan)
-
-  defp parte(numero, ancho), do: numero |> Integer.to_string() |> String.pad_leading(ancho, "0")
 
   defp caracter_separador(:punto), do: "."
   defp caracter_separador(:coma), do: ","
