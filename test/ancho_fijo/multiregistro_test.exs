@@ -137,6 +137,80 @@ defmodule AnchoFijo.MultiregistroTest do
     end
   end
 
+  describe "opciones: las mismas de parsear/3 y stream/3, con el mismo contrato" do
+    test "una opción desconocida o con un valor de otro tipo es ArgumentError" do
+      for {funcion, opts} <- [
+            {&AnchoFijo.parsear/3, [opcionx: 1]},
+            {&AnchoFijo.parsear/3, [modo: :otro]},
+            {&AnchoFijo.parsear/3, [saltar: -1]},
+            {&AnchoFijo.stream/3, [opcionx: 1]},
+            {&AnchoFijo.stream/3, [modo: :tolerante]},
+            {&AnchoFijo.stream/3, [traza: 1]}
+          ] do
+        assert_raise ArgumentError, ~r/AnchoFijo\.(parsear|stream)\/3/, fn ->
+          funcion.(nomina(), ruta("nomina_multiregistro.txt"), opts)
+        end
+      end
+    end
+
+    test "traza: true pone :__traza__ en cada mapa, con el offset real" do
+      {:ok, registros, []} =
+        AnchoFijo.parsear(nomina(), ruta("nomina_multiregistro.txt"), traza: true)
+
+      trazas = Enum.map(registros, fn {_tipo, mapa} -> mapa.__traza__ end)
+      assert Enum.map(trazas, & &1.linea) == [1, 2, 3, 4, 5]
+      assert Enum.map(trazas, & &1.offset) == [0, 41, 92, 143, 194]
+      assert Enum.map(trazas, & &1.largo) == [40, 50, 50, 50, 24]
+
+      del_stream =
+        nomina()
+        |> AnchoFijo.stream(ruta("nomina_multiregistro.txt"), traza: true)
+        |> Enum.map(fn {:ok, {_tipo, mapa}, []} -> mapa.__traza__ end)
+
+      assert del_stream == trazas
+    end
+
+    test "sin traza, ningún mapa trae la clave" do
+      {:ok, registros, []} = AnchoFijo.parsear(nomina(), ruta("nomina_multiregistro.txt"))
+      refute Enum.any?(registros, fn {_tipo, mapa} -> Map.has_key?(mapa, :__traza__) end)
+    end
+
+    test "saltar y omitir_vacias se respetan en parsear/3 y en stream/3" do
+      contenido = "BASURA\n\n" <> leer("nomina_multiregistro.txt")
+
+      assert {:ok, registros, []} = AnchoFijo.parsear(nomina(), contenido, saltar: 1)
+      assert Enum.map(registros, &elem(&1, 0)) == [:header, :detalle, :detalle, :detalle, :trailer]
+
+      assert {:error, [%Diagnostico{linea: 2}]} =
+               AnchoFijo.parsear(nomina(), contenido, saltar: 1, omitir_vacias: false)
+
+      assert [{:ok, {:header, _}, []} | _] =
+               nomina() |> AnchoFijo.stream(contenido, saltar: 1) |> Enum.to_list()
+    end
+
+    test "una clave desconocida en la definición es un diagnóstico :layout" do
+      assert {:error, [d]} =
+               Multiregistro.nuevo(
+                 discriminador: [largo: 1],
+                 registros: [h: [valor: "H", layout: [campos: [[nombre: :a, largo: 2]]]]],
+                 controls: []
+               )
+
+      assert %Diagnostico{tipo: :layout, recibido: ":controls"} = d
+      assert d.causa_probable =~ "error de tipeo"
+
+      assert {:error, [%Diagnostico{tipo: :layout}]} = Multiregistro.nuevo(42)
+
+      assert {:error, [%Diagnostico{tipo: :layout, recibido: "42"}]} =
+               Multiregistro.nuevo(discriminador: [largo: 1], registros: [], nombre: 42)
+    end
+
+    test "el nombre viaja en el struct y en la telemetría" do
+      assert %Multiregistro{nombre: "NACHA"} = AnchoFijo.Formatos.nacha()
+      assert nomina().nombre == nil
+    end
+  end
+
   describe "estructura" do
     @lineas [
       "0176543210-320240115SUELDOS ENERO       ",

@@ -149,11 +149,16 @@ defmodule AnchoFijo.Parser do
   # línea conserva su terminador para saber dónde empieza la siguiente, y la
   # tupla lleva la traza en vez del número solo. `parsear_linea/3` recibe el
   # número en los dos casos; la traza se pega al registro al final.
-  defp numerar(contenido, false) do
+  #
+  # Es público (sin doc) porque `AnchoFijo.Multiregistro` numera igual: la
+  # traza y el offset de una línea no dependen de cuántos layouts haya.
+  @doc false
+  @spec numerar(binary(), boolean()) :: Enumerable.t()
+  def numerar(contenido, false) do
     contenido |> Entrada.dividir_lazy() |> Stream.with_index(1)
   end
 
-  defp numerar(contenido, true) do
+  def numerar(contenido, true) do
     contenido
     |> Entrada.dividir_con_terminador()
     |> Enum.map_reduce({1, 0}, fn cruda, {numero, offset} ->
@@ -280,7 +285,9 @@ defmodule AnchoFijo.Parser do
 
   # Con traza, las líneas tienen que llegar con sus bytes exactos para que el
   # offset cuadre; sin traza, el camino de siempre.
-  defp fuente(entrada, opts) do
+  @doc false
+  @spec fuente(term(), keyword()) :: {:ok, Enumerable.t()} | {:error, [Diagnostico.t()]}
+  def fuente(entrada, opts) do
     if Keyword.get(opts, :traza, false),
       do: Entrada.lineas_con_terminador(entrada, opts),
       else: Entrada.lineas(entrada, opts)
@@ -291,9 +298,11 @@ defmodule AnchoFijo.Parser do
   # vienen con sus bytes exactos; para un enumerable del llamador se supone
   # que cada elemento trae su terminador tal cual estaba en el archivo, y la
   # doc avisa que `File.stream!/1` no cumple eso con CRLF.
-  defp numerar_stream(lineas, false), do: Stream.with_index(lineas, 1)
+  @doc false
+  @spec numerar_stream(Enumerable.t(), boolean()) :: Enumerable.t()
+  def numerar_stream(lineas, false), do: Stream.with_index(lineas, 1)
 
-  defp numerar_stream(lineas, true) do
+  def numerar_stream(lineas, true) do
     Stream.transform(lineas, {1, 0}, fn cruda, {numero, offset} ->
       largo = if is_binary(cruda), do: byte_size(Entrada.sin_terminador(cruda)), else: 0
       avance = if is_binary(cruda), do: byte_size(cruda), else: 0
@@ -326,12 +335,18 @@ defmodule AnchoFijo.Parser do
   end
 
   # Los predicados van en funciones y no en atributos de módulo porque una
-  # función anónima no se puede guardar en un atributo.
-  defp opciones_de_parsear do
+  # función anónima no se puede guardar en un atributo. Son públicos (sin
+  # doc) porque `AnchoFijo.Multiregistro` recibe exactamente las mismas
+  # opciones y las valida con el mismo esquema.
+  @doc false
+  @spec opciones_de_parsear() :: Opciones.esquema()
+  def opciones_de_parsear do
     [{:modo, &(&1 in [:estricto, :tolerante]), ":estricto o :tolerante"} | opciones_de_stream()]
   end
 
-  defp opciones_de_stream do
+  @doc false
+  @spec opciones_de_stream() :: Opciones.esquema()
+  def opciones_de_stream do
     [
       {:saltar, &(is_integer(&1) and &1 >= 0), "un entero mayor o igual a cero"},
       {:omitir_vacias, &is_boolean/1, "true o false"},
@@ -365,8 +380,10 @@ defmodule AnchoFijo.Parser do
   defp sin_terminador(linea) when is_binary(linea), do: Entrada.sin_terminador(linea)
   defp sin_terminador(otro), do: otro
 
-  defp numero_de(%Traza{linea: numero}), do: numero
-  defp numero_de(numero), do: numero
+  @doc false
+  @spec numero_de(Traza.t() | pos_integer()) :: pos_integer()
+  def numero_de(%Traza{linea: numero}), do: numero
+  def numero_de(numero), do: numero
 
   defp no_es_linea(elemento, numero) do
     Diagnostico.nuevo(
@@ -395,7 +412,9 @@ defmodule AnchoFijo.Parser do
 
   defp descartar_vacias(stream, _false), do: stream
 
-  defp seleccionar(numeradas, opts) do
+  @doc false
+  @spec seleccionar(Enumerable.t(), keyword()) :: Enumerable.t()
+  def seleccionar(numeradas, opts) do
     numeradas
     |> Stream.drop(Keyword.get(opts, :saltar, 0))
     |> descartar_vacias(Keyword.get(opts, :omitir_vacias, true))

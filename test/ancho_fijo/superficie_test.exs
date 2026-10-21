@@ -73,6 +73,26 @@ defmodule AnchoFijo.SuperficieTest do
       end
     end
 
+    test "valores de otro tipo con un Multiregistro, en parsear/3 y stream/3" do
+      multi =
+        AnchoFijo.Multiregistro.nuevo!(
+          discriminador: [largo: 2],
+          registros: [h: [valor: "xx", layout: @layout]]
+        )
+
+      for opts <- [[modos: :tolerante], [modo: :otro], [saltar: :x], [traza: :si]] do
+        assert_raise ArgumentError, ~r/parsear\/3/, fn ->
+          AnchoFijo.parsear(multi, "xx20240101\n", opts)
+        end
+      end
+
+      for opts <- [[modo: :tolerante], [saltar: :x], [omitir_vacias: 1], [desde: :x]] do
+        assert_raise ArgumentError, ~r/stream\/3/, fn ->
+          AnchoFijo.stream(multi, "xx20240101\n", opts)
+        end
+      end
+    end
+
     test "las opciones válidas siguen pasando" do
       assert {:ok, _, _} = AnchoFijo.parsear(@layout, "xx20240101\n", modo: :tolerante, saltar: 0)
       assert {:ok, _} = AnchoFijo.detectar("abc\ndef\n", lineas: 1, bytes: 10, delimitadores: [";"])
@@ -155,6 +175,24 @@ defmodule AnchoFijo.SuperficieTest do
       assert [{:ok, _, []}, {:error, [d2]}, {:error, [d3]}, {:error, [d4]}] = resultado
       assert Enum.map([d2, d3, d4], & &1.linea) == [2, 3, 4]
       assert Enum.all?([d2, d3, d4], &(&1.tipo == :entrada))
+    end
+
+    test "parsear/3 y stream/3 con un Multiregistro y basura como entrada" do
+      multi =
+        AnchoFijo.Multiregistro.nuevo!(
+          discriminador: [largo: 2],
+          registros: [h: [valor: "xx", layout: @layout]]
+        )
+
+      for basura <- [42, nil, [1], %{}] do
+        assert {:error, [%Diagnostico{tipo: :entrada}]} = AnchoFijo.parsear(multi, basura)
+      end
+
+      assert [{:error, [%Diagnostico{tipo: :entrada}]}] =
+               AnchoFijo.stream(multi, 42) |> Enum.to_list()
+
+      assert [{:ok, _, []}, {:error, [%Diagnostico{tipo: :entrada, linea: 2}]}] =
+               AnchoFijo.stream(multi, ["xx20240101", 2]) |> Enum.to_list()
     end
 
     test "stream/3 con un mapa, que es enumerable pero no entrega binarios" do
