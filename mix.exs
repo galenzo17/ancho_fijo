@@ -62,7 +62,7 @@ defmodule AnchoFijo.MixProject do
       name: "ancho_fijo",
       licenses: ["MIT"],
       maintainers: ["Agustin Bereciartua"],
-      files: ~w(lib mix.exs README.md CHANGELOG.md LICENSE .formatter.exs),
+      files: ~w(lib priv mix.exs README.md CHANGELOG.md LICENSE .formatter.exs),
       # La verificación de prompts/ es del repositorio, no del paquete.
       exclude_patterns: [~r"lib/mix/tasks/prompts\."],
       links: %{
@@ -78,6 +78,7 @@ defmodule AnchoFijo.MixProject do
       source_url: @source_url,
       source_ref: "v#{@version}",
       extras: ["README.md", "CHANGELOG.md", "LICENSE"],
+      groups_for_extras: [],
       groups_for_modules: [
         "Definición del formato": [
           AnchoFijo.Layout,

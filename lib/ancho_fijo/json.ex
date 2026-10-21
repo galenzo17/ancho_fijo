@@ -27,6 +27,127 @@ defmodule AnchoFijo.Json do
   def codificar(valor) when is_binary(valor), do: "\"" <> escapar(valor) <> "\""
   def codificar(valor), do: codificar(inspect(valor))
 
+  @doc false
+  # El decodificador, para leer un layout en JSON desde las tareas Mix y
+  # desde `Layout.desde_json/1` sin dependencia. Es JSON completo (objetos,
+  # listas, strings con escapes y \\uXXXX, números, true/false/null), sin
+  # extensiones: un error dice en qué byte y por qué.
+  @spec decodificar(binary()) :: {:ok, term()} | {:error, String.t()}
+  def decodificar(texto) when is_binary(texto) do
+    case valor(saltar(texto)) do
+      {:ok, v, resto} ->
+        case saltar(resto) do
+          "" ->
+            {:ok, v}
+
+          sobra ->
+            {:error,
+             "texto después del valor JSON: #{inspect(binary_part(sobra, 0, min(byte_size(sobra), 20)))}"}
+        end
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp saltar(<<c, resto::binary>>) when c in [?\s, ?\t, ?\n, ?\r], do: saltar(resto)
+  defp saltar(resto), do: resto
+
+  defp valor("null" <> resto), do: {:ok, nil, resto}
+  defp valor("true" <> resto), do: {:ok, true, resto}
+  defp valor("false" <> resto), do: {:ok, false, resto}
+  defp valor(<<?", resto::binary>>), do: cadena(resto, [])
+  defp valor(<<?[, resto::binary>>), do: lista(saltar(resto), [])
+  defp valor(<<?{, resto::binary>>), do: objeto(saltar(resto), %{})
+  defp valor(""), do: {:error, "JSON incompleto: se esperaba un valor"}
+  defp valor(texto), do: numero(texto)
+
+  defp cadena(<<?", resto::binary>>, acumulado),
+    do: {:ok, acumulado |> Enum.reverse() |> IO.iodata_to_binary(), resto}
+
+  defp cadena(<<?\\, ?", resto::binary>>, acc), do: cadena(resto, [?" | acc])
+  defp cadena(<<?\\, ?\\, resto::binary>>, acc), do: cadena(resto, [?\\ | acc])
+  defp cadena(<<?\\, ?/, resto::binary>>, acc), do: cadena(resto, [?/ | acc])
+  defp cadena(<<?\\, ?b, resto::binary>>, acc), do: cadena(resto, [?\b | acc])
+  defp cadena(<<?\\, ?f, resto::binary>>, acc), do: cadena(resto, [?\f | acc])
+  defp cadena(<<?\\, ?n, resto::binary>>, acc), do: cadena(resto, [?\n | acc])
+  defp cadena(<<?\\, ?r, resto::binary>>, acc), do: cadena(resto, [?\r | acc])
+  defp cadena(<<?\\, ?t, resto::binary>>, acc), do: cadena(resto, [?\t | acc])
+
+  defp cadena(<<?\\, ?u, alto::binary-size(4), ?\\, ?u, bajo::binary-size(4), resto::binary>>, acc) do
+    with {a, ""} when a in 0xD800..0xDBFF <- Integer.parse(alto, 16),
+         {b, ""} when b in 0xDC00..0xDFFF <- Integer.parse(bajo, 16) do
+      cadena(resto, [<<0x10000 + (a - 0xD800) * 0x400 + (b - 0xDC00)::utf8>> | acc])
+    else
+      _ -> cadena(<<?\\, ?u, bajo::binary, resto::binary>>, [codepoint(alto) | acc])
+    end
+  end
+
+  defp cadena(<<?\\, ?u, hex::binary-size(4), resto::binary>>, acc),
+    do: cadena(resto, [codepoint(hex) | acc])
+
+  defp cadena(<<?\\, _::binary>>, _acc), do: {:error, "escape inválido en un string JSON"}
+  defp cadena(<<c::utf8, resto::binary>>, acc), do: cadena(resto, [<<c::utf8>> | acc])
+  defp cadena(_, _acc), do: {:error, "string JSON sin cerrar o con bytes inválidos"}
+
+  defp codepoint(hex) do
+    case Integer.parse(hex, 16) do
+      {n, ""} when n < 0xD800 or n > 0xDFFF -> <<n::utf8>>
+      _ -> throw({:json, "escape \\u inválido: #{hex}"})
+    end
+  end
+
+  defp lista(<<?], resto::binary>>, acumulado), do: {:ok, Enum.reverse(acumulado), resto}
+
+  defp lista(texto, acumulado) do
+    with {:ok, v, resto} <- valor(saltar(texto)) do
+      case saltar(resto) do
+        <<?,, resto::binary>> -> lista(saltar(resto), [v | acumulado])
+        <<?], resto::binary>> -> {:ok, Enum.reverse([v | acumulado]), resto}
+        _ -> {:error, "lista JSON sin coma ni cierre"}
+      end
+    end
+  end
+
+  defp objeto(<<?}, resto::binary>>, acumulado), do: {:ok, acumulado, resto}
+
+  defp objeto(<<?", resto::binary>>, acumulado) do
+    with {:ok, clave, resto} <- cadena(resto, []),
+         <<?:, resto::binary>> <- saltar(resto),
+         {:ok, v, resto} <- valor(saltar(resto)) do
+      case saltar(resto) do
+        <<?,, resto::binary>> -> objeto(saltar(resto), Map.put(acumulado, clave, v))
+        <<?}, resto::binary>> -> {:ok, Map.put(acumulado, clave, v), resto}
+        _ -> {:error, "objeto JSON sin coma ni cierre"}
+      end
+    else
+      {:error, _} = error -> error
+      _ -> {:error, "objeto JSON: se esperaba \":\" después de la clave"}
+    end
+  end
+
+  defp objeto(_texto, _acumulado), do: {:error, "objeto JSON: se esperaba una clave entre comillas"}
+
+  defp numero(texto) do
+    case Regex.run(~r/\A-?\d+(\.\d+)?([eE][+-]?\d+)?/, texto, capture: :first) do
+      [entero] ->
+        largo = byte_size(entero)
+        resto = binary_part(texto, largo, byte_size(texto) - largo)
+
+        if String.contains?(entero, [".", "e", "E"]),
+          do: {:ok, String.to_float(normalizar_float(entero)), resto},
+          else: {:ok, String.to_integer(entero), resto}
+
+      _ ->
+        {:error,
+         "valor JSON inválido: #{inspect(binary_part(texto, 0, min(byte_size(texto), 20)))}"}
+    end
+  end
+
+  # String.to_float exige un punto: "1e3" se lee como "1.0e3".
+  defp normalizar_float(texto),
+    do: if(String.contains?(texto, "."), do: texto, else: String.replace(texto, ~r/[eE]/, ".0e"))
+
   defp clave_json(clave) when is_binary(clave), do: clave
   defp clave_json(clave) when is_atom(clave), do: Atom.to_string(clave)
   defp clave_json(clave) when is_integer(clave), do: Integer.to_string(clave)

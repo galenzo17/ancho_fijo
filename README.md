@@ -418,6 +418,35 @@ Las decisiones, y por qué:
 - **Las sumas son sobre enteros o `{unidades, precision}`**, nunca floats;
   con precisiones distintas se comparan a la mayor.
 
+## El layout como datos
+
+Un layout es una definición en Elixir, y hay tres situaciones donde eso no
+alcanza: compartirlo con un servicio en otro lenguaje, guardarlo en una base
+de datos junto a los archivos de muestra del banco, o dejar que lo edite
+alguien que no programa. `Layout.a_mapa/1` lo convierte en un mapa de claves
+string sin átomos ni funciones, con la `"version"` del esquema, y
+`desde_mapa/1` lo construye y valida con los mismos diagnósticos que
+`nuevo/1` (una clave desconocida se reclama). `a_json/1` y `desde_json/1`
+hacen lo mismo con JSON, sin dependencias, y `Multiregistro` tiene las cuatro.
+
+```elixir
+AnchoFijo.Layout.a_mapa(layout)
+# %{"version" => 1, "nombre" => "nómina", "encoding" => "utf8", "unidad" => "bytes", "largo" => 48,
+#   "campos" => [%{"nombre" => "rut", "posicion" => 1, "largo" => 10, "tipo" => "rut"}, ...]}
+
+File.write!("nomina.json", AnchoFijo.Layout.a_json(layout))
+{:ok, ^layout} = AnchoFijo.Layout.desde_json(File.read!("nomina.json"))
+```
+
+`mix ancho_fijo.detectar --layout nomina.json` y `mix ancho_fijo.documentar
+nomina.json` aceptan el `.json` además del `.exs`. El JSON Schema para
+validar un layout fuera de Elixir está en `priv/layout.schema.json`. YAML
+queda fuera del núcleo a propósito, sin dependencia: un `yaml_elixir` en el
+proyecto y `YamlElixir.read_from_file!/1 |> AnchoFijo.Layout.desde_mapa()`
+alcanzan, porque el mapa es el mismo. Un tipo propio viaja por el nombre de
+su módulo y vuelve con `AnchoFijo.Tipo.resolver/1`; un discriminador por
+función no se puede serializar y lo dice.
+
 ## La especificación sale del layout
 
 La especificación de un formato vive dos veces: en el documento que se manda

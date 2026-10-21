@@ -40,6 +40,12 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- Layouts como datos: `Layout.a_mapa/1` y `desde_mapa/1` (mapa de claves
+  string, sin átomos ni funciones, con `"version"` del esquema y los mismos
+  diagnósticos que `nuevo/1`), `a_json/1` y `desde_json/1` sin dependencias,
+  y las cuatro también en `Multiregistro`. `mix ancho_fijo.detectar
+  --layout` y `mix ancho_fijo.documentar` aceptan un `.json`. JSON Schema en
+  `priv/layout.schema.json`. Un discriminador por función no se serializa.
 - La especificación del formato generada desde el layout:
   `AnchoFijo.Documentacion.documentar/2` (también `Layout.documentar/2` y
   `Multiregistro.documentar/2`) en Markdown, CSV o JSON, en español o en

@@ -1,0 +1,107 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/galenzo17/ancho_fijo/blob/main/priv/layout.schema.json",
+  "title": "AnchoFijo layout",
+  "description": "Un layout de ancho fijo o un multiregistro, tal como lo producen AnchoFijo.Layout.a_mapa/1 y AnchoFijo.Multiregistro.a_mapa/1 (version 1 del esquema). Las claves son las de la librería, en español.",
+  "oneOf": [{ "$ref": "#/definitions/layout" }, { "$ref": "#/definitions/multiregistro" }],
+  "definitions": {
+    "version": { "type": "integer", "const": 1 },
+    "campo": {
+      "type": "object",
+      "required": ["nombre", "largo"],
+      "additionalProperties": true,
+      "properties": {
+        "nombre": { "type": "string", "minLength": 1 },
+        "posicion": { "type": "integer", "minimum": 1 },
+        "largo": { "type": "integer", "minimum": 1 },
+        "tipo": {
+          "type": "string",
+          "description": "texto (default), entero, decimal, fecha, hora, fecha_hora, rut, constante, relleno, o el nombre de un módulo que implemente AnchoFijo.Tipo"
+        },
+        "opcional": { "type": "boolean" },
+        "trim": { "enum": ["ambos", "izquierda", "derecha", false] },
+        "relleno": { "type": "string", "minLength": 1, "maxLength": 1 },
+        "sensible": { "type": "boolean" },
+        "encoding": { "enum": ["utf8", "latin1"] },
+        "descripcion": { "type": "string" },
+        "ejemplo": { "type": "string" },
+        "precision": { "type": "integer", "minimum": 0 },
+        "separador": { "enum": ["implicito", "punto", "coma"] },
+        "moneda": { "type": "string", "description": "código ISO 4217 en minúsculas, por ejemplo clp o usd" },
+        "como": { "enum": ["decimal"] },
+        "signo": { "enum": ["inicial", "final"] },
+        "formato": { "type": "string", "description": "un nombre (aaaammdd, ddmmaa, hhmmss, aaaammddhhmmss...) o un patrón (DD/MM/AAAA)" },
+        "pivote": { "type": "integer", "minimum": 1 },
+        "dv": { "enum": ["validar", "no_validar", "ausente"] },
+        "valor": { "type": "string", "description": "el literal de un campo constante" },
+        "reparar_doble_codificacion": { "type": "boolean" }
+      }
+    },
+    "layout": {
+      "type": "object",
+      "required": ["campos"],
+      "additionalProperties": false,
+      "properties": {
+        "version": { "$ref": "#/definitions/version" },
+        "nombre": { "type": ["string", "null"] },
+        "encoding": { "enum": ["utf8", "latin1"] },
+        "unidad": { "enum": ["bytes", "caracteres"] },
+        "relleno_final": { "enum": ["estricto", "tolerar"] },
+        "largo": { "type": "integer", "minimum": 1 },
+        "identidad": {
+          "type": "object",
+          "required": ["campos"],
+          "properties": { "campos": { "type": "array", "items": { "type": "string" }, "minItems": 1 } }
+        },
+        "decimales_como": { "enum": ["decimal"] },
+        "campos": { "type": "array", "items": { "$ref": "#/definitions/campo" }, "minItems": 1 }
+      }
+    },
+    "multiregistro": {
+      "type": "object",
+      "required": ["discriminador", "registros"],
+      "additionalProperties": false,
+      "properties": {
+        "version": { "$ref": "#/definitions/version" },
+        "nombre": { "type": ["string", "null"] },
+        "orden": { "enum": ["estricto", "libre"] },
+        "discriminador": {
+          "oneOf": [
+            { "type": "object", "required": ["posicion", "largo"], "properties": { "posicion": { "type": "integer", "minimum": 1 }, "largo": { "type": "integer", "minimum": 1 } } },
+            { "type": "object", "required": ["campo"], "properties": { "campo": { "type": "string" } } },
+            { "type": "object", "required": ["por"], "properties": { "por": { "enum": ["largo", "posicion_en_archivo"] } } }
+          ]
+        },
+        "registros": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["tipo", "layout"],
+            "properties": {
+              "tipo": { "type": "string" },
+              "valor": { "type": "array", "items": { "type": "string" } },
+              "cantidad": { "enum": ["uno", "opcional", "varios", "al_menos_uno"] },
+              "ubicacion": { "enum": ["primera", "resto", "ultima"] },
+              "layout": { "$ref": "#/definitions/layout" }
+            }
+          }
+        },
+        "controles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["en", "campo"],
+            "properties": {
+              "en": { "type": "string" },
+              "campo": { "type": "string" },
+              "cuenta": { "type": "string" },
+              "suma": { "type": "array", "items": { "type": "string" }, "minItems": 2, "maxItems": 2 },
+              "agrupar_por": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

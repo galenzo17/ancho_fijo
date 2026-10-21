@@ -10,6 +10,27 @@ defmodule Mix.Tasks.AnchoFijo.Carga do
   @spec cargar_layout(String.t()) ::
           {:ok, AnchoFijo.Layout.t() | AnchoFijo.Multiregistro.t()} | {:error, String.t()}
   def cargar_layout(ruta) do
+    if String.ends_with?(ruta, ".json"), do: cargar_json(ruta), else: cargar_exs(ruta)
+  end
+
+  # Un .json es datos: un multiregistro si trae "registros", un layout si no.
+  defp cargar_json(ruta) do
+    with {:ok, contenido} <- File.read(ruta),
+         {:ok, mapa} <- AnchoFijo.Json.decodificar(contenido),
+         {:ok, layout} <- desde_mapa(mapa) do
+      {:ok, layout}
+    else
+      {:error, motivo} when is_atom(motivo) -> {:error, "#{:file.format_error(motivo)}"}
+      {:error, motivo} when is_binary(motivo) -> {:error, motivo}
+      {:error, diagnosticos} -> {:error, "\n" <> Diagnostico.reporte(diagnosticos)}
+    end
+  end
+
+  defp desde_mapa(%{"registros" => _} = mapa), do: AnchoFijo.Multiregistro.desde_mapa(mapa)
+  defp desde_mapa(mapa) when is_map(mapa), do: AnchoFijo.Layout.desde_mapa(mapa)
+  defp desde_mapa(_otro), do: {:error, "el JSON no es un objeto con la definición"}
+
+  defp cargar_exs(ruta) do
     {definicion, _binding} = Code.eval_file(ruta)
 
     case definicion do
