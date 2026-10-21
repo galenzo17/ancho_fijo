@@ -113,6 +113,36 @@ defmodule AnchoFijo.EscritorTest do
     end
   end
 
+  describe "opciones" do
+    test "un terminador que no existe es ArgumentError, no KeyError" do
+      layout = [campos: [[nombre: :a, largo: 1]]]
+
+      error =
+        assert_raise ArgumentError, fn ->
+          AnchoFijo.escribir(layout, [%{a: "x"}], terminador: :lf2)
+        end
+
+      assert error.message =~ "AnchoFijo.escribir/3: la opción :terminador espera"
+      assert error.message =~ ":lf, :crlf, :cr o :ninguno"
+    end
+
+    test "una opción mal escrita no se ignora" do
+      layout = [campos: [[nombre: :a, largo: 1]]]
+
+      error =
+        assert_raise ArgumentError, fn ->
+          AnchoFijo.escribir(layout, [%{a: "xy"}], truncarr: true)
+        end
+
+      assert error.message =~ "no reconoce la opción :truncarr"
+      assert error.message =~ ":terminador, :truncar"
+
+      assert_raise ArgumentError, ~r/Escritor\.stream\/3/, fn ->
+        Escritor.stream(layout, [%{a: "x"}], truncar: :si)
+      end
+    end
+  end
+
   describe "lo que no cabe" do
     @layout Layout.nuevo!(
               campos: [

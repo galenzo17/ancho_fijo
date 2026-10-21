@@ -5,6 +5,7 @@ defmodule AnchoFijo.TelemetriaTest do
 
   import AnchoFijo.Fixtures, only: [ruta: 1, layout_nomina: 0]
 
+  alias AnchoFijo.Escritor
   alias AnchoFijo.Layout
   alias AnchoFijo.Telemetria
 
@@ -17,7 +18,11 @@ defmodule AnchoFijo.TelemetriaTest do
     [:ancho_fijo, :detectar, :start],
     [:ancho_fijo, :detectar, :stop],
     [:ancho_fijo, :stream, :start],
-    [:ancho_fijo, :stream, :stop]
+    [:ancho_fijo, :stream, :stop],
+    [:ancho_fijo, :escribir, :start],
+    [:ancho_fijo, :escribir, :stop],
+    [:ancho_fijo, :escribir_stream, :start],
+    [:ancho_fijo, :escribir_stream, :stop]
   ]
 
   setup do
@@ -157,6 +162,54 @@ defmodule AnchoFijo.TelemetriaTest do
 
       assert_received {[:ancho_fijo, :stream, :stop], ^ref, %{lineas: 1, errores: 1},
                        %{desde: :archivo}}
+    end
+  end
+
+  describe "escribir/3" do
+    test "emite start y stop con las cuentas y la metadata", %{ref: ref} do
+      assert {:ok, _, []} =
+               AnchoFijo.escribir(@layout, [%{codigo: 1}, %{codigo: 2}], terminador: :crlf)
+
+      assert_received {[:ancho_fijo, :escribir, :start], ^ref, %{system_time: _}, metadata}
+      assert %{terminador: :crlf, truncar: false} = metadata
+
+      assert_received {[:ancho_fijo, :escribir, :stop], ^ref, medidas, metadata}
+      assert %{duration: _, lineas: 2, registros: 2, errores: 0, advertencias: 0} = medidas
+      assert %{resultado: :ok, layout: "códigos", encoding: :utf8, unidad: :bytes} = metadata
+    end
+
+    test "con un registro que no se puede escribir, stop dice :error y cuenta todo", %{ref: ref} do
+      assert {:error, [_]} = AnchoFijo.escribir(@layout, [%{codigo: 1}, %{codigo: 1234}])
+
+      assert_received {[:ancho_fijo, :escribir, :stop], ^ref,
+                       %{lineas: 2, registros: 0, errores: 1}, %{resultado: :error}}
+    end
+
+    test "las advertencias de truncar se cuentan", %{ref: ref} do
+      layout = Layout.nuevo!(campos: [[nombre: :g, largo: 2]])
+      assert {:ok, _, [_]} = AnchoFijo.escribir(layout, [%{g: "abc"}], truncar: true)
+
+      assert_received {[:ancho_fijo, :escribir, :stop], ^ref, %{registros: 1, advertencias: 1},
+                       %{truncar: true, layout: nil}}
+    end
+
+    test "un layout inválido cierra el span con la misma forma", %{ref: ref} do
+      assert {:error, _} = AnchoFijo.escribir([campos: []], [])
+
+      assert_received {[:ancho_fijo, :escribir, :stop], ^ref, %{lineas: 0, errores: 1},
+                       %{resultado: :error, layout: nil, encoding: nil, unidad: nil}}
+    end
+
+    test "Escritor.stream/3 emite al enumerar, con lo contado hasta el corte", %{ref: ref} do
+      stream = Escritor.stream(@layout, [%{codigo: 1}, %{codigo: :x}, %{codigo: 3}])
+      refute_received {[:ancho_fijo, :escribir_stream, :start], ^ref, _, _}
+
+      assert [{:ok, _, _}, {:error, _}] = Enum.take(stream, 2)
+
+      assert_received {[:ancho_fijo, :escribir_stream, :start], ^ref, _, %{layout: "códigos"}}
+
+      assert_received {[:ancho_fijo, :escribir_stream, :stop], ^ref,
+                       %{lineas: 2, registros: 1, errores: 1}, %{terminador: :lf}}
     end
   end
 
