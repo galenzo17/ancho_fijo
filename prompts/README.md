@@ -169,3 +169,4 @@ Las que la convención tuvo que zanjar y no eran obvias:
 | [0020](0020-idempotencia.md) | Issue #11: idempotencia de lotes | `AnchoFijo.Identidad`, tres fuentes, `cotejar/2` con duplicado y conflicto, sin estado |
 | [0021](0021-catalogo-nacha.md) | Issue #10: catálogo de formatos reales, NACHA primero | `AnchoFijo.Formatos` con vigencias, `Formatos.Nacha` completo y validado, fixture inventado |
 | [0022](0022-como-dependencia.md) | Issue #45: lo que ve un proyecto que agrega la librería | `:crypto` en `extra_applications`, `@prefijo` sin usar, job de CI "Como dependencia" |
+| [0023](0023-parsear-bang-multiregistro.md) | Issue #37: `parsear!/3` con un Multiregistro | `Multiregistro.parsear!/3`, despacho en la fachada, `estructura:` en el mensaje de cierre |
