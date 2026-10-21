@@ -55,6 +55,9 @@ defmodule AnchoFijo.Diagnostico do
   * `:moneda` — una operación entre montos incompatibles. Ver `AnchoFijo.Monto`.
   * `:campo_truncado` — al escribir, un `:texto` no cabía y se pidió
     `truncar: true`. Siempre de gravedad `:advertencia`.
+  * `:doble_codificacion` — un `:texto` trae UTF-8 decodificado como latin-1
+    y vuelto a codificar (`operaciÃ³n`); el diagnóstico trae el texto
+    reparado y dice si se aplicó. Siempre de gravedad `:advertencia`.
   * `:estructura` — en un `AnchoFijo.Multiregistro`: un discriminador
     desconocido, un registro fuera de orden, repetido o faltante.
   * `:control` — en un `AnchoFijo.Multiregistro`: un total del trailer que
@@ -71,6 +74,7 @@ defmodule AnchoFijo.Diagnostico do
           | :relleno_completado
           | :moneda
           | :campo_truncado
+          | :doble_codificacion
           | :estructura
           | :control
           | :identidad

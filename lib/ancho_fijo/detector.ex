@@ -35,7 +35,12 @@ defmodule AnchoFijo.Detector do
     * `:largo_predominante` — el largo más frecuente, o `nil` si no hay líneas.
     * `:largos_en_caracteres` — igual que `:largos` pero en caracteres, solo si
       el archivo es UTF-8 con multibyte; `nil` en otro caso.
-    * `:encoding_probable` — `:ascii`, `:utf8` o `:latin1`.
+    * `:unidad_probable` — `:bytes` si los largos son consistentes en bytes y
+      no en caracteres, `:caracteres` al revés; `nil` cuando da lo mismo o
+      no se puede decidir.
+    * `:encoding_probable` — `:ascii`, `:utf8`, `:latin1` o `:mixto`: bytes
+      latin-1 y secuencias UTF-8 en el mismo archivo, que es lo que pasa
+      cuando el texto libre viene en UTF-8 y el resto no.
     * `:bytes_no_utf8` — hasta cinco bytes que rompen UTF-8, con línea y posición.
     * `:terminador` — `:crlf`, `:lf`, `:cr`, `:mixto` o `:ninguno`.
     * `:termina_con_terminador?` — `nil` si la muestra está truncada.
@@ -81,7 +86,8 @@ defmodule AnchoFijo.Detector do
           largo_consistente?: boolean(),
           largo_predominante: non_neg_integer() | nil,
           largos_en_caracteres: %{optional(non_neg_integer()) => pos_integer()} | nil,
-          encoding_probable: :ascii | :utf8 | :latin1,
+          unidad_probable: :bytes | :caracteres | nil,
+          encoding_probable: :ascii | :utf8 | :latin1 | :mixto,
           bytes_no_utf8: [map()],
           terminador: :crlf | :lf | :cr | :mixto | :ninguno,
           termina_con_terminador?: boolean() | nil,
@@ -175,7 +181,11 @@ defmodule AnchoFijo.Detector do
   def contrastar(%{largo_predominante: _, encoding_probable: _} = reporte, layout) do
     case Layout.coercer(layout) do
       {:ok, layout} ->
-        Enum.concat([contrastar_largo(reporte, layout), contrastar_encoding(reporte, layout)])
+        Enum.concat([
+          contrastar_largo(reporte, layout),
+          contrastar_encoding(reporte, layout),
+          contrastar_unidad(reporte, layout)
+        ])
 
       {:error, diagnosticos} ->
         diagnosticos
@@ -248,18 +258,39 @@ defmodule AnchoFijo.Detector do
   end
 
   defp analizar_largos([]) do
-    %{largos: %{}, largo_consistente?: false, largo_predominante: nil, largos_en_caracteres: nil}
+    %{
+      largos: %{},
+      largo_consistente?: false,
+      largo_predominante: nil,
+      largos_en_caracteres: nil,
+      unidad_probable: nil
+    }
   end
 
   defp analizar_largos(lineas) do
     largos = Enum.frequencies_by(lineas, fn {linea, _numero} -> byte_size(linea) end)
+    en_caracteres = largos_en_caracteres(lineas, largos)
 
     %{
       largos: largos,
       largo_consistente?: map_size(largos) == 1,
       largo_predominante: predominante(largos),
-      largos_en_caracteres: largos_en_caracteres(lineas, largos)
+      largos_en_caracteres: en_caracteres,
+      unidad_probable: unidad_probable(largos, en_caracteres)
     }
+  end
+
+  # Cuando los largos difieren por unidad, la unidad en la que son
+  # consistentes es la del formato: un archivo UTF-8 que mide igual en bytes
+  # y distinto en caracteres se midió en bytes al generarse.
+  defp unidad_probable(_largos, nil), do: nil
+
+  defp unidad_probable(largos, en_caracteres) do
+    cond do
+      map_size(largos) == 1 and map_size(en_caracteres) > 1 -> :bytes
+      map_size(en_caracteres) == 1 and map_size(largos) > 1 -> :caracteres
+      true -> nil
+    end
   end
 
   defp predominante(largos) do
@@ -299,7 +330,13 @@ defmodule AnchoFijo.Detector do
     end
   end
 
-  defp encoding_probable(_lineas, [_alguno | _resto]), do: :latin1
+  # Bytes que no son UTF-8 y, en el mismo archivo, secuencias UTF-8 válidas:
+  # no es latin-1, es una mezcla por campo.
+  defp encoding_probable(lineas, [_alguno | _resto]) do
+    if Enum.any?(lineas, fn {linea, _numero} -> Transcodificacion.multibyte_utf8?(linea) end),
+      do: :mixto,
+      else: :latin1
+  end
 
   defp encoding_probable(lineas, []) do
     if Enum.all?(lineas, fn {linea, _numero} -> Transcodificacion.ascii?(linea) end),
@@ -477,14 +514,25 @@ defmodule AnchoFijo.Detector do
 
   defp observacion_caracteres(%{largos_en_caracteres: nil}), do: []
 
-  defp observacion_caracteres(%{largos_en_caracteres: en_caracteres}) do
+  defp observacion_caracteres(%{largos_en_caracteres: en_caracteres} = reporte) do
     detalle = en_caracteres |> Map.keys() |> Enum.sort() |> Enum.join(", ")
 
-    [
-      "en caracteres los largos son #{detalle}, distintos de los largos en bytes: " <>
-        "el archivo trae caracteres multibyte y hay que decidir en qué unidad cuenta el formato " <>
-        "(ver unidad: :caracteres)"
-    ]
+    veredicto =
+      case reporte.unidad_probable do
+        :bytes ->
+          "los largos son consistentes en bytes y no en caracteres: el formato mide en bytes " <>
+            "y el texto es UTF-8; deje unidad: :bytes (el default) con encoding: :utf8"
+
+        :caracteres ->
+          "los largos son consistentes en caracteres y no en bytes: el formato mide en " <>
+            "caracteres; declare unidad: :caracteres"
+
+        nil ->
+          "el archivo trae caracteres multibyte y hay que decidir en qué unidad cuenta el " <>
+            "formato (ver unidad: :caracteres)"
+      end
+
+    ["en caracteres los largos son #{detalle}, distintos de los largos en bytes: " <> veredicto]
   end
 
   defp observacion_encoding(%{lineas_analizadas: 0}), do: []
@@ -495,6 +543,16 @@ defmodule AnchoFijo.Detector do
 
   defp observacion_encoding(%{encoding_probable: :utf8}) do
     ["hay caracteres no ASCII y la muestra es UTF-8 válida; use encoding: :utf8 (el default)"]
+  end
+
+  defp observacion_encoding(%{encoding_probable: :mixto, bytes_no_utf8: [primero | _resto]}) do
+    [
+      "hay bytes latin-1 " <>
+        "(#{Transcodificacion.describir_byte(%{posicion: primero.posicion - 1, byte: primero.byte}, 1)} " <>
+        "de la línea #{primero.linea}) y también secuencias UTF-8 válidas: los encodings están " <>
+        "mezclados por campo; declare encoding: :latin1 en el layout y encoding: :utf8 en los " <>
+        "campos que traen UTF-8 (el texto libre, casi siempre)"
+    ]
   end
 
   defp observacion_encoding(%{encoding_probable: :latin1, bytes_no_utf8: [primero | _resto]}) do
@@ -685,7 +743,61 @@ defmodule AnchoFijo.Detector do
     ]
   end
 
+  defp contrastar_encoding(%{encoding_probable: :mixto} = reporte, %Layout{encoding: :utf8}) do
+    [
+      Diagnostico.nuevo(
+        tipo: :entrada,
+        esperado: "bytes UTF-8 válidos, porque el layout declara encoding: :utf8",
+        recibido: "#{length(reporte.bytes_no_utf8)} bytes latin-1 junto con secuencias UTF-8",
+        causa_probable:
+          "los encodings están mezclados por campo; declare encoding: :latin1 en el layout " <>
+            "y encoding: :utf8 en los campos que traen UTF-8"
+      )
+    ]
+  end
+
+  defp contrastar_encoding(%{encoding_probable: :mixto}, %Layout{encoding: :latin1} = layout) do
+    if Enum.any?(layout.campos, &(&1.encoding == :utf8)) do
+      []
+    else
+      [
+        Diagnostico.nuevo(
+          tipo: :entrada,
+          esperado: "algún campo con encoding: :utf8, porque el archivo trae secuencias UTF-8",
+          recibido: "un layout latin-1 en todos los campos",
+          causa_probable:
+            "los campos UTF-8 se leerían con doble codificación (operaciÃ³n); " <>
+              "declare encoding: :utf8 en los campos que traen UTF-8"
+        )
+      ]
+    end
+  end
+
   defp contrastar_encoding(_reporte, _layout), do: []
+
+  defp contrastar_unidad(%{unidad_probable: :bytes}, %Layout{unidad: :caracteres}) do
+    [
+      Diagnostico.nuevo(
+        tipo: :entrada,
+        esperado: "largos consistentes en caracteres, porque el layout declara unidad: :caracteres",
+        recibido: "largos consistentes en bytes y distintos en caracteres",
+        causa_probable: "el formato mide en bytes; deje unidad: :bytes con encoding: :utf8"
+      )
+    ]
+  end
+
+  defp contrastar_unidad(%{unidad_probable: :caracteres}, %Layout{unidad: :bytes}) do
+    [
+      Diagnostico.nuevo(
+        tipo: :entrada,
+        esperado: "largos consistentes en bytes, porque el layout mide en bytes",
+        recibido: "largos consistentes en caracteres y distintos en bytes",
+        causa_probable: "el formato mide en caracteres; declare unidad: :caracteres"
+      )
+    ]
+  end
+
+  defp contrastar_unidad(_reporte, _layout), do: []
 
   defp lineas(1), do: "1 línea"
   defp lineas(cuantas), do: "#{cuantas} líneas"

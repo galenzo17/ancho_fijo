@@ -40,6 +40,22 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- `encoding:` por campo (`:utf8` o `:latin1`, por encima del encoding del
+  layout; solo con `unidad: :bytes`), para los archivos que mezclan: latin-1
+  en todo salvo el texto libre en UTF-8. Al leer y al escribir.
+- Advertencia `:doble_codificacion` cuando un `:texto` trae UTF-8
+  decodificado como latin-1 y vuelto a codificar (`operaciÃ³n`), con el
+  texto reparado; `reparar_doble_codificacion: true` en el campo aplica la
+  reparación al leer. `Campo.leer/3` devuelve las advertencias del campo y
+  `parsear/3` las trae en la tercera posición.
+- `detectar/2`: `encoding_probable: :mixto` cuando hay bytes latin-1 y
+  secuencias UTF-8 en el mismo archivo, con la declaración sugerida;
+  `unidad_probable` (`:bytes` o `:caracteres`) según en qué unidad son
+  consistentes los largos; `contrastar/2` reporta un layout que declara la
+  unidad o el encoding equivocados.
+- Un campo que empieza en medio de un carácter multibyte se diagnostica como
+  tal (`:continuacion_suelta`): el campo anterior lo cortó, pruebe
+  `unidad: :caracteres`; antes decía que el byte era latin-1.
 - Más formatos de fecha y dos tipos nuevos. `:fecha` acepta `:mmddaaaa`,
   `:aammdd`, `:ddmmaa`, `:mmddaa`, `:aaaaddd` y `:aaddd` (julianos) además
   de `:aaaammdd` y `:ddmmaaaa`, y un patrón explícito de tokens con

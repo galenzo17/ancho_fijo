@@ -329,8 +329,8 @@ defmodule AnchoFijo.Parser do
   def parsear_linea(%Layout{} = layout, cruda, numero) do
     with {:ok, linea} <- preparar(layout, cruda, numero),
          {:ok, linea, advertencias} <- ajustar_largo(layout, linea, numero),
-         {:ok, registro} <- extraer_campos(layout, linea, numero) do
-      {:ok, registro, advertencias}
+         {:ok, registro, de_los_campos} <- extraer_campos(layout, linea, numero) do
+      {:ok, registro, advertencias ++ de_los_campos}
     end
   end
 
@@ -639,10 +639,13 @@ defmodule AnchoFijo.Parser do
       "distinto del que se usó para cortar las líneas"
   end
 
-  defp extraer_campo(%Campo{} = campo, linea, contexto, {valores, diagnosticos}) do
-    case Campo.extraer(campo, linea, contexto) do
-      {:ok, valor} -> {[{campo.nombre, valor} | valores], diagnosticos}
-      {:error, diagnostico} -> {valores, [diagnostico | diagnosticos]}
+  defp extraer_campo(%Campo{} = campo, linea, contexto, {valores, diagnosticos, advertencias}) do
+    case Campo.leer(campo, linea, contexto) do
+      {:ok, valor, nuevas} ->
+        {[{campo.nombre, valor} | valores], diagnosticos, Enum.reverse(nuevas, advertencias)}
+
+      {:error, diagnostico} ->
+        {valores, [diagnostico | diagnosticos], advertencias}
     end
   end
 
@@ -651,15 +654,15 @@ defmodule AnchoFijo.Parser do
 
     # Un :relleno no se lee ni va al registro: nadie se compromete a lo que
     # hay en esas posiciones.
-    {valores, diagnosticos} =
-      Enum.reduce(layout.campos, {[], []}, fn campo, acumulado ->
+    {valores, diagnosticos, advertencias} =
+      Enum.reduce(layout.campos, {[], [], []}, fn campo, acumulado ->
         if Campo.relleno?(campo),
           do: acumulado,
           else: extraer_campo(campo, linea, contexto, acumulado)
       end)
 
     case diagnosticos do
-      [] -> {:ok, Map.new(valores)}
+      [] -> {:ok, Map.new(valores), Enum.reverse(advertencias)}
       diagnosticos -> {:error, Enum.reverse(diagnosticos)}
     end
   end

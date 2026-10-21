@@ -86,6 +86,14 @@ defmodule Mix.Tasks.AnchoFijo.DetectarTest do
       refute salida =~ "desacuerdo"
     end
 
+    test "la respuesta mixta sugiere la declaración correcta" do
+      {0, salida, ""} = correr([ruta("respuesta_mixta.txt")])
+      assert salida =~ "mixto"
+
+      assert salida =~
+               "declare encoding: :latin1 en el layout y encoding: :utf8 en los campos que traen UTF-8"
+    end
+
     test "un multiregistro en --layout cuenta las líneas por tipo" do
       {0, salida, ""} =
         correr([ruta("nomina_sin_codigo.txt"), "--layout", ruta("multiregistro_sin_codigo.exs")])

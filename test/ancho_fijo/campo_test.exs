@@ -681,6 +681,82 @@ defmodule AnchoFijo.CampoTest do
     end
   end
 
+  describe "encoding por campo" do
+    test "un campo UTF-8 dentro de un layout latin-1, y al revés" do
+      utf8 = Campo.nuevo!(nombre: :m, posicion: 1, largo: 10, encoding: :utf8)
+      assert Campo.extraer(utf8, "operación ", encoding: :latin1) == {:ok, "operación"}
+
+      latin1 = Campo.nuevo!(nombre: :n, posicion: 1, largo: 5, encoding: :latin1)
+      assert Campo.extraer(latin1, <<74, 79, 83, 0xC9, 32>>, encoding: :utf8) == {:ok, "JOSÉ"}
+    end
+
+    test "al escribir, el encoding del campo manda sobre el del layout" do
+      utf8 = Campo.nuevo!(nombre: :m, posicion: 1, largo: 12, encoding: :utf8)
+      assert Campo.formatear(utf8, "operación", %{encoding: :latin1}) == {:ok, "operación  ", []}
+
+      latin1 = Campo.nuevo!(nombre: :n, posicion: 1, largo: 5, encoding: :latin1)
+
+      assert Campo.formatear(latin1, "JOSÉ", %{encoding: :utf8}) ==
+               {:ok, <<74, 79, 83, 0xC9, 32>>, []}
+    end
+
+    test "un encoding que no existe, o uno por campo con unidad :caracteres, es un layout inválido" do
+      assert {:error, [d]} = Campo.nuevo(nombre: :m, largo: 10, encoding: :cp1252)
+      assert d.esperado == ":encoding :utf8 o :latin1, o ninguno para usar el del layout"
+
+      assert {:error, [d]} =
+               AnchoFijo.Layout.nuevo(
+                 unidad: :caracteres,
+                 campos: [[nombre: :m, largo: 10, encoding: :utf8]]
+               )
+
+      assert %AnchoFijo.Diagnostico{tipo: :layout, campo: :m} = d
+      assert d.esperado == "ningún :encoding por campo con unidad: :caracteres"
+    end
+  end
+
+  describe "doble codificación" do
+    test "se advierte con el texto reparado, y el valor queda como vino" do
+      campo = Campo.nuevo!(nombre: :m, posicion: 1, largo: 12)
+      assert {:ok, "operaciÃ³n", [d]} = Campo.leer(campo, "operaciÃ³n  ")
+
+      assert %AnchoFijo.Diagnostico{tipo: :doble_codificacion, gravedad: :advertencia, campo: :m} =
+               d
+
+      assert d.esperado == "operación"
+      assert d.recibido == "\"operaciÃ³n\""
+      assert d.causa_probable =~ "declare encoding: :utf8 en este campo"
+
+      assert Campo.extraer(campo, "operaciÃ³n  ") == {:ok, "operaciÃ³n"}
+    end
+
+    test "con reparar_doble_codificacion: true el valor sale reparado y la advertencia lo dice" do
+      campo = Campo.nuevo!(nombre: :m, posicion: 1, largo: 12, reparar_doble_codificacion: true)
+      assert {:ok, "operación", [d]} = Campo.leer(campo, "operaciÃ³n  ")
+
+      assert d.causa_probable =~
+               "se reparó porque el campo declara reparar_doble_codificacion: true"
+    end
+
+    test "un texto sano no advierte nada, y un campo sensible no muestra el texto" do
+      campo = Campo.nuevo!(nombre: :m, posicion: 1, largo: 12)
+      assert {:ok, "JOSÉ MUÑOZ", []} = Campo.leer(campo, "JOSÉ MUÑOZ ")
+
+      sensible = Campo.nuevo!(nombre: :m, posicion: 1, largo: 12, sensible: true)
+      assert {:ok, _, [d]} = Campo.leer(sensible, "operaciÃ³n  ")
+      refute AnchoFijo.Diagnostico.mensaje(d) =~ "operaci"
+      assert d.contenido == "operación"
+      assert d.esperado == "el texto UTF-8 decodificado una sola vez"
+    end
+
+    test "la opción solo existe en :texto" do
+      assert {:error, [d]} =
+               Campo.nuevo(nombre: :n, largo: 5, tipo: :entero, reparar_doble_codificacion: true)
+
+      assert d.esperado == ":reparar_doble_codificacion solo en campos :texto"
+    end
+  end
+
   describe "unidad :caracteres" do
     test "corta por caracteres sobre una línea ya transcodificada" do
       assert extraer([nombre: :a, largo: 4], "JOSÉ MUÑOZ", unidad: :caracteres) == {:ok, "JOSÉ"}

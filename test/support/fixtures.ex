@@ -27,6 +27,27 @@ defmodule AnchoFijo.Fixtures do
   end
 
   @doc false
+  # La respuesta mixta: offsets en bytes, latin-1 en el nombre, UTF-8 en el
+  # mensaje. 56 posiciones.
+  def layout_respuesta_mixta(opts \\ []) do
+    AnchoFijo.Layout.nuevo!(
+      Keyword.merge(
+        [
+          nombre: "respuesta del banco",
+          encoding: :latin1,
+          campos: [
+            [nombre: :rut, largo: 10, tipo: :rut],
+            [nombre: :nombre, largo: 14],
+            [nombre: :mensaje, largo: 24, encoding: :utf8],
+            [nombre: :fecha, largo: 8, tipo: :fecha, formato: :aaaammdd]
+          ]
+        ],
+        opts
+      )
+    )
+  end
+
+  @doc false
   # Layout con la glosa al final, que es donde los formatos reales ponen el
   # campo de ancho variable: 60 posiciones, las últimas 30 rellenas de espacios.
   def layout_glosa(opts \\ []) do

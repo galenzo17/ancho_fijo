@@ -64,6 +64,51 @@ defmodule AnchoFijo.TranscodificacionTest do
     end
   end
 
+  describe "un campo cortado en medio de un carácter multibyte" do
+    test "la continuación suelta al inicio dice que el campo anterior lo cortó" do
+      assert {:error, detalle} = Transcodificacion.a_utf8(<<0xB3, 110, 32>>, :utf8)
+      assert detalle.motivo == :continuacion_suelta
+      assert detalle.posicion == 0
+
+      assert Transcodificacion.causa_probable(detalle, :utf8) =~
+               "empieza con 0xB3, la continuación de un carácter multibyte que empezó en el campo anterior"
+
+      assert Transcodificacion.causa_probable(detalle, :utf8) =~ "pruebe unidad: :caracteres"
+    end
+
+    test "una continuación suelta en el medio es un texto cortado o corrido" do
+      assert {:error, %{motivo: :continuacion_suelta, posicion: 2}} =
+               Transcodificacion.a_utf8(<<65, 66, 0x80, 67>>, :utf8)
+
+      assert Transcodificacion.causa_probable(
+               %{motivo: :continuacion_suelta, posicion: 2, byte: 0x80},
+               :utf8
+             ) =~ "sin su inicio"
+    end
+
+    test "un byte latin-1 que no es continuación sigue siendo bytes_invalidos" do
+      assert {:error, %{motivo: :bytes_invalidos, byte: 0xC9}} =
+               Transcodificacion.a_utf8(<<74, 0xC9, 32>>, :utf8)
+    end
+  end
+
+  describe "multibyte_utf8?/1 y doble_codificacion/1" do
+    test "reconoce una secuencia UTF-8 válida aunque el resto sea latin-1" do
+      assert Transcodificacion.multibyte_utf8?(<<74, 79, 83, 0xC9, 32>> <> "ción")
+      refute Transcodificacion.multibyte_utf8?(<<74, 79, 83, 0xC9, 32>>)
+      refute Transcodificacion.multibyte_utf8?("ASCII")
+      refute Transcodificacion.multibyte_utf8?(<<0xC3>>)
+    end
+
+    test "la doble codificación se repara y lo que no la tiene queda igual" do
+      assert Transcodificacion.doble_codificacion("operaciÃ³n") == {:ok, "operación"}
+      assert Transcodificacion.doble_codificacion("MUÃ‘OZ") == :no
+      assert Transcodificacion.doble_codificacion("JOSÉ MUÑOZ") == :no
+      assert Transcodificacion.doble_codificacion("日本") == :no
+      assert Transcodificacion.doble_codificacion("") == :no
+    end
+  end
+
   describe "detectar/1" do
     test "ASCII significa que la pregunta no importa" do
       assert Transcodificacion.detectar("SOLO ASCII 123") == :ascii
