@@ -261,6 +261,14 @@ defmodule AnchoFijo.TelemetriaTest do
                        _}
     end
 
+    test "escribir/3 con un multiregistro emite con el nombre del multiregistro", %{ref: ref} do
+      assert {:ok, _, []} = AnchoFijo.escribir(@multi, h: %{}, d: %{n: 1}, d: %{n: 2}, t: %{})
+
+      assert_received {[:ancho_fijo, :escribir, :stop], ^ref, medidas, metadata}
+      assert %{lineas: 4, registros: 4, errores: 0, advertencias: 0} = medidas
+      assert %{resultado: :ok, layout: "lote", terminador: :lf, truncar: false} = metadata
+    end
+
     test "stream/3 cuenta el cierre como errores pero no como línea", %{ref: ref} do
       resultados = AnchoFijo.stream(@multi, "H\nD01\nD02\nT05\n") |> Enum.to_list()
       assert [{:ok, _, _}, {:ok, _, _}, {:ok, _, _}, {:ok, _, _}, {:error, [_]}] = resultados

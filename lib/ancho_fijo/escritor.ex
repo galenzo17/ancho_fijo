@@ -158,12 +158,20 @@ defmodule AnchoFijo.Escritor do
 
   defp metadata_de_layout(nil), do: %{layout: nil, encoding: nil, unidad: nil}
 
-  defp opciones do
+  @doc false
+  # Públicas sin doc: `AnchoFijo.Multiregistro.escribir/3` valida las mismas
+  # opciones y escribe con el mismo terminador.
+  @spec opciones() :: Opciones.esquema()
+  def opciones do
     [
       {:terminador, &Map.has_key?(@terminadores, &1), ":lf, :crlf, :cr o :ninguno"},
       {:truncar, &is_boolean/1, "true o false"}
     ]
   end
+
+  @doc false
+  @spec terminador(atom()) :: binary()
+  def terminador(nombre), do: Map.fetch!(@terminadores, nombre)
 
   @doc """
   Versión lazy: un `Stream` de `{:ok, linea_con_terminador, advertencias}` o
@@ -179,13 +187,26 @@ defmodule AnchoFijo.Escritor do
   Un layout inválido levanta `AnchoFijo.Error`, como en `AnchoFijo.stream/3`.
   Qué hacer con un registro que no se puede escribir es decisión del
   consumidor; la variante eager, `escribir/3`, no escribe nada si hay uno.
+  Un `AnchoFijo.Multiregistro` levanta `ArgumentError`: el trailer necesita
+  los totales de todos los detalles, y eso no tiene versión lazy; use
+  `AnchoFijo.escribir/3`.
 
   Emite `[:ancho_fijo, :escribir_stream, :start]` cuando empieza la
   enumeración y `:stop` cuando termina o se corta, con las mismas cuentas
   que `AnchoFijo.stream/3`.
   """
   @spec stream(Layout.t() | Enumerable.t(), Enumerable.t(), keyword()) :: Enumerable.t()
-  def stream(layout, registros, opts \\ []) do
+  def stream(layout, registros, opts \\ [])
+
+  # Un multiregistro no se escribe lazy: el trailer lleva los totales de los
+  # detalles, y los totales necesitan todos los detalles.
+  def stream(%AnchoFijo.Multiregistro{}, _registros, _opts) do
+    raise ArgumentError,
+          "AnchoFijo.Escritor.stream/3 no acepta un Multiregistro: el trailer necesita los " <>
+            "totales de todos los detalles, así que no hay versión lazy; use AnchoFijo.escribir/3"
+  end
+
+  def stream(layout, registros, opts) do
     opts = Opciones.validar!(opts, opciones(), "AnchoFijo.Escritor.stream/3")
 
     case Layout.coercer(layout) do

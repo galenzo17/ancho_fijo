@@ -66,9 +66,14 @@ defmodule AnchoFijo.Multiregistro do
     * `:controles` — lista de `[en: tipo, campo: nombre, cuenta: tipo]` o
       `[en: tipo, campo: nombre, suma: {tipo, campo}]`. El campo del registro
       `en:` tiene que valer la cantidad de registros de ese tipo, o la suma
-      de ese campo en ellos. Las sumas son sobre enteros o sobre
-      `{unidades, precision}`, nunca floats, y con precisiones distintas se
-      comparan a la mayor.
+      de ese campo en ellos. Las sumas son sobre enteros, sobre
+      `{unidades, precision}` (con precisiones distintas se comparan a la
+      mayor), sobre `AnchoFijo.Monto` de la misma moneda o sobre `Decimal`;
+      nunca floats. Con `agrupar_por: campo`, el control vale por grupo: un
+      trailer por moneda, con `[en: :trailer, campo: :total, suma:
+      {:detalle, :importe}, agrupar_por: :moneda]`, se compara con la suma
+      de los detalles que tienen la misma `:moneda` que ese trailer. El
+      campo de agrupación tiene que existir en los dos layouts.
 
   Una clave que no es ninguna de estas es un diagnóstico `:layout`, no se
   ignora: `controls:` en vez de `controles:` dejaría el trailer sin
@@ -108,6 +113,18 @@ defmodule AnchoFijo.Multiregistro do
   cuadra. Es a propósito: los dos son ciertos, y el segundo es el que el
   banco va a reportar.
 
+  ## Escribir
+
+  `escribir/3` es el inverso: recibe los `{tipo, mapa}` en el orden del
+  archivo y genera el contenido con el layout de cada tipo, verificando la
+  estructura (orden, cantidades, lo obligatorio que falta) y **calculando
+  los controles**: el campo de `cuenta:` sale con la cantidad de registros
+  del tipo contado y el de `suma:` con la suma, sin que el mapa del trailer
+  los traiga. Si los trae, tienen que coincidir; otro valor es un
+  diagnóstico `:control`, no se sobreescribe en silencio. Todo o nada, como
+  `AnchoFijo.escribir/3`. No hay versión lazy: el trailer necesita los
+  totales, y los totales necesitan todos los detalles.
+
   ## En un stream
 
   `stream/3` emite `{:ok, {tipo, registro}, advertencias}` o
@@ -122,12 +139,16 @@ defmodule AnchoFijo.Multiregistro do
   alias AnchoFijo.Campo
   alias AnchoFijo.Diagnostico
   alias AnchoFijo.Entrada
+  alias AnchoFijo.Escritor
   alias AnchoFijo.Layout
+  alias AnchoFijo.Monto
   alias AnchoFijo.Opciones
   alias AnchoFijo.Parser
   alias AnchoFijo.Telemetria
   alias AnchoFijo.Tipo
   alias AnchoFijo.Traza
+
+  @compile {:no_warn_undefined, Decimal}
 
   @cantidades [:uno, :opcional, :varios, :al_menos_uno]
   @claves [:nombre, :discriminador, :registros, :controles, :orden]
@@ -144,8 +165,8 @@ defmodule AnchoFijo.Multiregistro do
         }
 
   @type control ::
-          %{en: tipo(), campo: atom(), cuenta: tipo()}
-          | %{en: tipo(), campo: atom(), suma: {tipo(), atom()}}
+          %{optional(:agrupar_por) => atom(), en: tipo(), campo: atom(), cuenta: tipo()}
+          | %{optional(:agrupar_por) => atom(), en: tipo(), campo: atom(), suma: {tipo(), atom()}}
 
   @type discriminador ::
           %{optional(:campo) => atom(), posicion: pos_integer(), largo: pos_integer()}
@@ -568,15 +589,27 @@ defmodule AnchoFijo.Multiregistro do
     en = get(control, :en)
     campo = get(control, :campo)
 
-    cond do
-      not tiene_campo?(registros, en, campo) ->
-        {:error,
-         falla(
-           "un control con :en y :campo que existan en el layout de ese tipo",
-           inspect(control),
-           "el tipo #{inspect(en)} no está en :registros o su layout no tiene el campo #{inspect(campo)}"
-         )}
+    with :ok <- validar_en(control, registros, en, campo),
+         {:ok, validado} <- validar_cuenta_o_suma(control, registros, en, campo) do
+      validar_agrupar_por(control, registros, validado)
+    end
+  end
 
+  defp validar_en(control, registros, en, campo) do
+    if tiene_campo?(registros, en, campo) do
+      :ok
+    else
+      {:error,
+       falla(
+         "un control con :en y :campo que existan en el layout de ese tipo",
+         inspect(control),
+         "el tipo #{inspect(en)} no está en :registros o su layout no tiene el campo #{inspect(campo)}"
+       )}
+    end
+  end
+
+  defp validar_cuenta_o_suma(control, registros, en, campo) do
+    cond do
       is_atom(get(control, :cuenta)) and not is_nil(get(control, :cuenta)) ->
         cuenta = get(control, :cuenta)
 
@@ -596,6 +629,37 @@ defmodule AnchoFijo.Multiregistro do
         {:error, falla("un control con :cuenta o con :suma", inspect(control), nil)}
     end
   end
+
+  # El campo de agrupación tiene que estar en el layout del registro de
+  # control y en el del tipo contado o sumado: se compara el valor de uno
+  # con el de los otros.
+  defp validar_agrupar_por(control, registros, validado) do
+    case get(control, :agrupar_por) do
+      nil ->
+        {:ok, validado}
+
+      grupo when is_atom(grupo) ->
+        contado = tipo_contado(validado)
+
+        if tiene_campo?(registros, validado.en, grupo) and tiene_campo?(registros, contado, grupo),
+          do: {:ok, Map.put(validado, :agrupar_por, grupo)},
+          else:
+            {:error,
+             falla(
+               "un :agrupar_por que exista en el layout de #{inspect(validado.en)} y en el de " <>
+                 "#{inspect(contado)}",
+               inspect(grupo),
+               "el valor de ese campo en el registro de control se compara con el de los registros " <>
+                 "que cuenta o suma"
+             )}
+
+      otro ->
+        {:error, falla("un :agrupar_por que sea el nombre de un campo", inspect(otro), nil)}
+    end
+  end
+
+  defp tipo_contado(%{cuenta: tipo}), do: tipo
+  defp tipo_contado(%{suma: {tipo, _campo}}), do: tipo
 
   defp tiene_campo?(registros, tipo, campo) do
     case Keyword.fetch(registros, tipo) do
@@ -852,15 +916,14 @@ defmodule AnchoFijo.Multiregistro do
   # suma por {tipo, campo}), más los valores que el registro de control
   # declaró, para compararlos al final. Nunca los registros.
 
+  # Las sumas van por clave del control y por grupo (`nil` sin
+  # `agrupar_por`), y se crean al aparecer el primer registro: con grupos no
+  # se sabe de antemano cuáles hay.
   defp estado_inicial(%__MODULE__{} = multi) do
     %{
       indice: 0,
       vistos: Map.new(multi.registros, fn {tipo, _} -> {tipo, 0} end),
-      sumas:
-        Map.new(multi.controles, fn
-          %{suma: clave} -> {clave, nil}
-          %{cuenta: tipo} -> {{:cuenta, tipo}, 0}
-        end),
+      sumas: %{},
       declarados: []
     }
   end
@@ -1101,11 +1164,14 @@ defmodule AnchoFijo.Multiregistro do
   defp acumular(%__MODULE__{} = multi, tipo, registro, numero, estado) do
     sumas =
       Enum.reduce(multi.controles, estado.sumas, fn
-        %{cuenta: ^tipo}, sumas ->
-          Map.update!(sumas, {:cuenta, tipo}, &(&1 + 1))
+        %{cuenta: ^tipo} = control, sumas ->
+          clave = {{:cuenta, tipo}, grupo_de(control, registro)}
+          Map.update(sumas, clave, 1, &(&1 + 1))
 
-        %{suma: {^tipo, campo} = clave}, sumas ->
-          Map.update!(sumas, clave, &sumar(&1, Map.get(registro, campo)))
+        %{suma: {^tipo, campo}} = control, sumas ->
+          clave = {{tipo, campo}, grupo_de(control, registro)}
+          valor = Map.get(registro, campo)
+          Map.update(sumas, clave, sumar(nil, valor), &sumar(&1, valor))
 
         _otro, sumas ->
           sumas
@@ -1114,22 +1180,36 @@ defmodule AnchoFijo.Multiregistro do
     declarados =
       multi.controles
       |> Enum.filter(&(&1.en == tipo))
-      |> Enum.map(fn control -> {control, Map.get(registro, control.campo), numero} end)
+      |> Enum.map(fn control ->
+        {control, Map.get(registro, control.campo), numero, grupo_de(control, registro)}
+      end)
 
     %{estado | sumas: sumas, declarados: estado.declarados ++ declarados}
   end
 
-  # Sumas sobre enteros o sobre {unidades, precision}; con precisiones
-  # distintas se lleva todo a la mayor. nil (un campo opcional vacío) no suma.
+  defp grupo_de(%{agrupar_por: campo}, registro), do: Map.get(registro, campo)
+  defp grupo_de(_control, _registro), do: nil
+
+  # Sumas sobre enteros, sobre {unidades, precision} (con precisiones
+  # distintas se lleva todo a la mayor), sobre Monto de la misma moneda o
+  # sobre Decimal. nil (un campo opcional vacío) no suma.
   defp sumar(acumulado, nil), do: acumulado
   defp sumar(nil, valor), do: valor
   defp sumar(a, b) when is_integer(a) and is_integer(b), do: a + b
 
-  defp sumar({ua, pa}, {ub, pb}) do
+  defp sumar({ua, pa}, {ub, pb}) when is_integer(ua) and is_integer(ub) do
     p = max(pa, pb)
     {escalar(ua, pa, p) + escalar(ub, pb, p), p}
   end
 
+  defp sumar(%Monto{} = a, %Monto{} = b) do
+    case Monto.sumar(a, b) do
+      {:ok, suma} -> suma
+      {:error, _diagnostico} -> {:incomparable, a, b}
+    end
+  end
+
+  defp sumar(%{__struct__: Decimal} = a, %{__struct__: Decimal} = b), do: Decimal.add(a, b)
   defp sumar(a, b), do: {:incomparable, a, b}
 
   defp escalar(u, p, p), do: u
@@ -1137,41 +1217,57 @@ defmodule AnchoFijo.Multiregistro do
 
   # Sin registros que sumar, el acumulador es nil y el trailer tiene que
   # declarar cero, en la forma que sea.
-  defp iguales?(nil, declarado), do: declarado in [0, nil] or match?({0, _}, declarado)
+  defp iguales?(nil, declarado), do: cero?(declarado)
   defp iguales?(a, b) when is_integer(a) and is_integer(b), do: a == b
-  defp iguales?({ua, pa}, {ub, pb}), do: sumar({ua, pa}, {0, pb}) == sumar({ub, pb}, {0, pa})
+
+  defp iguales?({ua, pa}, {ub, pb}) when is_integer(ua) and is_integer(ub),
+    do: sumar({ua, pa}, {0, pb}) == sumar({ub, pb}, {0, pa})
+
+  defp iguales?(%Monto{moneda: m} = a, %Monto{moneda: m} = b),
+    do: iguales?({a.unidades, a.precision}, {b.unidades, b.precision})
+
+  defp iguales?(%{__struct__: Decimal} = a, %{__struct__: Decimal} = b), do: Decimal.equal?(a, b)
   defp iguales?(_a, _b), do: false
+
+  defp cero?(nil), do: true
+  defp cero?(0), do: true
+  defp cero?({0, _precision}), do: true
+  defp cero?(%Monto{unidades: 0}), do: true
+  defp cero?(%{__struct__: Decimal} = d), do: Decimal.equal?(d, 0)
+  defp cero?(_otro), do: false
 
   # Al terminar: los obligatorios que faltan y los controles que no cuadran.
   defp cierre(%__MODULE__{} = multi, estado) do
-    faltantes =
-      multi.registros
-      |> Enum.filter(fn {tipo, d} ->
-        d.cantidad in [:uno, :al_menos_uno] and Map.fetch!(estado.vistos, tipo) == 0
-      end)
-      |> Enum.map(fn {tipo, _} ->
-        Diagnostico.nuevo(
-          tipo: :estructura,
-          esperado: "un registro #{inspect(tipo)} en el archivo",
-          recibido: "el fin del archivo sin #{inspect(tipo)}",
-          causa_probable: "el archivo está truncado o el emisor no cerró el lote"
-        )
-      end)
-
-    controles =
-      Enum.flat_map(estado.declarados, fn {control, declarado, numero} ->
-        calculado = calcular(control, estado.sumas)
-
-        if iguales?(calculado, declarado),
-          do: [],
-          else: [no_cuadra(control, declarado, calculado, numero)]
-      end)
-
-    faltantes ++ controles
+    faltantes(multi, estado) ++ controles_que_no_cuadran(estado)
   end
 
-  defp calcular(%{cuenta: tipo}, sumas), do: Map.fetch!(sumas, {:cuenta, tipo})
-  defp calcular(%{suma: clave}, sumas), do: Map.fetch!(sumas, clave)
+  defp faltantes(%__MODULE__{} = multi, estado) do
+    multi.registros
+    |> Enum.filter(fn {tipo, d} ->
+      d.cantidad in [:uno, :al_menos_uno] and Map.fetch!(estado.vistos, tipo) == 0
+    end)
+    |> Enum.map(fn {tipo, _} ->
+      Diagnostico.nuevo(
+        tipo: :estructura,
+        esperado: "un registro #{inspect(tipo)} en el archivo",
+        recibido: "el fin del archivo sin #{inspect(tipo)}",
+        causa_probable: "el archivo está truncado o el emisor no cerró el lote"
+      )
+    end)
+  end
+
+  defp controles_que_no_cuadran(estado) do
+    Enum.flat_map(estado.declarados, fn {control, declarado, numero, grupo} ->
+      calculado = calcular(control, estado.sumas, grupo)
+
+      if iguales?(calculado, declarado),
+        do: [],
+        else: [no_cuadra(control, declarado, calculado, numero)]
+    end)
+  end
+
+  defp calcular(%{cuenta: tipo}, sumas, grupo), do: Map.get(sumas, {{:cuenta, tipo}, grupo}, 0)
+  defp calcular(%{suma: clave}, sumas, grupo), do: Map.get(sumas, {clave, grupo}, nil)
 
   defp no_cuadra(%{cuenta: tipo} = control, declarado, calculado, numero) do
     Diagnostico.nuevo(
@@ -1199,6 +1295,264 @@ defmodule AnchoFijo.Multiregistro do
         "el total del #{inspect(control.en)} no cuadra con los #{inspect(tipo)}; si hubo líneas " <>
           "ilegibles, la suma las excluye"
     )
+  end
+
+  # ---------------------------------------------------------------- escribir
+
+  @doc """
+  Escribe un archivo multiregistro: los `{tipo, mapa}` en el orden del
+  archivo, cada uno con el layout de su tipo, y los controles calculados.
+  Mismas opciones que `AnchoFijo.escribir/3`.
+
+      iex> multi = AnchoFijo.Multiregistro.nuevo!(
+      ...>   discriminador: [posicion: 1, largo: 2],
+      ...>   registros: [
+      ...>     header: [valor: "01", cantidad: :uno, layout: [campos: [[nombre: :tipo, largo: 2, tipo: :constante, valor: "01"], [nombre: :fecha, largo: 8, tipo: :fecha, formato: :aaaammdd]]]],
+      ...>     detalle: [valor: "02", cantidad: :varios, layout: [campos: [[nombre: :tipo, largo: 2, tipo: :constante, valor: "02"], [nombre: :monto, largo: 8, tipo: :entero]]]],
+      ...>     trailer: [valor: "09", cantidad: :uno, layout: [campos: [[nombre: :tipo, largo: 2, tipo: :constante, valor: "09"], [nombre: :cantidad, largo: 3, tipo: :entero], [nombre: :total, largo: 8, tipo: :entero]]]]
+      ...>   ],
+      ...>   controles: [
+      ...>     [en: :trailer, campo: :cantidad, cuenta: :detalle],
+      ...>     [en: :trailer, campo: :total, suma: {:detalle, :monto}]
+      ...>   ]
+      ...> )
+      iex> AnchoFijo.escribir(multi, [header: %{fecha: ~D[2024-01-31]}, detalle: %{monto: 1000}, detalle: %{monto: 250}, trailer: %{}])
+      {:ok, "0120240131\\n0200001000\\n0200000250\\n0900200001250\\n", []}
+
+  El trailer no trae `:cantidad` ni `:total`: salen de los detalles. Si los
+  trae con otro valor, es un diagnóstico `:control` que dice el declarado y
+  el calculado, y no se escribe nada.
+
+  Cada registro es `{tipo, mapa}`. Con `discriminador: [campo: nombre]`
+  también se acepta el mapa solo, con el literal del tipo en ese campo. Y
+  si el código de tipo es un campo de texto del layout (no una constante),
+  el mapa no necesita traerlo: sale el `:valor` del tipo; si lo trae, tiene
+  que ser uno de los valores de ese tipo. Un
+  tipo que no está en `:registros`, un registro fuera de orden o repetido,
+  o un tipo obligatorio que falta, son diagnósticos `:estructura`, los
+  mismos que al leer.
+  """
+  @spec escribir(t(), Enumerable.t(), keyword()) ::
+          {:ok, binary(), [Diagnostico.t()]} | {:error, [Diagnostico.t()]}
+  def escribir(%__MODULE__{} = multi, registros, opts \\ []) do
+    opts = Opciones.validar!(opts, Escritor.opciones(), "AnchoFijo.escribir/3")
+
+    metadata =
+      Map.merge(metadata_de(multi), %{
+        terminador: Keyword.get(opts, :terminador, :lf),
+        truncar: Keyword.get(opts, :truncar, false)
+      })
+
+    Telemetria.span(:escribir, metadata, fn ->
+      # Los totales del trailer necesitan todos los detalles: se materializa.
+      registros = Enum.to_list(registros)
+      resultado = escribir_todo(multi, registros, opts)
+      {resultado, medir_escritura(resultado, length(registros)), %{resultado: elem(resultado, 0)}}
+    end)
+  end
+
+  defp medir_escritura({:ok, _contenido, advertencias}, procesados),
+    do: %{lineas: procesados, registros: procesados, errores: 0, advertencias: length(advertencias)}
+
+  defp medir_escritura({:error, diagnosticos}, procesados),
+    do: %{lineas: procesados, registros: 0, errores: length(diagnosticos), advertencias: 0}
+
+  # Dos pasadas: la primera tipa cada registro, verifica la estructura y
+  # acumula cuentas y sumas; la segunda escribe, con los controles puestos
+  # (o verificados) en los registros que los declaran.
+  defp escribir_todo(%__MODULE__{} = multi, registros, opts) do
+    {tipados, estado, errores} =
+      registros
+      |> Enum.with_index(1)
+      |> Enum.reduce({[], estado_inicial(multi), []}, fn {elemento, numero},
+                                                         {tipados, estado, errores} ->
+        with {:ok, tipo, mapa} <- tipar(multi, elemento, numero),
+             {:ok, estado} <- avanzar(multi, tipo, definicion_de(multi, tipo), numero, estado) do
+          {[{tipo, mapa, numero} | tipados], acumular(multi, tipo, mapa, numero, estado), errores}
+        else
+          {:error, diagnosticos} -> {tipados, estado, Enum.reverse(diagnosticos, errores)}
+          {:error, diagnosticos, estado} -> {tipados, estado, Enum.reverse(diagnosticos, errores)}
+        end
+      end)
+
+    case Enum.reverse(errores) ++ faltantes(multi, estado) do
+      [] -> escribir_lineas(multi, Enum.reverse(tipados), estado, opts)
+      diagnosticos -> {:error, diagnosticos}
+    end
+  end
+
+  defp definicion_de(%__MODULE__{} = multi, tipo), do: Keyword.fetch!(multi.registros, tipo)
+
+  defp escribir_lineas(%__MODULE__{} = multi, tipados, estado, opts) do
+    terminador = Escritor.terminador(Keyword.get(opts, :terminador, :lf))
+    truncar? = Keyword.get(opts, :truncar, false)
+
+    {lineas, advertencias, errores} =
+      Enum.reduce(tipados, {[], [], []}, fn {tipo, mapa, numero}, {lineas, advertencias, errores} ->
+        with {:ok, mapa} <- con_discriminador(multi, tipo, mapa, numero),
+             {:ok, mapa} <- con_controles(multi, tipo, mapa, numero, estado),
+             {:ok, linea, nuevas} <-
+               Escritor.escribir_linea(definicion_de(multi, tipo).layout, mapa, numero, truncar?) do
+          {[linea <> terminador | lineas], Enum.reverse(nuevas, advertencias), errores}
+        else
+          {:error, diagnosticos} -> {lineas, advertencias, Enum.reverse(diagnosticos, errores)}
+        end
+      end)
+
+    case errores do
+      [] -> {:ok, lineas |> Enum.reverse() |> IO.iodata_to_binary(), Enum.reverse(advertencias)}
+      errores -> {:error, Enum.reverse(errores)}
+    end
+  end
+
+  # El código de tipo: si el layout lo declara como un campo de texto en las
+  # posiciones del discriminador y el mapa no lo trae, sale el :valor del
+  # tipo; si lo trae, tiene que ser uno de los valores del tipo. Con un
+  # campo :constante no hay nada que poner: lo escribe el campo.
+  defp con_discriminador(
+         %__MODULE__{discriminador: %{posicion: posicion, largo: largo}} = multi,
+         tipo,
+         mapa,
+         numero
+       ) do
+    %{layout: layout, valores: valores} = definicion_de(multi, tipo)
+
+    campo =
+      Enum.find(layout.campos, fn campo ->
+        campo.posicion == posicion and campo.largo == largo and not Campo.constante?(campo)
+      end)
+
+    case {campo, campo && Map.get(mapa, campo.nombre)} do
+      {nil, _} ->
+        {:ok, mapa}
+
+      {%Campo{nombre: nombre}, nil} ->
+        {:ok, Map.put(mapa, nombre, hd(valores))}
+
+      {%Campo{nombre: nombre}, dado} ->
+        if is_binary(dado) and Enum.any?(valores, &Tipo.Constante.coincide?(&1, dado, " ")),
+          do: {:ok, mapa},
+          else:
+            {:error,
+             [
+               Diagnostico.nuevo(
+                 tipo: :estructura,
+                 linea: numero,
+                 campo: nombre,
+                 esperado:
+                   "el código de tipo de #{inspect(tipo)}: #{Enum.map_join(valores, " o ", &inspect/1)}",
+                 recibido: inspect(dado),
+                 causa_probable: "el registro dice ser #{inspect(tipo)} y trae otro código de tipo"
+               )
+             ]}
+    end
+  end
+
+  defp con_discriminador(_multi, _tipo, mapa, _numero), do: {:ok, mapa}
+
+  # Los controles que este tipo declara: si el mapa no los trae, se ponen
+  # calculados; si los trae, tienen que cuadrar. Sin nada que sumar, cero.
+  defp con_controles(%__MODULE__{} = multi, tipo, mapa, numero, estado) do
+    multi.controles
+    |> Enum.filter(&(&1.en == tipo))
+    |> Enum.reduce({mapa, []}, fn control, {mapa, errores} ->
+      case completar_control(control, mapa, numero, estado) do
+        {:ok, mapa} -> {mapa, errores}
+        {:error, diagnostico} -> {mapa, errores ++ [diagnostico]}
+      end
+    end)
+    |> case do
+      {mapa, []} -> {:ok, mapa}
+      {_mapa, errores} -> {:error, errores}
+    end
+  end
+
+  defp completar_control(control, mapa, numero, estado) do
+    calculado = calcular(control, estado.sumas, grupo_de(control, mapa)) || 0
+
+    case Map.get(mapa, control.campo) do
+      nil ->
+        {:ok, Map.put(mapa, control.campo, calculado)}
+
+      declarado ->
+        if iguales?(calculado, declarado),
+          do: {:ok, mapa},
+          else: {:error, no_cuadra_al_escribir(control, declarado, calculado, numero)}
+    end
+  end
+
+  defp no_cuadra_al_escribir(control, declarado, calculado, numero) do
+    de_que =
+      case control do
+        %{cuenta: tipo} -> "la cantidad de registros #{inspect(tipo)}"
+        %{suma: {tipo, campo}} -> "la suma de #{inspect(campo)} de los #{inspect(tipo)}"
+      end
+
+    Diagnostico.nuevo(
+      tipo: :control,
+      linea: numero,
+      campo: control.campo,
+      esperado: "#{inspect(calculado)} en #{inspect(control.campo)}, #{de_que}, o el campo ausente",
+      recibido: inspect(declarado),
+      causa_probable:
+        "el registro declara un valor distinto del calculado; no se sobreescribe en silencio: " <>
+          "saque el campo del mapa para que salga calculado, o corrija los registros"
+    )
+  end
+
+  # `{tipo, mapa}` siempre; el mapa solo cuando el discriminador apunta a un
+  # campo :constante y el mapa trae su literal.
+  defp tipar(%__MODULE__{} = multi, {tipo, mapa}, numero) when is_atom(tipo) and is_map(mapa) do
+    if Keyword.has_key?(multi.registros, tipo),
+      do: {:ok, tipo, mapa},
+      else:
+        {:error,
+         [
+           Diagnostico.nuevo(
+             tipo: :estructura,
+             linea: numero,
+             esperado: "un tipo de registro de #{inspect(Keyword.keys(multi.registros))}",
+             recibido: inspect(tipo),
+             causa_probable: "el tipo no está en :registros del multiregistro"
+           )
+         ]}
+  end
+
+  defp tipar(%__MODULE__{discriminador: %{campo: campo}} = multi, mapa, numero)
+       when is_map(mapa) and not is_struct(mapa) do
+    literal = Map.get(mapa, campo)
+
+    case Enum.find(multi.registros, fn {_tipo, d} ->
+           is_binary(literal) and Enum.any?(d.valores, &Tipo.Constante.coincide?(&1, literal, " "))
+         end) do
+      {tipo, _definicion} ->
+        {:ok, tipo, mapa}
+
+      nil ->
+        {:error,
+         [
+           Diagnostico.nuevo(
+             tipo: :estructura,
+             linea: numero,
+             esperado: "un mapa con el literal de algún tipo en #{inspect(campo)}, o {tipo, mapa}",
+             recibido: inspect(literal),
+             causa_probable: "sin el literal no se sabe con qué layout escribir el registro"
+           )
+         ]}
+    end
+  end
+
+  defp tipar(_multi, otro, numero) do
+    {:error,
+     [
+       Diagnostico.nuevo(
+         tipo: :entrada,
+         linea: numero,
+         esperado: "cada registro como {tipo, mapa}, como los que devuelve parsear/3",
+         recibido: Entrada.describir(otro),
+         causa_probable: "sin el tipo no se sabe con qué layout escribir el registro"
+       )
+     ]}
   end
 
   # ----------------------------------------------------------------- agrupar

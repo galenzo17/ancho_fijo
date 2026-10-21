@@ -374,6 +374,27 @@ AnchoFijo.Multiregistro.agrupar(nomina, registros)
 # %{header: %{...}, detalle: [%{...}, %{...}], trailer: %{...}}
 ```
 
+Y el camino inverso, con los controles calculados en vez de pedidos:
+
+```elixir
+registros = [
+  header:  %{empresa: "76543210-3", fecha: ~D[2024-01-15], glosa: "SUELDOS ENERO"},
+  detalle: %{rut: "12345678-5", nombre: "JUAN PEREZ SOTO", monto: {125_000, 2}, cuenta: 11_223_344},
+  detalle: %{rut: "98765432-5", nombre: "ANA MARIA ROJAS", monto: {9_990_050, 2}, cuenta: 55_667_788},
+  trailer: %{}                      # :cantidad y :total salen de los detalles
+]
+
+{:ok, contenido, []} = AnchoFijo.escribir(nomina, registros)
+{:ok, ^registros_con_totales, []} = AnchoFijo.parsear(nomina, contenido)
+```
+
+Si el trailer trae `:cantidad` o `:total` con otro valor, es un diagnóstico
+`:control`: no se sobreescribe en silencio. Un trailer por moneda se declara
+con `agrupar_por: :moneda` en el control, y se compara (al leer) o se calcula
+(al escribir) contra los detalles de esa moneda. No hay versión lazy de la
+escritura: el trailer necesita los totales, y los totales necesitan todos los
+detalles.
+
 Las decisiones, y por qué:
 
 - **Los registros vuelven como `{tipo, mapa}` en el orden del archivo**, no
