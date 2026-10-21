@@ -162,10 +162,63 @@ defmodule AnchoFijo.Monto do
     end
   end
 
-  @spec nuevo(integer(), non_neg_integer(), moneda()) :: t()
+  @spec nuevo(integer() | struct(), non_neg_integer(), moneda()) :: t()
   def nuevo(unidades, precision, moneda)
       when is_integer(unidades) and is_integer(precision) and precision >= 0 and is_atom(moneda) do
     %__MODULE__{unidades: unidades, precision: precision, moneda: moneda}
+  end
+
+  # Un `%Decimal{}` con la precisión dada; más decimales es un ArgumentError.
+  def nuevo(%{__struct__: Decimal} = decimal, precision, moneda)
+      when is_integer(precision) and precision >= 0 and is_atom(moneda) do
+    case desde_decimal(decimal, precision, moneda) do
+      {:ok, monto} -> monto
+      {:error, diagnostico} -> raise ArgumentError, Diagnostico.mensaje(diagnostico)
+    end
+  end
+
+  @doc """
+  Un monto desde un `%Decimal{}`, con la escala de la moneda (o una precisión
+  explícita). `{:error, diagnostico}` si el decimal tiene más decimales que
+  la escala: no se redondea, porque redondear acá es donde se pierde el peso.
+
+      iex> AnchoFijo.Monto.desde_decimal(Decimal.new("1234.56"), :usd)
+      {:ok, AnchoFijo.Monto.nuevo(123_456, :usd)}
+      iex> {:error, diagnostico} = AnchoFijo.Monto.desde_decimal(Decimal.new("1234.567"), :usd)
+      iex> AnchoFijo.Diagnostico.mensaje(diagnostico)
+      "moneda: se esperaba un decimal con a lo más 2 decimales, la escala de USD, llegó 1234.567; convierta o redondee antes, a propósito: la librería no decide por usted"
+  """
+  @compile {:no_warn_undefined, Decimal}
+  @spec desde_decimal(struct(), moneda() | non_neg_integer(), moneda() | nil) ::
+          {:ok, t()} | {:error, Diagnostico.t()}
+  def desde_decimal(decimal, moneda_o_precision, moneda \\ nil)
+
+  def desde_decimal(decimal, moneda, nil) when is_atom(moneda) do
+    case escala(moneda) do
+      {:ok, precision} ->
+        desde_decimal(decimal, precision, moneda)
+
+      :error ->
+        raise ArgumentError,
+              "la moneda #{inspect(moneda)} no está en la tabla ISO 4217 de AnchoFijo.Monto; " <>
+                "use desde_decimal/3 con la escala explícita"
+    end
+  end
+
+  def desde_decimal(%{__struct__: Decimal} = decimal, precision, moneda)
+      when is_integer(precision) and precision >= 0 and is_atom(moneda) do
+    escalado = Decimal.mult(decimal, Decimal.new(Integer.pow(10, precision)))
+
+    if Decimal.integer?(escalado) do
+      {:ok, nuevo(Decimal.to_integer(escalado), precision, moneda)}
+    else
+      {:error,
+       incompatibles(
+         "un decimal con a lo más #{precision} decimales, la escala de #{codigo(moneda)}",
+         Decimal.to_string(decimal, :normal),
+         "convierta o redondee antes, a propósito: la librería no decide por usted"
+       )}
+    end
   end
 
   @doc """

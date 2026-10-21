@@ -41,6 +41,10 @@ defmodule AnchoFijo.Campo do
     * `:moneda` — en `:decimal`: código ISO 4217 como átomo (`:clp`, `:usd`).
       El valor pasa a ser un `AnchoFijo.Monto` y la `:precision` se toma de
       la escala de la moneda; declararla distinta es un layout inválido.
+    * `:como` — en `:decimal`: `:decimal` para leer un `%Decimal{}` en vez de
+      la tupla (o del `Monto`); requiere la librería `Decimal`. Ver
+      `AnchoFijo.Tipo.Decimal`. El layout lo fija para todos con
+      `decimales_como: :decimal`.
     * `:signo` — en `:entero` y `:decimal`: `:inicial` (default) o `:final`.
       Con `:final` el signo va después de los dígitos, `0125000-`, como en los
       formatos heredados de mainframe.
@@ -64,7 +68,7 @@ defmodule AnchoFijo.Campo do
   | --- | --- |
   | `:texto` | `String.t()` ya transcodificado a UTF-8 |
   | `:entero` | `integer()` |
-  | `:decimal` | `{unidades, precision}`, p. ej. `{123456, 2}` para `1234.56`; con `:moneda`, un `AnchoFijo.Monto` |
+  | `:decimal` | `{unidades, precision}`, p. ej. `{123456, 2}` para `1234.56`; con `:moneda`, un `AnchoFijo.Monto`; con `como: :decimal`, un `%Decimal{}` |
   | `:fecha` | `Date.t()` |
   | `:hora` | `Time.t()` |
   | `:fecha_hora` | `NaiveDateTime.t()` |
@@ -77,6 +81,8 @@ defmodule AnchoFijo.Campo do
   por punto flotante deja de cuadrar con la contabilidad del banco, y una
   librería de lectura no debería obligar a depender de `Decimal` para evitarlo.
   """
+
+  @compile {:no_warn_undefined, Decimal}
 
   alias AnchoFijo.Diagnostico
   alias AnchoFijo.Monto
@@ -91,6 +97,7 @@ defmodule AnchoFijo.Campo do
     precision: nil,
     separador: :implicito,
     moneda: nil,
+    como: nil,
     signo: :inicial,
     formato: nil,
     pivote: nil,
@@ -115,6 +122,7 @@ defmodule AnchoFijo.Campo do
           String.t()
           | integer()
           | {integer(), non_neg_integer()}
+          | struct()
           | Date.t()
           | Time.t()
           | NaiveDateTime.t()
@@ -133,6 +141,7 @@ defmodule AnchoFijo.Campo do
           precision: non_neg_integer() | nil,
           separador: :implicito | :punto | :coma,
           moneda: Monto.moneda() | nil,
+          como: :decimal | nil,
           signo: :inicial | :final,
           formato: atom() | String.t() | nil,
           pivote: pos_integer() | nil,
@@ -155,6 +164,7 @@ defmodule AnchoFijo.Campo do
             precision: nil,
             separador: :implicito,
             moneda: nil,
+            como: nil,
             signo: :inicial,
             formato: nil,
             pivote: nil,
@@ -839,6 +849,25 @@ defmodule AnchoFijo.Campo do
     )
   end
 
+  # Un `%Decimal{}`, un entero en unidades enteras o un string numérico se
+  # llevan a unidades mínimas sin redondear; con moneda, pasan por el mismo
+  # camino que la tupla.
+  defp representar(%__MODULE__{modulo: Tipo.Decimal} = campo, valor, contexto)
+       when is_struct(valor, Decimal) or is_integer(valor) or is_binary(valor) do
+    case Tipo.Decimal.a_unidades(valor, campo) do
+      {:ok, unidades} ->
+        representar(campo, {unidades, campo.precision}, contexto)
+
+      {:error, causa} ->
+        {:error,
+         diagnostico(campo, contexto,
+           esperado: descripcion_de_valor(campo),
+           recibido: inspect(valor),
+           causa_probable: causa
+         )}
+    end
+  end
+
   # Un `AnchoFijo.Monto` se escribe si es de la moneda y la precisión del
   # campo: es exactamente lo que `extraer/3` devuelve para ese campo.
   defp representar(
@@ -1020,10 +1049,12 @@ defmodule AnchoFijo.Campo do
 
   defp descripcion_de_valor(%__MODULE__{modulo: Tipo.Decimal, moneda: moneda, precision: p})
        when not is_nil(moneda),
-       do: "un AnchoFijo.Monto en #{Monto.codigo(moneda)} o un monto {unidades, #{p}}"
+       do:
+         "un AnchoFijo.Monto en #{Monto.codigo(moneda)}, un monto {unidades, #{p}}, " <>
+           "un Decimal o un entero"
 
   defp descripcion_de_valor(%__MODULE__{modulo: Tipo.Decimal, precision: p}),
-    do: "un monto {unidades, #{p}}"
+    do: "un monto {unidades, #{p}}, un Decimal o un entero"
 
   defp descripcion_de_valor(%__MODULE__{modulo: Tipo.Fecha}), do: "una fecha (Date)"
   defp descripcion_de_valor(%__MODULE__{modulo: Tipo.Hora}), do: "una hora (Time)"

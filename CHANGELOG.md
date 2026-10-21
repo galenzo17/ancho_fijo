@@ -40,6 +40,15 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- Interoperar con `Decimal` sin tuplas: `como: :decimal` en un campo
+  `:decimal` (o `decimales_como: :decimal` en el layout, para todos) lee un
+  `%Decimal{}` con la escala del campo; requiere la librería y sin ella el
+  layout es inválido con un diagnóstico que dice qué agregar. Al escribir,
+  cualquier `:decimal` acepta un `%Decimal{}`, un entero en unidades
+  enteras o un string numérico, y más decimales que `:precision` es un
+  diagnóstico, nunca un redondeo. `Monto.desde_decimal/2` y `Monto.nuevo/3`
+  con un `Decimal`. El job de CI "Como dependencia" prueba el camino sin
+  `Decimal`.
 - `encoding:` por campo (`:utf8` o `:latin1`, por encima del encoding del
   layout; solo con `unidad: :bytes`), para los archivos que mezclan: latin-1
   en todo salvo el texto libre en UTF-8. Al leer y al escribir.

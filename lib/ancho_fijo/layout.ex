@@ -86,7 +86,16 @@ defmodule AnchoFijo.Layout do
   alias AnchoFijo.Diagnostico
   alias AnchoFijo.Opciones
 
-  @opciones [:campos, :encoding, :unidad, :relleno_final, :largo, :nombre, :identidad]
+  @opciones [
+    :campos,
+    :encoding,
+    :unidad,
+    :relleno_final,
+    :largo,
+    :nombre,
+    :identidad,
+    :decimales_como
+  ]
   @encodings [:utf8, :latin1]
   @unidades [:bytes, :caracteres]
   @rellenos_finales [:estricto, :tolerar]
@@ -99,7 +108,8 @@ defmodule AnchoFijo.Layout do
           unidad: :bytes | :caracteres,
           relleno_final: :estricto | :tolerar,
           advertencias: [Diagnostico.t()],
-          identidad: %{campos: [atom()]} | nil
+          identidad: %{campos: [atom()]} | nil,
+          decimales_como: :decimal | nil
         }
 
   defstruct nombre: nil,
@@ -109,7 +119,8 @@ defmodule AnchoFijo.Layout do
             unidad: :bytes,
             relleno_final: :estricto,
             advertencias: [],
-            identidad: nil
+            identidad: nil,
+            decimales_como: nil
 
   @doc """
   Valida y construye un layout.
@@ -132,7 +143,7 @@ defmodule AnchoFijo.Layout do
     with {:ok, atributos} <- a_mapa(atributos),
          :ok <- validar_claves(atributos),
          {:ok, globales} <- validar_globales(atributos),
-         {:ok, campos} <- construir_campos(Map.get(atributos, :campos, [])),
+         {:ok, campos} <- construir_campos(Map.get(atributos, :campos, []), globales),
          campos = posicionar(campos),
          :ok <- validar_disposicion(campos),
          :ok <- validar_encodings(campos, globales),
@@ -298,12 +309,14 @@ defmodule AnchoFijo.Layout do
     unidad = Map.get(atributos, :unidad, :bytes)
 
     relleno_final = Map.get(atributos, :relleno_final, :estricto)
+    decimales_como = Map.get(atributos, :decimales_como)
 
     diagnosticos =
       Enum.concat([
         validar_en(encoding, @encodings, :encoding),
         validar_en(unidad, @unidades, :unidad),
         validar_en(relleno_final, @rellenos_finales, :relleno_final),
+        validar_en(decimales_como, [nil, :decimal], :decimales_como),
         validar_nombre(Map.get(atributos, :nombre))
       ])
 
@@ -314,7 +327,8 @@ defmodule AnchoFijo.Layout do
            encoding: encoding,
            unidad: unidad,
            relleno_final: relleno_final,
-           nombre: Map.get(atributos, :nombre)
+           nombre: Map.get(atributos, :nombre),
+           decimales_como: decimales_como
          }}
 
       diagnosticos ->
@@ -345,6 +359,29 @@ defmodule AnchoFijo.Layout do
           nil
         )
       ]
+    end
+  end
+
+  # `decimales_como: :decimal` es el default de `como:` para los campos
+  # :decimal que no lo declaran; el campo se reconstruye para que la
+  # validación (Decimal disponible) corra igual que si lo hubiera declarado.
+  defp construir_campos(definiciones, %{decimales_como: nil}), do: construir_campos(definiciones)
+
+  defp construir_campos(definiciones, %{decimales_como: como}) when is_list(definiciones) do
+    definiciones
+    |> Enum.map(&con_decimales_como(&1, como))
+    |> construir_campos()
+  end
+
+  defp construir_campos(definiciones, _globales), do: construir_campos(definiciones)
+
+  defp con_decimales_como(%Campo{tipo: :decimal, como: nil} = campo, como),
+    do: campo |> Map.from_struct() |> Map.put(:como, como)
+
+  defp con_decimales_como(definicion, como) do
+    case Opciones.a_mapa(definicion) do
+      {:ok, %{tipo: :decimal} = mapa} -> Map.put_new(mapa, :como, como)
+      _otra -> definicion
     end
   end
 

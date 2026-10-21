@@ -483,6 +483,39 @@ el mapa es un diagnóstico, porque no es un dato distinto, es otro formato.
 [nombre: :ceros, largo: 15, tipo: :relleno, relleno: "0"]
 ```
 
+## Si ya usas Decimal
+
+Los campos `:decimal` entregan `{unidades, precision}` (o un `AnchoFijo.Monto`
+con `:moneda`) para no obligar a una dependencia. Si el proyecto ya trabaja
+con `Decimal`, como todo lo que pasa por Ecto, se declara una vez:
+
+```elixir
+layout = AnchoFijo.Layout.nuevo!(
+  decimales_como: :decimal,          # o como: :decimal en un campo
+  campos: [
+    [nombre: :rut, largo: 10, tipo: :rut],
+    [nombre: :monto, largo: 10, tipo: :decimal, precision: 2]
+  ]
+)
+
+{:ok, [%{monto: monto}], []} = AnchoFijo.parsear(layout, "12345678-50000125000\n")
+# monto == Decimal.new("1250.00")
+
+AnchoFijo.escribir(layout, [%{rut: "12345678-5", monto: Decimal.new("1250")}])
+# {:ok, "12345678-50000125000\n", []}
+```
+
+Al escribir, cualquier `:decimal` acepta un `%Decimal{}`, un entero (en
+unidades enteras) o un string numérico, además de la tupla y del `Monto`. Un
+valor con más decimales que `:precision` es un diagnóstico, nunca un redondeo
+silencioso. `Monto.desde_decimal/2` y `Monto.nuevo/3` con un `Decimal` hacen
+el camino inverso de `Monto.a_decimal/1`.
+
+No es el default a propósito: `Decimal` es opcional en `ancho_fijo`, y sin la
+librería `como: :decimal` es un layout inválido que dice qué agregar. El
+paquete sigue sin dependencias de runtime, y quien no usa `Decimal` no paga
+por ella.
+
 ## Tipos propios
 
 Los cinco tipos son implementaciones del behaviour `AnchoFijo.Tipo`, y un
@@ -746,11 +779,12 @@ el emisor contó caracteres, hay que declarar `unidad: :caracteres` o cada líne
 con una "ñ" se corre un byte. La librería no lo adivina, pero `detectar/2`
 reporta los dos largos cuando difieren, que es la señal para saber cuál usar.
 
-**Los montos son `{unidades, precision}` y no `Decimal`.** Cumple con "ningún
-float en el camino" sin sumar una dependencia. El costo es que hay que convertir
-en el borde: `Decimal.new(1, unidades, -precision)` si se usa esa librería, o
-`div/2` y `rem/2` para formatear. Para un paquete que se vende como chico, la
-dependencia obligatoria pesaba más que la conversión de una línea.
+**Los montos son `{unidades, precision}` y no `Decimal`, por default.** Cumple
+con "ningún float en el camino" sin sumar una dependencia. El costo es que hay
+que convertir en el borde, o declarar `decimales_como: :decimal` si el proyecto
+ya tiene `Decimal`: entonces los campos leen y escriben `%Decimal{}`. Para un
+paquete que se vende como chico, la dependencia obligatoria pesaba más que una
+declaración de una línea.
 
 **Los huecos no bloquean, los solapamientos sí.** Explicado arriba. La
 consecuencia es que un layout con un campo olvidado en el medio parsea igual, y
