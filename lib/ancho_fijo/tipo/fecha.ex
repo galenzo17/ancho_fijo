@@ -113,25 +113,27 @@ defmodule AnchoFijo.Tipo.Fecha do
     end
   end
 
+  # El mes y el día se revisan antes de `Date.new/3`, no después: la spec de
+  # `Date.new/3` declara el mes en 1..12 y el día en 1..31, y dialyzer da por
+  # imposible un mes 13 o un día 0 después de llamarla.
   def a_date(%{anio: anio, mes: mes, dia: dia}) do
+    cond do
+      mes < 1 or mes > 12 ->
+        {:error, "el mes #{mes} no existe: puede que el formato sea el inverso"}
+
+      dia < 1 ->
+        {:error, "el día viene en cero"}
+
+      true ->
+        fecha(anio, mes, dia)
+    end
+  end
+
+  defp fecha(anio, mes, dia) do
     case Date.new(anio, mes, dia) do
-      {:ok, fecha} ->
-        {:ok, fecha}
-
-      {:error, _} ->
-        cond do
-          mes < 1 or mes > 12 ->
-            {:error, "el mes #{mes} no existe: puede que el formato sea el inverso"}
-
-          dia < 1 ->
-            {:error, "el día viene en cero"}
-
-          anio == 0 ->
-            {:error, "el año viene en cero"}
-
-          true ->
-            {:error, "el día no existe en ese mes"}
-        end
+      {:ok, fecha} -> {:ok, fecha}
+      {:error, _} when anio == 0 -> {:error, "el año viene en cero"}
+      {:error, _} -> {:error, "el día no existe en ese mes"}
     end
   end
 
