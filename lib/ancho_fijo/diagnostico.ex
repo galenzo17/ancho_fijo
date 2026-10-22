@@ -355,10 +355,16 @@ defmodule AnchoFijo.Diagnostico do
       |> Enum.reject(&is_nil/1)
 
     case segmentos do
-      [] -> "entrada"
+      [] -> sin_contexto(d.tipo)
       lista -> Enum.join(lista, ", ")
     end
   end
+
+  # Un diagnóstico sin línea ni campo habla del archivo entero. Si es de
+  # estructura (un trailer que no llegó), decirlo: "entrada:" culparía a la
+  # lectura del archivo, que estuvo bien.
+  defp sin_contexto(:estructura), do: "estructura"
+  defp sin_contexto(_otro), do: "entrada"
 
   defp prefijo_tipo(:layout), do: "layout"
   defp prefijo_tipo(:entrada), do: "entrada"

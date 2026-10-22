@@ -84,6 +84,59 @@ defmodule AnchoFijo.MultiregistroTest do
     end
   end
 
+  describe "parsear!/3" do
+    test "con un multiregistro devuelve los {tipo, mapa}, no un diagnóstico de layout" do
+      registros = AnchoFijo.parsear!(AnchoFijo.Formatos.nacha(), ruta("nacha_ppd.txt"))
+
+      assert length(registros) == 20
+      assert {:encabezado_de_archivo, %{record_type_code: "1"}} = hd(registros)
+      assert registros == Multiregistro.parsear!(AnchoFijo.Formatos.nacha(), ruta("nacha_ppd.txt"))
+    end
+
+    test "levanta AnchoFijo.Error con los diagnósticos reales de estructura y control" do
+      sin_trailer = leer("nomina_multiregistro.txt") |> String.split("\n") |> Enum.take(4)
+
+      error =
+        assert_raise AnchoFijo.Error, fn ->
+          AnchoFijo.parsear!(nomina(), Enum.map_join(sin_trailer, "", &(&1 <> "\n")))
+        end
+
+      assert [%Diagnostico{tipo: :estructura, esperado: "un registro :trailer en el archivo"}] =
+               error.diagnosticos
+    end
+
+    test "en tolerante levanta con todos los errores, de línea y de control" do
+      con_detalle_roto =
+        leer("nomina_multiregistro.txt")
+        |> String.replace("000012500011223344", "0000125000112233XX")
+
+      error =
+        assert_raise AnchoFijo.Error, fn ->
+          AnchoFijo.parsear!(nomina(), con_detalle_roto, modo: :tolerante)
+        end
+
+      assert [:campo_invalido, :control, :control] = Enum.map(error.diagnosticos, & &1.tipo)
+    end
+
+    test "las advertencias no levantan ni se devuelven" do
+      layout_tolerante = [
+        relleno_final: :tolerar,
+        campos: [[nombre: :t, largo: 1], [nombre: :glosa, largo: 5]]
+      ]
+
+      multi =
+        Multiregistro.nuevo!(
+          discriminador: [largo: 1],
+          registros: [d: [valor: "D", layout: layout_tolerante]]
+        )
+
+      assert {:ok, [d: %{glosa: "ab"}], [%Diagnostico{gravedad: :advertencia}]} =
+               AnchoFijo.parsear(multi, "Dab\n")
+
+      assert [d: %{glosa: "ab"}] = AnchoFijo.parsear!(multi, "Dab\n")
+    end
+  end
+
   describe "estructura" do
     @lineas [
       "0176543210-320240115SUELDOS ENERO       ",

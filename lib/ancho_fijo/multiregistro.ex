@@ -403,6 +403,41 @@ defmodule AnchoFijo.Multiregistro do
   end
 
   @doc """
+  Igual que `parsear/3`, pero devuelve solo los registros o levanta
+  `AnchoFijo.Error`. Es el mismo contrato que `AnchoFijo.Parser.parsear!/3`:
+  en modo `:tolerante` levanta con **todos** los errores del archivo, los de
+  las líneas y los de estructura y control, y las advertencias no se
+  devuelven.
+
+      iex> multi = AnchoFijo.Multiregistro.nuevo!(discriminador: [largo: 1], registros: [
+      ...>   h: [valor: "H", cantidad: :uno, layout: [campos: [[nombre: :t, largo: 1]]]],
+      ...>   d: [valor: "D", cantidad: :varios, layout: [campos: [[nombre: :t, largo: 1]]]]
+      ...> ])
+      iex> AnchoFijo.Multiregistro.parsear!(multi, "H\\nD\\nD\\n")
+      [h: %{t: "H"}, d: %{t: "D"}, d: %{t: "D"}]
+
+      iex> multi = AnchoFijo.Multiregistro.nuevo!(discriminador: [largo: 1], registros: [
+      ...>   h: [valor: "H", cantidad: :uno, layout: [campos: [[nombre: :t, largo: 1]]]],
+      ...>   d: [valor: "D", cantidad: :varios, layout: [campos: [[nombre: :t, largo: 1]]]]
+      ...> ])
+      iex> AnchoFijo.Multiregistro.parsear!(multi, "D\\n")
+      ** (AnchoFijo.Error) estructura: se esperaba un registro :h en el archivo, llegó el fin del archivo sin :h; el archivo está truncado o el emisor no cerró el lote
+  """
+  @spec parsear!(t(), term(), keyword()) :: [registro()]
+  def parsear!(%__MODULE__{} = multi, entrada, opts \\ []) do
+    case parsear(multi, entrada, opts) do
+      {:ok, registros, diagnosticos} ->
+        case Diagnostico.separar(diagnosticos) do
+          {[], _advertencias} -> registros
+          {errores, _advertencias} -> raise AnchoFijo.Error, errores
+        end
+
+      {:error, diagnosticos} ->
+        raise AnchoFijo.Error, diagnosticos
+    end
+  end
+
+  @doc """
   Versión lazy. Emite `{:ok, {tipo, registro}, advertencias}` o
   `{:error, diagnosticos}` por línea, y al final un `{:error, diagnosticos}`
   más si los controles no cuadran o falta un registro obligatorio.

@@ -2,6 +2,20 @@
 
 Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
+## [No publicado]
+
+### Corregido
+
+- `AnchoFijo.parsear!/3` acepta un `AnchoFijo.Multiregistro`, como
+  `parsear/3` y `stream/3`. Antes intentaba coercer el struct como layout y
+  levantaba un diagnóstico `:layout` que culpaba a una definición válida.
+  Nuevo `AnchoFijo.Multiregistro.parsear!/3`, con el contrato de
+  `Parser.parsear!/3`: en `:tolerante` levanta con todos los errores, las
+  advertencias no se devuelven.
+- El mensaje de un diagnóstico `:estructura` sin línea (un trailer que no
+  llegó) empieza con `estructura:` y no con `entrada:`, que culpaba a la
+  lectura del archivo.
+
 ## [0.3.1] — 2026-10-20
 
 ### Corregido

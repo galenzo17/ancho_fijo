@@ -76,8 +76,8 @@ defmodule AnchoFijo do
   ## Header, detalle y trailer
 
   Un archivo con varios tipos de registro se describe con
-  `AnchoFijo.Multiregistro`, y `parsear/3` y `stream/3` lo aceptan en lugar
-  del layout.
+  `AnchoFijo.Multiregistro`, y `parsear/3`, `parsear!/3` y `stream/3` lo
+  aceptan en lugar del layout.
   """
 
   alias AnchoFijo.Detector
@@ -170,10 +170,20 @@ defmodule AnchoFijo do
       iex> AnchoFijo.parsear!([campos: [[nombre: :codigo, largo: 3, tipo: :entero]]], "001\\nAB2\\n")
       ** (AnchoFijo.Error) línea 2, campo :codigo (posiciones 1-3): se esperaban 3 posiciones con un número entero, llegaron "AB2"; hay caracteres no numéricos o el campo está corrido
 
-  Ver `AnchoFijo.Parser.parsear!/3`.
+  Con un `AnchoFijo.Multiregistro` devuelve los registros como `{tipo, mapa}`,
+  igual que `parsear/3`, y levanta con los diagnósticos de estructura y de
+  control además de los de cada línea.
+
+  Ver `AnchoFijo.Parser.parsear!/3` y `AnchoFijo.Multiregistro.parsear!/3`.
   """
-  @spec parsear!(Layout.t() | Enumerable.t(), term(), keyword()) :: [Parser.registro()]
-  defdelegate parsear!(layout, entrada, opts \\ []), to: Parser
+  @spec parsear!(Layout.t() | Multiregistro.t() | Enumerable.t(), term(), keyword()) ::
+          [Parser.registro()] | [Multiregistro.registro()]
+  def parsear!(layout, entrada, opts \\ [])
+
+  def parsear!(%Multiregistro{} = multi, entrada, opts),
+    do: Multiregistro.parsear!(multi, entrada, opts)
+
+  def parsear!(layout, entrada, opts), do: Parser.parsear!(layout, entrada, opts)
 
   @doc """
   Igual que `parsear/3` pero lazy, para archivos que no caben en memoria.
