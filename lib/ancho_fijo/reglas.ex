@@ -136,8 +136,9 @@ defmodule AnchoFijo.Reglas do
 
   @doc false
   # El campo del que depende una condición, para que el layout verifique
-  # que existe.
-  @spec condicion_campo(term()) :: atom() | nil
+  # que existe. Devuelve lo que el layout haya puesto: validarlo es tarea
+  # de `validar_condicion/2`.
+  @spec condicion_campo(term()) :: term()
   def condicion_campo(condicion) when is_list(condicion), do: Keyword.get(condicion, :campo)
   def condicion_campo(%{campo: campo}), do: campo
   def condicion_campo(_otro), do: nil

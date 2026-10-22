@@ -283,7 +283,7 @@ defmodule AnchoFijo.Campo do
 
   defp construir(atributos) do
     campo = struct(%__MODULE__{}, normalizar(atributos))
-    campo = %__MODULE__{campo | reglas: Reglas.desde_atributos(campo_reglas(atributos))}
+    campo = %{campo | reglas: Reglas.desde_atributos(campo_reglas(atributos))}
 
     case Tipo.resolver(campo.tipo) do
       {:ok, modulo} ->
