@@ -35,7 +35,7 @@ defmodule AnchoFijo.Test.Generadores do
   `escribir/3`.
   """
 
-  @compile {:no_warn_undefined, [StreamData, AnchoFijo.Test.Generadores.Impl]}
+  @compile {:no_warn_undefined, [StreamData, AnchoFijo.Test.Generadores.Impl, Decimal]}
 
   @doc "Si `StreamData` estaba disponible al compilar la librería."
   @spec disponible?() :: boolean()
@@ -89,6 +89,7 @@ if Code.ensure_loaded?(StreamData) do
     alias AnchoFijo.Monto
     alias AnchoFijo.Multiregistro
     alias AnchoFijo.Parser
+    alias AnchoFijo.Reglas
     alias AnchoFijo.Rut
     alias AnchoFijo.Tipo.Patron
 
@@ -126,7 +127,48 @@ if Code.ensure_loaded?(StreamData) do
         end)
         |> fixed_map()
         |> map(&Map.merge(mapa, &1))
+        |> bind(&cumplir_condiciones(&1, campos, layout))
       end)
+    end
+
+    # requerido_si: y prohibido_si: se cumplen después de generar: un campo
+    # requerido que salió nil recibe un valor, y uno prohibido que salió con
+    # valor queda en nil.
+    #
+    # Arreglar una condición puede disparar otra (dar valor a un campo que
+    # otro prohíbe), así que se repite hasta que no quede ninguna; si en
+    # tantas vueltas como campos sigue habiendo, las condiciones se
+    # contradicen y no hay registro válido que generar.
+    defp cumplir_condiciones(mapa, campos, layout, vueltas \\ 0) do
+      arreglos = Enum.flat_map(campos, &arreglo_de(&1, mapa, layout))
+
+      cond do
+        arreglos == [] ->
+          constant(mapa)
+
+        vueltas >= length(campos) ->
+          raise ArgumentError,
+                "las condiciones requerido_si:/prohibido_si: del layout se contradicen entre sí: " <>
+                  Enum.map_join(arreglos, ", ", &inspect(elem(&1, 0)))
+
+        true ->
+          arreglos
+          |> fixed_map()
+          |> map(&Map.merge(mapa, &1))
+          |> bind(&cumplir_condiciones(&1, campos, layout, vueltas + 1))
+      end
+    end
+
+    # Un campo requerido que salió nil recibe un valor; uno prohibido que
+    # salió con valor queda en nil.
+    defp arreglo_de(%Campo{reglas: %{requerido_si: nil, prohibido_si: nil}}, _mapa, _layout), do: []
+
+    defp arreglo_de(campo, mapa, layout) do
+      cond do
+        Reglas.cruzadas([campo], mapa, %{}) == [] -> []
+        is_nil(Map.get(mapa, campo.nombre)) -> [{campo.nombre, con_reglas(campo, layout)}]
+        true -> [{campo.nombre, constant(nil)}]
+      end
     end
 
     def linea(layout) do
@@ -179,11 +221,73 @@ if Code.ensure_loaded?(StreamData) do
 
     # ---------------------------------------------------------- por campo
 
-    # Un opcional es nil a veces; el resto de las veces, un valor del tipo.
+    # Un opcional es nil a veces; el resto de las veces, un valor del tipo
+    # que cumpla las reglas del campo: un generador propio si lo declara, el
+    # catálogo de `en:` si lo tiene, el rango, y si no, el del tipo. Un
+    # `patron:` o un `en:` con función no se pueden deducir: hay que
+    # declarar `generador:`.
     defp valor(%Campo{opcional: true} = campo, layout),
-      do: one_of([constant(nil), por_tipo(campo, layout)])
+      do: one_of([constant(nil), con_reglas(campo, layout)])
 
-    defp valor(%Campo{} = campo, layout), do: por_tipo(campo, layout)
+    defp valor(%Campo{} = campo, layout), do: con_reglas(campo, layout)
+
+    defp con_reglas(%Campo{generador: generador}, _layout) when not is_nil(generador), do: generador
+    defp con_reglas(%Campo{reglas: %{en: lista}}, _layout) when is_list(lista), do: member_of(lista)
+
+    defp con_reglas(%Campo{reglas: %{en: fun}} = campo, _layout) when is_function(fun, 1) do
+      raise ArgumentError,
+            "el campo #{inspect(campo.nombre)} tiene un :en con función; declare generador: para generarlo"
+    end
+
+    defp con_reglas(%Campo{reglas: %{patron: %Regex{}}} = campo, _layout) do
+      raise ArgumentError,
+            "el campo #{inspect(campo.nombre)} tiene un :patron; declare generador: con un StreamData que lo cumpla"
+    end
+
+    defp con_reglas(%Campo{reglas: %{rango: {_, _}}} = campo, _layout), do: en_rango(campo)
+    defp con_reglas(%Campo{} = campo, layout), do: por_tipo(campo, layout)
+
+    # Los valores dentro del rango, en la forma del tipo.
+    defp en_rango(%Campo{tipo: :entero, reglas: %{rango: {min, max}}, largo: largo}) do
+      desde..hasta//_ = rango(largo)
+      integer(max(min || desde, desde)..min(max || hasta, hasta))
+    end
+
+    defp en_rango(%Campo{tipo: :decimal, reglas: %{rango: {min, max}}} = campo) do
+      digitos = if campo.separador == :implicito, do: campo.largo, else: max(campo.largo - 1, 1)
+      desde..hasta//_ = rango(digitos)
+      a_unidades = fn extremo -> extremo && unidades_de(extremo, campo.precision) end
+
+      integer(max(a_unidades.(min) || desde, desde)..min(a_unidades.(max) || hasta, hasta))
+      |> map(&valor_decimal(&1, campo))
+    end
+
+    defp en_rango(%Campo{tipo: :fecha, reglas: %{rango: {min, max}}}) do
+      desde = min || ~D[1950-01-01]
+      hasta = max || Date.add(desde, 36_524)
+      map(integer(0..Date.diff(hasta, desde)), &Date.add(desde, &1))
+    end
+
+    defp en_rango(%Campo{tipo: :hora, reglas: %{rango: {min, max}}}) do
+      desde = min || ~T[00:00:00]
+      hasta = max || ~T[23:59:59]
+      map(integer(0..Time.diff(hasta, desde)), &Time.add(desde, &1, :second))
+    end
+
+    defp en_rango(%Campo{tipo: :fecha_hora, reglas: %{rango: {min, max}}}) do
+      desde = min || ~N[1950-01-01 00:00:00]
+      hasta = max || NaiveDateTime.add(desde, 36_524 * 86_400)
+      map(integer(0..NaiveDateTime.diff(hasta, desde)), &NaiveDateTime.add(desde, &1))
+    end
+
+    defp unidades_de(n, _precision) when is_integer(n), do: n
+    defp unidades_de({u, p}, precision), do: u * Integer.pow(10, precision - p)
+
+    defp unidades_de(%Monto{unidades: u, precision: p}, precision),
+      do: u * Integer.pow(10, precision - p)
+
+    defp unidades_de(%{__struct__: Decimal} = d, precision),
+      do: d |> Decimal.mult(Decimal.new(Integer.pow(10, precision))) |> Decimal.to_integer()
 
     defp por_tipo(%Campo{tipo: :texto} = campo, layout), do: texto(campo, layout)
     defp por_tipo(%Campo{tipo: :entero} = campo, _layout), do: entero(campo)

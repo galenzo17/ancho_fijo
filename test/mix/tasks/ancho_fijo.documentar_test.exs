@@ -44,7 +44,7 @@ defmodule Mix.Tasks.AnchoFijo.DocumentarTest do
     {0, salida, ""} = correr([ruta("layout_nomina.exs")])
 
     assert salida =~
-             "| Campo | Posiciones | Largo | Tipo | Formato | Opcional | Descripción | Ejemplo |"
+             "| Campo | Posiciones | Largo | Tipo | Formato | Opcional | Reglas | Descripción | Ejemplo |"
 
     assert salida =~ "| `rut` | 1-10 | 10 |"
   end
@@ -53,10 +53,11 @@ defmodule Mix.Tasks.AnchoFijo.DocumentarTest do
     {0, salida, ""} =
       correr([ruta("multiregistro_sin_codigo.exs"), "--formato", "csv", "--idioma", "en"])
 
-    assert salida =~ "Record;Field;Positions;Length;Type;Format;Optional;Description;Example\n"
+    assert salida =~
+             "Record;Field;Positions;Length;Type;Format;Optional;Rules;Description;Example\n"
 
     assert salida =~
-             "detalle;monto;27-36;10;decimal;2 implicit decimals;no;Monto a pagar;0000125000\n"
+             "detalle;monto;27-36;10;decimal;2 implicit decimals;no;;Monto a pagar;0000125000\n"
   end
 
   test "json decodificable" do

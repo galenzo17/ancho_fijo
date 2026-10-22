@@ -148,6 +148,7 @@ defmodule AnchoFijo.Layout do
          :ok <- validar_disposicion(campos),
          :ok <- validar_encodings(campos, globales),
          :ok <- validar_variantes(campos),
+         :ok <- validar_condiciones(campos),
          {:ok, identidad} <- validar_identidad(Map.get(atributos, :identidad), campos),
          {:ok, largo, advertencias} <- resolver_largo(campos, globales, atributos) do
       {:ok,
@@ -601,6 +602,32 @@ defmodule AnchoFijo.Layout do
             ]
         end
       end)
+
+    case diagnosticos do
+      [] -> :ok
+      diagnosticos -> {:error, diagnosticos}
+    end
+  end
+
+  # `requerido_si:` y `prohibido_si:` nombran otro campo del mismo layout.
+  defp validar_condiciones(campos) do
+    nombres = Enum.map(campos, & &1.nombre)
+
+    diagnosticos =
+      for campo <- campos,
+          opcion <- [:requerido_si, :prohibido_si],
+          condicion = Map.fetch!(campo.reglas, opcion),
+          not is_nil(condicion),
+          otro = AnchoFijo.Reglas.condicion_campo(condicion),
+          otro not in nombres do
+        Diagnostico.nuevo(
+          tipo: :layout,
+          campo: campo.nombre,
+          esperado: "#{inspect(opcion)} con un campo de este layout",
+          recibido: inspect(otro),
+          causa_probable: "la condición nombra un campo que no existe"
+        )
+      end
 
     case diagnosticos do
       [] -> :ok

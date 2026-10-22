@@ -185,3 +185,4 @@ Las que la convención tuvo que zanjar y no eran obvias:
 | [0036](0036-layouts-como-datos.md) | Issue #57: layouts como datos | `Layout.a_mapa/1` y `desde_mapa/1`, JSON sin dependencias, `.json` en las tareas, JSON Schema en `priv/` |
 | [0037](0037-helpers-de-test.md) | Issue #58: aserciones y generadores para los consumidores | `AnchoFijo.Test`, `Test.Generadores` con StreamData opcional, callback `generador/1`, round-trip como propiedad |
 | [0038](0038-occurs-y-redefines.md) | Issue #59: OCCURS y REDEFINES | Tipos `:grupo` y `:variante`, `AnchoFijo.Anidados`, diagnósticos con ruta, serialización, documentación y generadores |
+| [0039](0039-validaciones-por-campo.md) | Issue #60: validaciones declarativas por campo | `en:`, `rango:`, `patron:`, `requerido_si:`/`prohibido_si:`, diagnóstico `:regla`, columna "Reglas", serialización y generadores |

@@ -233,7 +233,7 @@ defmodule AnchoFijo.AnidadosTest do
       assert markdown =~ "| `destino{02}.clabe` | 1-18 (relativas) | 18 | texto |  | no |"
 
       en = AnchoFijo.Documentacion.documentar(layout_anidado(), idioma: :en, formato: :csv)
-      assert en =~ "totales;13-51;39;group;3 repetitions;no;;\n"
+      assert en =~ "totales;13-51;39;group;3 repetitions;no;;;\n"
     end
 
     property "los generadores producen registros anidados válidos" do

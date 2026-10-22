@@ -34,7 +34,40 @@
         "pivote": { "type": "integer", "minimum": 1 },
         "dv": { "enum": ["validar", "no_validar", "ausente"] },
         "valor": { "type": "string", "description": "el literal de un campo constante" },
-        "reparar_doble_codificacion": { "type": "boolean" }
+        "reparar_doble_codificacion": { "type": "boolean" },
+        "campos": { "type": "array", "items": { "$ref": "#/definitions/campo" }, "minItems": 1, "description": "los campos internos de un grupo" },
+        "repetir": { "type": "integer", "minimum": 1, "description": "cuántas veces se repite un grupo" },
+        "segun": { "type": "string", "description": "el campo que elige la variante" },
+        "variantes": {
+          "type": "object",
+          "description": "los campos de cada variante, por valor del campo que la elige",
+          "additionalProperties": { "type": "array", "items": { "$ref": "#/definitions/campo" }, "minItems": 1 }
+        },
+        "en": { "type": "array", "minItems": 1, "description": "el catálogo de valores admitidos" },
+        "rango": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "description": "[minimo, maximo], con null en el extremo abierto; enteros, [unidades, precision], [unidades, precision, moneda], fechas y horas ISO 8601 o un decimal como string",
+          "items": { "type": ["integer", "string", "array", "null"] }
+        },
+        "patron": {
+          "type": "object",
+          "required": ["patron"],
+          "properties": { "patron": { "type": "string" }, "opciones": { "type": "string" } }
+        },
+        "requerido_si": { "$ref": "#/definitions/condicion" },
+        "prohibido_si": { "$ref": "#/definitions/condicion" }
+      }
+    },
+    "condicion": {
+      "type": "object",
+      "required": ["campo"],
+      "additionalProperties": false,
+      "description": "se cumple cuando el campo nombrado tiene valor o, con en, cuando vale alguno de esos",
+      "properties": {
+        "campo": { "type": "string" },
+        "en": { "type": "array", "minItems": 1 }
       }
     },
     "layout": {

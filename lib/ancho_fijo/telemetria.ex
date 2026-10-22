@@ -186,11 +186,14 @@ defmodule AnchoFijo.Telemetria do
 
   @doc false
   @spec contar(term(), map()) :: map()
-  def contar({:ok, _registro, advertencias}, cuentas) do
+  def contar({:ok, _registro, diagnosticos}, cuentas) do
+    {errores, advertencias} = Enum.split_with(diagnosticos, &(&1.gravedad == :error))
+
     %{
       cuentas
       | lineas: cuentas.lineas + 1,
         registros: cuentas.registros + 1,
+        errores: cuentas.errores + length(errores),
         advertencias: cuentas.advertencias + length(advertencias)
     }
   end
