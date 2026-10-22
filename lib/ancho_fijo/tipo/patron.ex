@@ -166,17 +166,16 @@ defmodule AnchoFijo.Tipo.Patron do
 
   defp cortar([], "", trozos), do: {:ok, Enum.reverse(trozos)}
 
-  # `<<^literal::binary, resto::binary>>` recién compila en Elixir 1.16; el
-  # paquete soporta 1.14, así que el literal se compara por su tamaño.
+  # `<<^literal::binary, resto::binary>>` recién compila en Elixir 1.16, y
+  # `binary-size(^largo)` también; el paquete soporta 1.14, así que el
+  # literal se compara con `binary_part/3`.
   defp cortar([{:literal, literal} | piezas], texto, trozos) do
     largo = byte_size(literal)
 
-    case texto do
-      <<prefijo::binary-size(largo), resto::binary>> when prefijo == literal ->
-        cortar(piezas, resto, trozos)
-
-      _otro ->
-        :error
+    if byte_size(texto) >= largo and binary_part(texto, 0, largo) == literal do
+      cortar(piezas, binary_part(texto, largo, byte_size(texto) - largo), trozos)
+    else
+      :error
     end
   end
 

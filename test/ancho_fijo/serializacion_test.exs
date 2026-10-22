@@ -112,7 +112,9 @@ defmodule AnchoFijo.SerializacionTest do
       assert %Diagnostico{tipo: :layout, recibido: "enconding"} = d
 
       assert {:error, [d]} =
-               Layout.desde_mapa(%{"campos" => [%{"nombre" => "a", "largo" => 2, "trimm" => false}]})
+               Layout.desde_mapa(%{
+                 "campos" => [%{"nombre" => "a", "largo" => 2, "trimm" => false}]
+               })
 
       assert %Diagnostico{tipo: :layout, campo: :a, recibido: "trimm"} = d
     end
