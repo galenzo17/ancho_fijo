@@ -49,6 +49,17 @@ defmodule AnchoFijo.ReglasTest do
     )
   end
 
+  # Desde OTP 28, un regex compilado con el módulo y el mismo regex compilado
+  # en runtime difieren en `re_pattern`: un layout que vuelve de a_mapa/1 se
+  # compara con el patrón reducido a su fuente y sus opciones.
+  defp sin_regex(%Layout{campos: campos} = layout),
+    do: %{layout | campos: Enum.map(campos, &sin_regex_campo/1)}
+
+  defp sin_regex_campo(%Campo{reglas: %{patron: %Regex{} = patron} = reglas} = campo),
+    do: %{campo | reglas: %{reglas | patron: {Regex.source(patron), Regex.opts(patron)}}}
+
+  defp sin_regex_campo(%Campo{} = campo), do: campo
+
   # El mismo layout, con el generador que el patrón de :codigo necesita.
   defp con_generador_de_codigo do
     letras = StreamData.string(?A..?Z, length: 2)
@@ -258,8 +269,9 @@ defmodule AnchoFijo.ReglasTest do
       assert glosa["prohibido_si"] == %{"campo" => "banco"}
 
       assert {:ok, vuelta} = Layout.desde_mapa(mapa)
-      assert vuelta == layout
-      assert {:ok, ^layout} = layout |> Layout.a_json() |> Layout.desde_json()
+      assert sin_regex(vuelta) == sin_regex(layout)
+      assert {:ok, vuelta} = layout |> Layout.a_json() |> Layout.desde_json()
+      assert sin_regex(vuelta) == sin_regex(layout)
     end
 
     test "un en: con función no se puede serializar" do
