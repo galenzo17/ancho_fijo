@@ -49,7 +49,9 @@ defmodule AnchoFijo.MixProject do
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       # `mix deps.audit`: avisos de seguridad conocidos de las dependencias.
-      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
+      # Solo dev: arrastra yaml_elixir, que exige Elixir 1.17, y la matriz de
+      # tests baja hasta 1.14. La CI lo corre en el job de calidad, en dev.
+      {:mix_audit, "~> 2.1", only: :dev, runtime: false},
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false}
     ]
   end
