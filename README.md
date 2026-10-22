@@ -1133,6 +1133,91 @@ dos, que son las que importan, más las de la región y las de reserva. Una
 moneda que falta con `:precision` explícita se acepta con una advertencia
 del layout; sin `:precision`, es un error.
 
+**La API es en español, y va a seguir siéndolo.** Es una decisión de
+identidad, y el dominio (RUT, Previred, nóminas chilenas y latinoamericanas)
+es latinoamericano: los nombres de los campos en los layouts de los bancos ya
+vienen en español. La objeción que aparece no es "no entiendo español" sino
+"no quiero mezclar `Layout.nuevo!` con el resto de mi código". Se pesaron
+cuatro opciones: renombrar todo a inglés (rompe la API, pierde la identidad y
+deja los diagnósticos a medias, porque los mensajes son prosa en español);
+documentación bilingüe ([README.en.md](README.en.md), el glosario de abajo y
+`idioma: :en` en `Diagnostico.mensaje/2` para los mensajes al usuario), que
+es lo que hay; una fachada en inglés dentro del mismo paquete (dos nombres
+para cada cosa confunden la documentación y duplican la superficie); y un
+paquete hermano `fixed_width` que dependa de este y exponga
+`FixedWidth.Layout.new!/1`, `FixedWidth.parse/3` y `FixedWidth.write/3` con
+las opciones traducidas en la frontera. El criterio para la última, escrito:
+**la fachada existe cuando hay un proyecto que la necesita, no antes.**
+
+## Glosario
+
+Los nombres de la librería, del español al inglés, para quien evalúa el
+paquete desde una base de código en inglés. La guía completa en inglés es
+[README.en.md](README.en.md), y un test verifica que los dos glosarios sean el
+mismo.
+
+| Español | English |
+| --- | --- |
+| `detectar/2`, `detectar!/2` | detect: inspect a file before parsing |
+| `parsear/3`, `parsear!/3` | parse |
+| `stream/3` | stream, lazy parse |
+| `escribir/3` | write |
+| `huella/2` | fingerprint (SHA-256 of the content) |
+| `identidad/3` | identity of a batch (declared fields + fingerprint + name) |
+| `resumen/2` | summary of a list of diagnostics |
+| `Layout.nuevo/1`, `nuevo!/1` | new: build and validate a layout |
+| `Layout.documentar/2` | document: the specification table (Markdown, CSV, JSON) |
+| `a_mapa/1`, `desde_mapa/1`, `a_json/1`, `desde_json/1` | to map, from map, to JSON, from JSON |
+| `Multiregistro` | multi-record: header, detail and trailer |
+| `agrupar/2` | group records by type |
+| `Diagnostico.mensaje/2`, `reporte/2`, `separar/1` | message, report, split errors from warnings |
+| `Diagnostico.marcar_sensible/2` | mark as sensitive (redact) |
+| `Detector.contrastar/2` | contrast a report against a layout |
+| `Traza.linea_original/2` | original line of a traced record |
+| `Identidad.cotejar/2` | check an identity against the ones already seen |
+| `Monto.sumar/2`, `total/1`, `formatear/2`, `a_decimal/1` | add, total, format, to Decimal |
+| `Test.assert_parsea/4`, `assert_escribe/4`, `assert_round_trip/3`, `assert_diagnostico/2` | asserts it parses, asserts it writes, round trip, diagnostic |
+| `Test.Generadores.registro/1`, `linea/1`, `linea_invalida/1` | generators: record, line, invalid line |
+| `Tipo` | type behaviour: `opciones/0`, `validar/1`, `leer/3`, `escribir/2`, `generador/1` are options, validate, read, write, generator |
+| `campos:` | fields |
+| `nombre:` | name |
+| `largo:` | length |
+| `posicion:` | position (1-based) |
+| `tipo:` | type |
+| `opcional:` | optional |
+| `trim:` | trim side: `:ambos` both, `:izquierda` left, `:derecha` right, `false` |
+| `relleno:` | padding character |
+| `relleno_final:` | trailing padding: `:estricto` strict, `:tolerar` tolerate |
+| `sensible:` | sensitive (redacted in diagnostics) |
+| `encoding:`, `unidad:` | encoding; unit: `:bytes` or `:caracteres` (characters) |
+| `precision:`, `moneda:`, `separador:`, `signo:` | precision, currency, decimal separator (`:implicito`, `:punto`, `:coma`), sign (`:inicial` leading, `:final` trailing) |
+| `como: :decimal`, `decimales_como: :decimal` | read and write `%Decimal{}` |
+| `formato:`, `pivote:` | date/time format, pivot year for two-digit years |
+| `dv:` | check digit of a RUT: `:validar`, `:no_validar`, `:ausente` (absent) |
+| `valor:` | value: the literal of a constant field |
+| `descripcion:`, `ejemplo:` | description, example (for `documentar`) |
+| `en:`, `rango:`, `patron:` | in (catalogue), range, pattern |
+| `requerido_si:`, `prohibido_si:` | required if, forbidden if |
+| `generador:` | generator (a `StreamData`) for the test generators |
+| `campos:` + `repetir:` in a `:grupo` | repeated group (OCCURS) |
+| `segun:` + `variantes:` in a `:variante` | variant chosen by another field (REDEFINES) |
+| `identidad: [campos: ...]` | identity fields of the batch |
+| `discriminador:`, `registros:`, `controles:` | discriminator, record types, controls |
+| `cantidad:` | count: `:uno` exactly one, `:opcional` zero or one, `:varios` any number, `:al_menos_uno` at least one |
+| `cuenta:`, `suma:`, `agrupar_por:` | count of, sum of, group by |
+| `modo:` | mode: `:estricto` strict, `:tolerante` tolerant |
+| `truncar:` | truncate text that does not fit |
+| `traza:` | trace: attach `:__traza__` to each record |
+| `revelar:` | reveal redacted values |
+| `audiencia:`, `idioma:` | audience (`:desarrollador` developer, `:usuario` user), language (`:es`, `:en`) |
+| `:texto`, `:entero`, `:decimal`, `:fecha`, `:hora`, `:fecha_hora`, `:rut`, `:constante`, `:relleno`, `:grupo`, `:variante` | text, integer, decimal, date, time, datetime, RUT, constant, filler, group, variant |
+| `esperado`, `recibido`, `causa_probable` | expected, received, probable cause |
+| `gravedad`: `:error`, `:advertencia` | severity: error, warning |
+| `linea`, `campo`, `posicion`, `contenido` | line, field, position, content |
+| Diagnostic types `:largo`, `:campo_invalido`, `:campo_truncado`, `:encoding`, `:doble_codificacion`, `:layout`, `:estructura`, `:control`, `:regla`, `:entrada` | length, invalid field, truncated field, encoding, double encoding, layout, structure, control, rule, input |
+| `advertencias` | warnings |
+| `registros` | records |
+
 ## Mantenimiento, compatibilidad y soporte
 
 Lo que un equipo necesita saber antes de depender de esto, en un lugar.

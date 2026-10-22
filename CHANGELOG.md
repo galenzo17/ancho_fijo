@@ -50,6 +50,14 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- `README.en.md`: la guía completa en inglés (detectar, parsear, escribir,
+  multiregistro, tipos propios, reglas, pruebas, trazabilidad, decisiones),
+  publicada también en hexdocs como "English guide", con la tabla generada
+  por `documentar/2` en inglés. Glosario español → inglés de funciones,
+  opciones, tipos y diagnósticos en los dos README, con un test que los
+  mantiene iguales. La sección "Decisiones y trade-offs" explica por qué la
+  API es en español y el criterio para una fachada en inglés.
+
 - Reglas declarativas por campo, para cualquier tipo: `en:` (catálogo, lista
   o función), `rango: {min, max}` en `:entero`, `:decimal`, `:fecha`,
   `:hora` y `:fecha_hora`, `patron:` en `:texto`, y `requerido_si:` /
