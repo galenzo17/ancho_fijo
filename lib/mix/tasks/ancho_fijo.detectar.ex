@@ -176,6 +176,7 @@ defmodule Mix.Tasks.AnchoFijo.Detectar do
     if reporte.probablemente_ancho_fijo? and desacuerdos_con_layout(reporte) == 0, do: 0, else: 1
   end
 
+  @spec abortar(String.t()) :: no_return()
   defp abortar(mensaje), do: Carga.abortar(mensaje)
 
   defp salir(0), do: :ok
