@@ -983,15 +983,8 @@ defmodule AnchoFijo.Campo do
 
   # Un relleno se escribe solo, con su carácter; un valor en el mapa es un
   # error, porque el relleno no es dato de nadie.
-  defp representar(%__MODULE__{modulo: Tipo.Relleno} = campo, nil, contexto) do
-    texto = String.duplicate(campo.relleno, campo.largo)
-    ancho = medir(texto, contexto)
-
-    if ancho == campo.largo,
-      do: {:ok, texto, []},
-      else:
-        {:error, no_cabe(campo, texto, ancho, "un relleno de #{campo.largo} posiciones", contexto)}
-  end
+  defp representar(%__MODULE__{modulo: Tipo.Relleno} = campo, nil, contexto),
+    do: completar(campo, "", campo.largo, contexto)
 
   defp representar(%__MODULE__{modulo: Tipo.Relleno} = campo, valor, contexto) do
     {:error,
@@ -1009,7 +1002,7 @@ defmodule AnchoFijo.Campo do
     ancho = medir(valor, contexto)
 
     if ancho <= campo.largo,
-      do: {:ok, valor <> String.duplicate(campo.relleno, campo.largo - ancho), []},
+      do: completar(campo, valor, campo.largo - ancho, contexto),
       else:
         {:error,
          no_cabe(campo, valor, ancho, "un literal de hasta #{campo.largo} posiciones", contexto)}
@@ -1046,7 +1039,7 @@ defmodule AnchoFijo.Campo do
         {:ok, valor, []}
 
       ancho < campo.largo and campo.trim != false ->
-        {:ok, rellenar_texto(valor, campo, campo.largo - ancho), []}
+        completar(campo, valor, campo.largo - ancho, contexto)
 
       ancho < campo.largo ->
         {:error,
@@ -1315,11 +1308,59 @@ defmodule AnchoFijo.Campo do
     end
   end
 
+  # Completa el valor hasta el largo del campo repitiendo el relleno. El
+  # relleno tiene que medir exactamente una posición en la unidad del layout:
+  # con `unidad: :bytes` y UTF-8, un relleno de dos bytes ("·") no puede dar
+  # un ancho exacto, y escribirlo igual correría todas las columnas que
+  # siguen. Es un error del layout que se reporta al escribir (y como
+  # advertencia en `Layout.nuevo/1`).
+  defp completar(%__MODULE__{}, valor, 0, _contexto), do: {:ok, valor, []}
+
+  defp completar(%__MODULE__{relleno: relleno} = campo, valor, faltan, contexto) do
+    case medir(relleno, contexto) do
+      1 ->
+        {:ok, rellenar_texto(valor, campo, faltan), []}
+
+      medida ->
+        {:error,
+         diagnostico(campo, contexto,
+           tipo: :layout,
+           esperado: "un :relleno de una posición en #{nombre_unidad(unidad_efectiva(contexto))}",
+           recibido: inspect(relleno),
+           causa_probable:
+             "el relleno mide #{medida} #{nombre_unidad(unidad_efectiva(contexto))} y hay " <>
+               "#{faltan} posiciones por completar: el campo no puede quedar de su largo exacto"
+         )}
+    end
+  end
+
   defp rellenar_texto(valor, %__MODULE__{trim: :izquierda, relleno: relleno}, faltan),
     do: String.duplicate(relleno, faltan) <> valor
 
   defp rellenar_texto(valor, %__MODULE__{relleno: relleno}, faltan),
     do: valor <> String.duplicate(relleno, faltan)
+
+  defp unidad_efectiva(%{unidad: :caracteres}), do: :caracteres
+  defp unidad_efectiva(_contexto), do: :bytes
+
+  # Cuando bytes y caracteres no coinciden, el mensaje dice los dos: es la
+  # diferencia que explica por qué "cinco letras" no caben en cinco
+  # posiciones.
+  defp describir_ancho(valor, contexto) when is_binary(valor) do
+    bytes =
+      case Map.get(contexto, :encoding, :utf8) do
+        :latin1 -> String.length(valor)
+        _utf8 -> byte_size(valor)
+      end
+
+    caracteres = String.length(valor)
+
+    if bytes == caracteres,
+      do: "",
+      else: " (#{bytes} bytes, #{caracteres} caracteres)"
+  end
+
+  defp describir_ancho(_valor, _contexto), do: ""
 
   defp caracter_separador(:punto), do: "."
   defp caracter_separador(:coma), do: ","
@@ -1397,7 +1438,9 @@ defmodule AnchoFijo.Campo do
     diagnostico(campo, contexto,
       esperado: esperado,
       recibido: inspect(valor),
-      causa_probable: "el valor no cabe en el campo: #{ancho} posiciones en #{campo.largo}"
+      causa_probable:
+        "el valor no cabe en el campo: #{ancho} posiciones en #{campo.largo}" <>
+          describir_ancho(valor, contexto)
     )
   end
 
@@ -1408,7 +1451,8 @@ defmodule AnchoFijo.Campo do
       esperado: "un texto de hasta #{campo.largo} posiciones",
       recibido: inspect(valor),
       causa_probable:
-        "se recortó a #{campo.largo} posiciones porque se pidió truncar: true; sobraban #{ancho - campo.largo}"
+        "se recortó a #{campo.largo} posiciones porque se pidió truncar: true; sobraban #{ancho - campo.largo}" <>
+          describir_ancho(valor, contexto)
     )
   end
 

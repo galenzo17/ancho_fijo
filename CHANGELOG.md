@@ -6,11 +6,21 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Cambiado
 
+- Los diagnósticos de "no cabe" y de `truncar: true` dicen el largo en bytes
+  y en caracteres cuando difieren ("5 posiciones en 4 (5 bytes, 4
+  caracteres)"), que es lo que explica por qué un texto con tildes no cabe
+  donde caben sus letras. Con solo ASCII el mensaje no cambia.
+
 - El diagnóstico de una fecha con el largo equivocado dice "se esperaban 8
   posiciones (DDMMAAAA)" en vez de "8 dígitos", porque ahora un formato
   puede traer separadores.
 
 ### Corregido
+
+- Un `:relleno` de más de un byte (`"·"`) en un layout que mide en bytes en
+  UTF-8 se escribía repetido tantas veces como bytes faltaban y el campo
+  quedaba más ancho que su largo, corriendo las columnas siguientes. Ahora
+  es un error al escribir y una advertencia de `Layout.nuevo/1`.
 
 - `AnchoFijo.parsear!/3` acepta un `AnchoFijo.Multiregistro`, como
   `parsear/3` y `stream/3`. Antes intentaba coercer el struct como layout y
