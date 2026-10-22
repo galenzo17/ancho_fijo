@@ -77,6 +77,7 @@ defmodule AnchoFijo.Formatos.Nacha do
   @spec multiregistro() :: Multiregistro.t()
   def multiregistro do
     Multiregistro.nuevo!(
+      nombre: "NACHA",
       discriminador: [posicion: 1, largo: 2],
       orden: :libre,
       registros: [

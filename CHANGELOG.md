@@ -15,6 +15,24 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 - El mensaje de un diagnóstico `:estructura` sin línea (un trailer que no
   llegó) empieza con `estructura:` y no con `entrada:`, que culpaba a la
   lectura del archivo.
+- `AnchoFijo.Multiregistro.parsear/3` y `stream/3` validan las opciones con
+  el mismo esquema que `Parser`: una opción desconocida o `modo: :otro` es
+  `ArgumentError`, no silencio ni `FunctionClauseError`. `traza: true`
+  funciona (antes se aceptaba y no hacía nada): cada mapa trae `:__traza__`
+  con el offset real. Y `parsear/3` parte el contenido de forma lazy, como
+  `Parser` desde la 0.2.0.
+- `Multiregistro.nuevo/1` rechaza las claves que no existen (`controls:`)
+  con un diagnóstico `:layout`, como `Layout.nuevo/1`.
+
+### Agregado
+
+- Eventos de telemetría `[:ancho_fijo, :parsear, ...]` y
+  `[:ancho_fijo, :stream, ...]` también con un `Multiregistro`, con las
+  mismas medidas; en la metadata, `:layout` es el `:nombre` del
+  multiregistro y `:encoding` y `:unidad` son `nil`. Los diagnósticos de
+  cierre cuentan en `errores` pero no en `lineas`.
+- `:nombre` en la definición de un `Multiregistro`; el formato NACHA se
+  llama `"NACHA"`.
 
 ## [0.3.1] — 2026-10-20
 

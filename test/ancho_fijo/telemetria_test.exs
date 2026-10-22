@@ -160,6 +160,79 @@ defmodule AnchoFijo.TelemetriaTest do
     end
   end
 
+  describe "con un Multiregistro" do
+    @multi AnchoFijo.Multiregistro.nuevo!(
+             nombre: "lote",
+             discriminador: [largo: 1],
+             registros: [
+               h: [valor: "H", cantidad: :uno, layout: [campos: [[nombre: :t, largo: 1]]]],
+               d: [
+                 valor: "D",
+                 cantidad: :varios,
+                 layout: [campos: [[nombre: :t, largo: 1], [nombre: :n, largo: 2, tipo: :entero]]]
+               ],
+               t: [
+                 valor: "T",
+                 cantidad: :uno,
+                 layout: [campos: [[nombre: :t, largo: 1], [nombre: :c, largo: 2, tipo: :entero]]]
+               ]
+             ],
+             controles: [[en: :t, campo: :c, cuenta: :d]]
+           )
+
+    test "parsear/3 emite start y stop con el nombre del multiregistro", %{ref: ref} do
+      assert {:ok, _, []} = AnchoFijo.parsear(@multi, "H\nD01\nD02\nT02\n")
+
+      assert_received {[:ancho_fijo, :parsear, :start], ^ref, _,
+                       %{modo: :estricto, desde: :contenido}}
+
+      assert_received {[:ancho_fijo, :parsear, :stop], ^ref, medidas, metadata}
+      assert %{lineas: 4, registros: 4, errores: 0, advertencias: 0} = medidas
+      assert %{resultado: :ok, layout: "lote", encoding: nil, unidad: nil} = metadata
+    end
+
+    test "en tolerante, los errores de línea y de cierre se cuentan juntos", %{ref: ref} do
+      assert {:ok, _, diagnosticos} =
+               AnchoFijo.parsear(@multi, "H\nD01\nDxx\nT02\n", modo: :tolerante)
+
+      assert length(diagnosticos) == 2
+
+      assert_received {[:ancho_fijo, :parsear, :stop], ^ref, %{lineas: 4, registros: 3, errores: 2},
+                       %{resultado: :ok, modo: :tolerante}}
+    end
+
+    test "en estricto, un error corta y lineas es lo leído hasta ahí", %{ref: ref} do
+      assert {:error, _} = AnchoFijo.parsear(@multi, "H\nDxx\nD02\nT02\n")
+
+      assert_received {[:ancho_fijo, :parsear, :stop], ^ref, %{lineas: 2, registros: 0, errores: 1},
+                       _}
+    end
+
+    test "stream/3 cuenta el cierre como errores pero no como línea", %{ref: ref} do
+      resultados = AnchoFijo.stream(@multi, "H\nD01\nD02\nT05\n") |> Enum.to_list()
+      assert [{:ok, _, _}, {:ok, _, _}, {:ok, _, _}, {:ok, _, _}, {:error, [_]}] = resultados
+
+      assert_received {[:ancho_fijo, :stream, :start], ^ref, _,
+                       %{layout: "lote", desde: :contenido}}
+
+      assert_received {[:ancho_fijo, :stream, :stop], ^ref, medidas, %{encoding: nil, unidad: nil}}
+      assert %{lineas: 4, registros: 4, errores: 1, advertencias: 0} = medidas
+    end
+
+    test "stream/3 cortado emite stop sin cierre", %{ref: ref} do
+      assert [_] = AnchoFijo.stream(@multi, "H\nD01\nT05\n") |> Enum.take(1)
+      assert_received {[:ancho_fijo, :stream, :stop], ^ref, %{lineas: 1, errores: 0}, _}
+    end
+
+    test "un archivo ilegible emite start y stop con el error contado", %{ref: ref} do
+      assert [{:error, _}] =
+               AnchoFijo.stream(@multi, "/no/existe", desde: :archivo) |> Enum.to_list()
+
+      assert_received {[:ancho_fijo, :stream, :stop], ^ref, %{lineas: 1, errores: 1},
+                       %{layout: "lote"}}
+    end
+  end
+
   describe "span/3" do
     test "una excepción adentro emite :exception y la propaga", %{ref: ref} do
       assert_raise RuntimeError, "boom", fn ->

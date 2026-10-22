@@ -74,6 +74,15 @@ defmodule AnchoFijo.Telemetria do
   Las cuentas viven en el acumulador del stream, cuatro enteros: la
   instrumentación no acumula registros ni rompe la memoria constante.
 
+  ### Con un `AnchoFijo.Multiregistro`
+
+  `parsear/3` y `stream/3` con un multiregistro emiten los mismos eventos,
+  con las mismas medidas. En la metadata, `:layout` es el `:nombre` del
+  multiregistro (o `nil`), y `:encoding` y `:unidad` son `nil`: cada tipo
+  de registro tiene su layout y no hay un solo valor que declarar. Los
+  diagnósticos de cierre (un trailer que falta, un total que no cuadra)
+  cuentan en `errores` pero no en `lineas`: no son una línea del archivo.
+
   ## Lo que no se emite, a propósito
 
   No hay un evento por línea que falla. En un archivo con 10.000 filas malas
@@ -141,20 +150,27 @@ defmodule AnchoFijo.Telemetria do
   def instrumentar_stream(stream, metadata) do
     Stream.transform(
       stream,
-      fn ->
-        emitir([:stream, :start], %{system_time: System.system_time()}, metadata)
-        %{inicio: System.monotonic_time(), lineas: 0, registros: 0, errores: 0, advertencias: 0}
-      end,
+      fn -> iniciar_cuentas(metadata) end,
       fn resultado, cuentas -> {[resultado], contar(resultado, cuentas)} end,
-      fn cuentas ->
-        {inicio, medidas} = Map.pop(cuentas, :inicio)
-        duracion = System.monotonic_time() - inicio
-        emitir([:stream, :stop], Map.put(medidas, :duration, duracion), metadata)
-      end
+      fn cuentas -> cerrar_cuentas(cuentas, metadata) end
     )
   end
 
-  defp contar({:ok, _registro, advertencias}, cuentas) do
+  # Las tres piezas de `instrumentar_stream/2` por separado, para un stream
+  # que ya tiene su propio acumulador (`AnchoFijo.Multiregistro`, que lleva
+  # el estado de la estructura) y emite elementos de cierre que no son
+  # líneas.
+
+  @doc false
+  @spec iniciar_cuentas(map()) :: map()
+  def iniciar_cuentas(metadata) do
+    emitir([:stream, :start], %{system_time: System.system_time()}, metadata)
+    %{inicio: System.monotonic_time(), lineas: 0, registros: 0, errores: 0, advertencias: 0}
+  end
+
+  @doc false
+  @spec contar(term(), map()) :: map()
+  def contar({:ok, _registro, advertencias}, cuentas) do
     %{
       cuentas
       | lineas: cuentas.lineas + 1,
@@ -163,8 +179,23 @@ defmodule AnchoFijo.Telemetria do
     }
   end
 
-  defp contar({:error, diagnosticos}, cuentas) do
+  def contar({:error, diagnosticos}, cuentas) do
     %{cuentas | lineas: cuentas.lineas + 1, errores: cuentas.errores + length(diagnosticos)}
+  end
+
+  @doc false
+  # Diagnósticos que no vienen de una línea: los del cierre de un multiregistro.
+  @spec contar_cierre([term()], map()) :: map()
+  def contar_cierre(diagnosticos, cuentas) do
+    %{cuentas | errores: cuentas.errores + length(diagnosticos)}
+  end
+
+  @doc false
+  @spec cerrar_cuentas(map(), map()) :: :ok
+  def cerrar_cuentas(cuentas, metadata) do
+    {inicio, medidas} = Map.pop(cuentas, :inicio)
+    duracion = System.monotonic_time() - inicio
+    emitir([:stream, :stop], Map.put(medidas, :duration, duracion), metadata)
   end
 
   @doc false

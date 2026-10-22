@@ -28,6 +28,8 @@ defmodule AnchoFijo.Multiregistro do
 
   ## La definición
 
+    * `:nombre` — opcional, para los mensajes y la telemetría, como el
+      `:nombre` de un `AnchoFijo.Layout`.
     * `:discriminador` — `[posicion: 1, largo: 2]`: dónde dice cada línea
       qué es, en bytes de la línea cruda.
     * `:registros` — una keyword list de tipo a definición, en el orden
@@ -46,6 +48,19 @@ defmodule AnchoFijo.Multiregistro do
       de ese campo en ellos. Las sumas son sobre enteros o sobre
       `{unidades, precision}`, nunca floats, y con precisiones distintas se
       comparan a la mayor.
+
+  Una clave que no es ninguna de estas es un diagnóstico `:layout`, no se
+  ignora: `controls:` en vez de `controles:` dejaría el trailer sin
+  verificar y nadie se enteraría.
+
+  ## Las opciones
+
+  `parsear/3` y `stream/3` reciben exactamente las opciones de
+  `AnchoFijo.parsear/3` y `AnchoFijo.stream/3`: `:modo`, `:saltar`,
+  `:omitir_vacias`, `:desde` y `:traza`. Con `traza: true` cada mapa trae
+  `:__traza__` con la línea, el offset y el largo, igual que con un layout
+  plano. Una opción desconocida o con un valor de otro tipo es un
+  `ArgumentError`, y los eventos de `AnchoFijo.Telemetria` se emiten igual.
 
   ## Lo que devuelve
 
@@ -86,9 +101,13 @@ defmodule AnchoFijo.Multiregistro do
   alias AnchoFijo.Diagnostico
   alias AnchoFijo.Entrada
   alias AnchoFijo.Layout
+  alias AnchoFijo.Opciones
   alias AnchoFijo.Parser
+  alias AnchoFijo.Telemetria
+  alias AnchoFijo.Traza
 
   @cantidades [:uno, :opcional, :varios, :al_menos_uno]
+  @claves [:nombre, :discriminador, :registros, :controles, :orden]
 
   @type cantidad :: :uno | :opcional | :varios | :al_menos_uno
   @type tipo :: atom()
@@ -101,6 +120,7 @@ defmodule AnchoFijo.Multiregistro do
           | %{en: tipo(), campo: atom(), suma: {tipo(), atom()}}
 
   @type t :: %__MODULE__{
+          nombre: String.t() | nil,
           discriminador: %{posicion: pos_integer(), largo: pos_integer()},
           registros: [{tipo(), definicion()}],
           controles: [control()],
@@ -108,7 +128,7 @@ defmodule AnchoFijo.Multiregistro do
         }
 
   @enforce_keys [:discriminador, :registros]
-  defstruct discriminador: nil, registros: [], controles: [], orden: :estricto
+  defstruct nombre: nil, discriminador: nil, registros: [], controles: [], orden: :estricto
 
   # ------------------------------------------------------------- definición
 
@@ -122,14 +142,16 @@ defmodule AnchoFijo.Multiregistro do
   """
   @spec nuevo(keyword() | map()) :: {:ok, t()} | {:error, [Diagnostico.t()]}
   def nuevo(definicion) do
-    definicion = Map.new(definicion)
-
-    with {:ok, discriminador} <- validar_discriminador(Map.get(definicion, :discriminador)),
+    with {:ok, definicion} <- a_mapa(definicion),
+         :ok <- sin_claves_desconocidas(definicion),
+         {:ok, nombre} <- validar_nombre(Map.get(definicion, :nombre)),
+         {:ok, discriminador} <- validar_discriminador(Map.get(definicion, :discriminador)),
          {:ok, registros} <- validar_registros(Map.get(definicion, :registros, []), discriminador),
          {:ok, controles} <- validar_controles(Map.get(definicion, :controles, []), registros),
          {:ok, orden} <- validar_orden(Map.get(definicion, :orden, :estricto)) do
       {:ok,
        %__MODULE__{
+         nombre: nombre,
          discriminador: discriminador,
          registros: registros,
          controles: controles,
@@ -137,6 +159,36 @@ defmodule AnchoFijo.Multiregistro do
        }}
     end
   end
+
+  defp a_mapa(definicion) do
+    case Opciones.a_mapa(definicion) do
+      {:ok, mapa} ->
+        {:ok, mapa}
+
+      :error ->
+        {:error, [falla("la definición como keyword list o mapa", inspect(definicion), nil)]}
+    end
+  end
+
+  defp sin_claves_desconocidas(definicion) do
+    case Opciones.claves_desconocidas(definicion, @claves) do
+      [] ->
+        :ok
+
+      [clave | _] ->
+        {:error,
+         [
+           falla(
+             "opciones en #{inspect(@claves)}",
+             inspect(clave),
+             "la opción no existe y se ignoraría en silencio; probablemente un error de tipeo"
+           )
+         ]}
+    end
+  end
+
+  defp validar_nombre(nombre) when is_nil(nombre) or is_binary(nombre), do: {:ok, nombre}
+  defp validar_nombre(otro), do: {:error, [falla("un :nombre binario", inspect(otro), nil)]}
 
   defp validar_orden(orden) when orden in [:estricto, :libre], do: {:ok, orden}
   defp validar_orden(otro), do: {:error, [falla(":orden :estricto o :libre", inspect(otro), nil)]}
@@ -346,60 +398,78 @@ defmodule AnchoFijo.Multiregistro do
   @spec parsear(t(), term(), keyword()) ::
           {:ok, [registro()], [Diagnostico.t()]} | {:error, [Diagnostico.t()]}
   def parsear(%__MODULE__{} = multi, entrada, opts \\ []) do
+    opts = Opciones.validar!(opts, Parser.opciones_de_parsear(), "AnchoFijo.parsear/3")
     modo = Keyword.get(opts, :modo, :estricto)
+    metadata = %{modo: modo, desde: Entrada.origen(entrada, opts)}
 
-    with {:ok, contenido} <- Entrada.leer(entrada, opts) do
-      lineas =
-        contenido
-        |> Entrada.dividir()
-        |> Enum.with_index(1)
-        |> Enum.drop(Keyword.get(opts, :saltar, 0))
-        |> filtrar_vacias(Keyword.get(opts, :omitir_vacias, true))
+    Telemetria.span(:parsear, metadata, fn ->
+      {resultado, lineas} =
+        case Entrada.leer(entrada, opts) do
+          {:ok, contenido} ->
+            contenido
+            |> Parser.numerar(Keyword.get(opts, :traza, false))
+            |> Parser.seleccionar(opts)
+            |> then(&recorrer(multi, &1, modo))
 
-      recorrer(multi, lineas, modo)
-    end
+          {:error, diagnosticos} ->
+            {{:error, diagnosticos}, 0}
+        end
+
+      {medidas, extra} = Telemetria.medir_parseo(resultado, lineas)
+      {resultado, medidas, Map.merge(extra, metadata_de(multi))}
+    end)
   end
 
-  defp filtrar_vacias(numeradas, true), do: Enum.reject(numeradas, fn {linea, _} -> linea == "" end)
-  defp filtrar_vacias(numeradas, _false), do: numeradas
+  # Cada tipo tiene su layout: no hay un encoding ni una unidad que declarar
+  # por el archivo entero, y un handler que lea las claves documentadas de
+  # `[:ancho_fijo, :parsear, :stop]` recibe `nil`, no un KeyError.
+  defp metadata_de(%__MODULE__{nombre: nombre}), do: %{layout: nombre, encoding: nil, unidad: nil}
 
+  # Las líneas llegan de a una y se cuentan al pasar, como en `Parser`:
+  # devuelve el resultado y esa cuenta, que es lo que la telemetría mide. En
+  # estricto, el primer error corta y la cuenta es la de las líneas leídas.
   defp recorrer(multi, lineas, :estricto) do
     resultado =
-      Enum.reduce_while(lineas, {[], [], estado_inicial(multi)}, fn {linea, numero},
-                                                                    {registros, advertencias,
-                                                                     estado} ->
-        case paso(multi, linea, numero, estado) do
+      Enum.reduce_while(lineas, {[], [], estado_inicial(multi), 0}, fn {linea, marca},
+                                                                       {registros, advertencias,
+                                                                        estado, leidas} ->
+        case paso(multi, linea, marca, estado) do
           {:ok, registro, nuevas, estado} ->
-            {:cont, {[registro | registros], Enum.reverse(nuevas, advertencias), estado}}
+            {:cont,
+             {[registro | registros], Enum.reverse(nuevas, advertencias), estado, leidas + 1}}
 
           {:error, diagnosticos, _estado} ->
-            {:halt, {:error, diagnosticos}}
+            {:halt, {:error, diagnosticos, leidas + 1}}
         end
       end)
 
-    with {registros, advertencias, estado} <- resultado,
-         [] <- cierre(multi, estado) do
-      {:ok, Enum.reverse(registros), Enum.reverse(advertencias)}
-    else
-      {:error, diagnosticos} -> {:error, diagnosticos}
-      diagnosticos when is_list(diagnosticos) -> {:error, diagnosticos}
+    case resultado do
+      {:error, diagnosticos, leidas} ->
+        {{:error, diagnosticos}, leidas}
+
+      {registros, advertencias, estado, leidas} ->
+        case cierre(multi, estado) do
+          [] -> {{:ok, Enum.reverse(registros), Enum.reverse(advertencias)}, leidas}
+          diagnosticos -> {{:error, diagnosticos}, leidas}
+        end
     end
   end
 
   defp recorrer(multi, lineas, :tolerante) do
-    {registros, diagnosticos, estado} =
-      Enum.reduce(lineas, {[], [], estado_inicial(multi)}, fn {linea, numero},
-                                                              {registros, diagnosticos, estado} ->
-        case paso(multi, linea, numero, estado) do
+    {registros, diagnosticos, estado, leidas} =
+      Enum.reduce(lineas, {[], [], estado_inicial(multi), 0}, fn {linea, marca},
+                                                                 {registros, diagnosticos, estado,
+                                                                  leidas} ->
+        case paso(multi, linea, marca, estado) do
           {:ok, registro, nuevos, estado} ->
-            {[registro | registros], Enum.reverse(nuevos, diagnosticos), estado}
+            {[registro | registros], Enum.reverse(nuevos, diagnosticos), estado, leidas + 1}
 
           {:error, nuevos, estado} ->
-            {registros, Enum.reverse(nuevos, diagnosticos), estado}
+            {registros, Enum.reverse(nuevos, diagnosticos), estado, leidas + 1}
         end
       end)
 
-    {:ok, Enum.reverse(registros), Enum.reverse(diagnosticos) ++ cierre(multi, estado)}
+    {{:ok, Enum.reverse(registros), Enum.reverse(diagnosticos) ++ cierre(multi, estado)}, leidas}
   end
 
   @doc """
@@ -444,38 +514,54 @@ defmodule AnchoFijo.Multiregistro do
   """
   @spec stream(t(), term(), keyword()) :: Enumerable.t()
   def stream(%__MODULE__{} = multi, entrada, opts \\ []) do
-    case Entrada.lineas(entrada, opts) do
-      {:ok, lineas} -> encadenar(multi, lineas, opts)
-      {:error, diagnosticos} -> [{:error, diagnosticos}]
+    opts = Opciones.validar!(opts, Parser.opciones_de_stream(), "AnchoFijo.stream/3")
+    metadata = Map.put(metadata_de(multi), :desde, Entrada.origen(entrada, opts))
+
+    case Parser.fuente(entrada, opts) do
+      {:ok, lineas} -> encadenar(multi, lineas, opts, metadata)
+      {:error, diagnosticos} -> Telemetria.instrumentar_stream([{:error, diagnosticos}], metadata)
     end
   end
 
-  defp encadenar(multi, lineas, opts) do
+  # El acumulador lleva dos cosas: el estado de la estructura y las cuentas
+  # de la telemetría. Van juntas y no en un `instrumentar_stream/2` por
+  # fuera porque el elemento de cierre no es una línea: hay que contarlo
+  # como errores sin sumarlo a `lineas`, y eso solo se sabe desde acá.
+  defp encadenar(multi, lineas, opts, metadata) do
     numeradas =
       lineas
-      |> Stream.with_index(1)
+      |> Parser.numerar_stream(Keyword.get(opts, :traza, false))
       |> Stream.drop(Keyword.get(opts, :saltar, 0))
-      |> Stream.map(fn {linea, numero} -> {sin_terminador(linea), numero} end)
+      |> Stream.map(fn {linea, marca} -> {sin_terminador(linea), marca} end)
       |> descartar_vacias(Keyword.get(opts, :omitir_vacias, true))
 
     Stream.transform(
       numeradas,
-      fn -> estado_inicial(multi) end,
-      fn {linea, numero}, estado ->
-        case paso(multi, linea, numero, estado) do
-          {:ok, registro, advertencias, estado} -> {[{:ok, registro, advertencias}], estado}
-          {:error, diagnosticos, estado} -> {[{:error, diagnosticos}], estado}
-        end
+      fn -> {estado_inicial(multi), Telemetria.iniciar_cuentas(metadata)} end,
+      fn {linea, marca}, {estado, cuentas} ->
+        {resultado, estado} =
+          case paso(multi, linea, marca, estado) do
+            {:ok, registro, advertencias, estado} -> {{:ok, registro, advertencias}, estado}
+            {:error, diagnosticos, estado} -> {{:error, diagnosticos}, estado}
+          end
+
+        {[resultado], {estado, Telemetria.contar(resultado, cuentas)}}
       end,
-      fn estado ->
+      fn {estado, cuentas} ->
         case cierre(multi, estado) do
-          [] -> {[], estado}
-          diagnosticos -> {[{:error, diagnosticos}], estado}
+          [] ->
+            {[], {estado, cuentas}}
+
+          diagnosticos ->
+            {[{:error, diagnosticos}], {estado, Telemetria.contar_cierre(diagnosticos, cuentas)}}
         end
       end,
-      fn _estado -> :ok end
+      fn {_estado, cuentas} -> Telemetria.cerrar_cuentas(cuentas, metadata) end
     )
   end
+
+  defp marcar(registro, %Traza{} = traza), do: Map.put(registro, Traza.clave(), traza)
+  defp marcar(registro, _numero), do: registro
 
   defp sin_terminador(linea) when is_binary(linea), do: Entrada.sin_terminador(linea)
   defp sin_terminador(otro), do: otro
@@ -503,10 +589,15 @@ defmodule AnchoFijo.Multiregistro do
     }
   end
 
-  defp paso(%__MODULE__{} = multi, linea, numero, estado) when is_binary(linea) do
+  # `marca` es el número de línea, o la traza entera cuando se pidió; en el
+  # segundo caso el mapa sale con la clave reservada, como en `Parser`.
+  defp paso(%__MODULE__{} = multi, linea, marca, estado) when is_binary(linea) do
+    numero = Parser.numero_de(marca)
+
     with {:ok, tipo, definicion} <- discriminar(multi, linea, numero),
          {:ok, estado} <- avanzar(multi, tipo, definicion, numero, estado),
          {:ok, registro, advertencias} <- Parser.parsear_linea(definicion.layout, linea, numero) do
+      registro = marcar(registro, marca)
       {:ok, {tipo, registro}, advertencias, acumular(multi, tipo, registro, numero, estado)}
     else
       {:error, diagnosticos} -> {:error, diagnosticos, estado}
@@ -514,12 +605,12 @@ defmodule AnchoFijo.Multiregistro do
     end
   end
 
-  defp paso(_multi, otro, numero, estado) do
+  defp paso(_multi, otro, marca, estado) do
     {:error,
      [
        Diagnostico.nuevo(
          tipo: :entrada,
-         linea: numero,
+         linea: Parser.numero_de(marca),
          esperado: "un binario por elemento del enumerable",
          recibido: inspect(otro),
          causa_probable: "el enumerable de entrada no entrega líneas como binarios"
