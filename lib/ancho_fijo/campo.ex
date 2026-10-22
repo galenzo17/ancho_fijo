@@ -193,7 +193,7 @@ defmodule AnchoFijo.Campo do
           precision: non_neg_integer() | nil,
           separador: :implicito | :punto | :coma,
           moneda: Monto.moneda() | nil,
-          como: :decimal | nil,
+          como: atom() | nil,
           signo: :inicial | :final,
           formato: atom() | String.t() | nil,
           pivote: pos_integer() | nil,
