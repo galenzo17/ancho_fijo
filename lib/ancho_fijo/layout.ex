@@ -147,6 +147,7 @@ defmodule AnchoFijo.Layout do
          campos = posicionar(campos),
          :ok <- validar_disposicion(campos),
          :ok <- validar_encodings(campos, globales),
+         :ok <- validar_variantes(campos),
          {:ok, identidad} <- validar_identidad(Map.get(atributos, :identidad), campos),
          {:ok, largo, advertencias} <- resolver_largo(campos, globales, atributos) do
       {:ok,
@@ -564,6 +565,48 @@ defmodule AnchoFijo.Layout do
   end
 
   defp validar_encodings(_campos, _globales), do: :ok
+
+  # El campo que elige una variante tiene que estar en el mismo layout y
+  # venir antes: al leer la variante, su valor ya tiene que estar.
+  defp validar_variantes(campos) do
+    diagnosticos =
+      campos
+      |> Enum.filter(&(&1.tipo == :variante))
+      |> Enum.flat_map(fn variante ->
+        case Enum.find(campos, &(&1.nombre == variante.segun)) do
+          %Campo{posicion: posicion} when posicion < variante.posicion ->
+            []
+
+          %Campo{} ->
+            [
+              Diagnostico.nuevo(
+                tipo: :layout,
+                campo: variante.nombre,
+                esperado: "un :segun que venga antes de la variante en el layout",
+                recibido: inspect(variante.segun),
+                causa_probable:
+                  "la variante se elige con un valor que ya se leyó; un campo posterior no sirve"
+              )
+            ]
+
+          nil ->
+            [
+              Diagnostico.nuevo(
+                tipo: :layout,
+                campo: variante.nombre,
+                esperado: "un :segun que sea un campo de este layout",
+                recibido: inspect(variante.segun),
+                causa_probable: "el campo que elige la variante no existe"
+              )
+            ]
+        end
+      end)
+
+    case diagnosticos do
+      [] -> :ok
+      diagnosticos -> {:error, diagnosticos}
+    end
+  end
 
   defp validar_disposicion(campos) do
     diagnosticos =

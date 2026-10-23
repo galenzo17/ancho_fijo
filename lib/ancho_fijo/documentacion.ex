@@ -107,15 +107,35 @@ defmodule AnchoFijo.Documentacion do
       largo: layout.largo,
       encoding: layout.encoding,
       unidad: layout.unidad,
-      campos: Enum.map(layout.campos, &fila(&1, idioma))
+      campos: Enum.flat_map(layout.campos, &filas(&1, idioma))
     }
   end
 
-  defp fila(%Campo{} = campo, idioma) do
+  # Un grupo o una variante son una fila más las de sus campos internos, con
+  # la ruta y las posiciones relativas al campo que los contiene.
+  defp filas(%Campo{tipo: :grupo} = campo, idioma) do
+    [fila(campo, idioma) | Enum.map(campo.campos, &fila(&1, idioma, "#{campo.nombre}[]."))]
+  end
+
+  defp filas(%Campo{tipo: :variante} = campo, idioma) do
+    internas =
+      campo.variantes
+      |> Enum.sort_by(fn {clave, _} -> to_string(clave) end)
+      |> Enum.flat_map(fn {clave, campos} ->
+        Enum.map(campos, &fila(&1, idioma, "#{campo.nombre}{#{clave}}."))
+      end)
+
+    [fila(campo, idioma) | internas]
+  end
+
+  defp filas(campo, idioma), do: [fila(campo, idioma)]
+
+  defp fila(%Campo{} = campo, idioma, ruta \\ "") do
     {desde, hasta} = Campo.rango(campo)
 
     %{
-      nombre: campo.nombre,
+      nombre: if(ruta == "", do: campo.nombre, else: "#{ruta}#{campo.nombre}"),
+      relativa: ruta != "",
       desde: desde,
       hasta: hasta,
       largo: campo.largo,
@@ -186,19 +206,19 @@ defmodule AnchoFijo.Documentacion do
     encabezados = Enum.map(columnas(), &t(&1, idioma))
 
     filas =
-      Enum.map(layout.campos, fn campo ->
-        f = fila(campo, idioma)
-
-        [
-          "`#{f.nombre}`",
-          "#{f.desde}-#{f.hasta}",
-          f.largo,
-          f.tipo,
-          f.formato || "",
-          t(if(f.opcional, do: :si, else: :no), idioma),
-          f.descripcion || "",
-          if(f.ejemplo, do: "`#{f.ejemplo}`", else: "")
-        ]
+      Enum.flat_map(layout.campos, fn campo ->
+        Enum.map(filas(campo, idioma), fn f ->
+          [
+            "`#{f.nombre}`",
+            posiciones(f, idioma),
+            f.largo,
+            f.tipo,
+            f.formato || "",
+            t(if(f.opcional, do: :si, else: :no), idioma),
+            f.descripcion || "",
+            if(f.ejemplo, do: "`#{f.ejemplo}`", else: "")
+          ]
+        end)
       end)
 
     separador = Enum.map(encabezados, fn _ -> "---" end)
@@ -210,6 +230,12 @@ defmodule AnchoFijo.Documentacion do
 
   defp celda(valor), do: valor |> to_string() |> String.replace("|", "\\|")
 
+  # Las posiciones de un campo interno son relativas al grupo o variante.
+  defp posiciones(%{relativa: true} = f, idioma),
+    do: "#{f.desde}-#{f.hasta} (#{t(:relativas, idioma)})"
+
+  defp posiciones(f, _idioma), do: "#{f.desde}-#{f.hasta}"
+
   # ------------------------------------------------------------------ csv
 
   defp csv(%Multiregistro{} = multi, idioma) do
@@ -217,7 +243,9 @@ defmodule AnchoFijo.Documentacion do
 
     filas =
       Enum.flat_map(multi.registros, fn {tipo, d} ->
-        Enum.map(d.layout.campos, &[tipo | celdas_csv(fila(&1, idioma), idioma)])
+        d.layout.campos
+        |> Enum.flat_map(&filas(&1, idioma))
+        |> Enum.map(&[tipo | celdas_csv(&1, idioma)])
       end)
 
     lineas_csv([encabezados | filas])
@@ -226,14 +254,14 @@ defmodule AnchoFijo.Documentacion do
   defp csv(layout, idioma) do
     layout = Layout.coercer!(layout)
     encabezados = Enum.map(columnas(), &t(&1, idioma))
-    filas = Enum.map(layout.campos, &celdas_csv(fila(&1, idioma), idioma))
+    filas = layout.campos |> Enum.flat_map(&filas(&1, idioma)) |> Enum.map(&celdas_csv(&1, idioma))
     lineas_csv([encabezados | filas])
   end
 
   defp celdas_csv(f, idioma) do
     [
       f.nombre,
-      "#{f.desde}-#{f.hasta}",
+      posiciones(f, idioma),
       f.largo,
       f.tipo,
       f.formato || "",
@@ -265,7 +293,17 @@ defmodule AnchoFijo.Documentacion do
 
   # Los nombres de tipo traducibles; `decimal` y `RUT` son iguales en los dos
   # idiomas y un módulo propio se muestra por su nombre.
-  @tipos_traducibles [:texto, :entero, :fecha, :hora, :fecha_hora, :constante, :relleno]
+  @tipos_traducibles [
+    :texto,
+    :entero,
+    :fecha,
+    :hora,
+    :fecha_hora,
+    :constante,
+    :relleno,
+    :grupo,
+    :variante
+  ]
 
   defp nombre_de_tipo(%Campo{tipo: tipo}, idioma) when tipo in @tipos_traducibles,
     do: t(tipo, idioma)
@@ -304,7 +342,9 @@ defmodule AnchoFijo.Documentacion do
       campo.valor && "#{t(:literal, idioma)} #{inspect(campo.valor)}",
       campo.tipo == :relleno && "#{t(:relleno_de, idioma)} #{inspect(campo.relleno)}",
       campo.tipo == :rut && t(dv(campo.dv), idioma),
-      campo.encoding && encoding(campo.encoding)
+      campo.encoding && encoding(campo.encoding),
+      campo.tipo == :grupo && "#{campo.repetir} #{t(:repeticiones, idioma)}",
+      campo.tipo == :variante && "#{t(:segun, idioma)} `#{campo.segun}`"
     ]
   end
 
@@ -379,6 +419,11 @@ defmodule AnchoFijo.Documentacion do
     signo_final: {"signo al final", "trailing sign"},
     literal: {"literal", "literal"},
     relleno_de: {"relleno de", "padded with"},
+    grupo: {"grupo", "group"},
+    variante: {"variante", "variant"},
+    repeticiones: {"repeticiones", "repetitions"},
+    segun: {"según", "by"},
+    relativas: {"relativas", "relative"},
     dv_validar: {"dígito verificador validado", "check digit validated"},
     dv_no_validar: {"dígito verificador sin validar", "check digit not validated"},
     dv_ausente: {"sin dígito verificador", "without check digit"},

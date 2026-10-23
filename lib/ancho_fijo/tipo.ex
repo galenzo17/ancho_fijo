@@ -2,7 +2,7 @@ defmodule AnchoFijo.Tipo do
   @moduledoc """
   El behaviour de los tipos de campo. Los tipos de la librería (`:texto`,
   `:entero`, `:decimal`, `:fecha`, `:hora`, `:fecha_hora`, `:rut`,
-  `:constante`, `:relleno`) lo implementan, y un tipo propio se agrega sin
+  `:constante`, `:relleno`, `:grupo`, `:variante`) lo implementan, y un tipo propio se agrega sin
   tocar la librería: un módulo con tres funciones y `tipo: MiApp.Hora` en
   el layout.
 
@@ -127,7 +127,9 @@ defmodule AnchoFijo.Tipo do
     fecha_hora: AnchoFijo.Tipo.FechaHora,
     rut: AnchoFijo.Tipo.Rut,
     constante: AnchoFijo.Tipo.Constante,
-    relleno: AnchoFijo.Tipo.Relleno
+    relleno: AnchoFijo.Tipo.Relleno,
+    grupo: AnchoFijo.Tipo.Grupo,
+    variante: AnchoFijo.Tipo.Variante
   ]
 
   @doc "Los tipos internos, por su átomo, en el orden de la documentación."
@@ -146,7 +148,7 @@ defmodule AnchoFijo.Tipo do
       iex> AnchoFijo.Tipo.resolver(AnchoFijo.Tipo.Fecha)
       {:ok, AnchoFijo.Tipo.Fecha}
       iex> AnchoFijo.Tipo.resolver(:fechas)
-      {:error, "un :tipo en [:texto, :entero, :decimal, :fecha, :hora, :fecha_hora, :rut, :constante, :relleno] o un módulo que implemente AnchoFijo.Tipo"}
+      {:error, "un :tipo en [:texto, :entero, :decimal, :fecha, :hora, :fecha_hora, :rut, :constante, :relleno, :grupo, :variante] o un módulo que implemente AnchoFijo.Tipo"}
       iex> AnchoFijo.Tipo.resolver(Enum)
       {:error, "un módulo que implemente AnchoFijo.Tipo; Enum no implementa opciones/0, validar/1 y leer/3"}
   """

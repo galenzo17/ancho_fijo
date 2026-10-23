@@ -40,6 +40,14 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- Tipos `:grupo` y `:variante`, el `OCCURS` y el `REDEFINES` de los formatos
+  heredados: `[tipo: :grupo, repetir: 3, campos: [...]]` lee una lista de
+  mapas y `[tipo: :variante, segun: :tipo_cuenta, variantes: %{"01" =>
+  [...], ...}]` el mapa de la variante que eligió el campo anterior. Largo
+  calculado o verificado, campos internos validados como un layout chico,
+  diagnósticos con la ruta del campo interno (`totales[2].importe`) y su
+  posición absoluta, escritura simétrica, serialización, documentación con
+  posiciones relativas y generadores.
 - `AnchoFijo.Test`: `assert_parsea/4`, `assert_diagnostico/2`,
   `assert_round_trip/3` y `assert_escribe/4` para los tests de quien usa la
   librería, con los diagnósticos en el mensaje del fallo. Y

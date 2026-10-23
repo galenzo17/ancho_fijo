@@ -77,6 +77,7 @@ defmodule AnchoFijo.Parser do
   es un error del programa, no del archivo, y no se reporta como diagnóstico.
   """
 
+  alias AnchoFijo.Anidados
   alias AnchoFijo.Campo
   alias AnchoFijo.Diagnostico
   alias AnchoFijo.Entrada
@@ -640,14 +641,22 @@ defmodule AnchoFijo.Parser do
   end
 
   defp extraer_campo(%Campo{} = campo, linea, contexto, {valores, diagnosticos, advertencias}) do
-    case Campo.leer(campo, linea, contexto) do
+    resultado =
+      if Campo.anidado?(campo),
+        do: Anidados.leer(campo, linea, contexto, Map.new(valores)),
+        else: plano(Campo.leer(campo, linea, contexto))
+
+    case resultado do
       {:ok, valor, nuevas} ->
         {[{campo.nombre, valor} | valores], diagnosticos, Enum.reverse(nuevas, advertencias)}
 
-      {:error, diagnostico} ->
-        {valores, [diagnostico | diagnosticos], advertencias}
+      {:error, nuevos} ->
+        {valores, Enum.reverse(nuevos, diagnosticos), advertencias}
     end
   end
+
+  defp plano({:ok, valor, advertencias}), do: {:ok, valor, advertencias}
+  defp plano({:error, diagnostico}), do: {:error, [diagnostico]}
 
   defp extraer_campos(%Layout{} = layout, linea, numero) do
     contexto = Layout.contexto(layout, numero)

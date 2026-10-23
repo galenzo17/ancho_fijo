@@ -98,11 +98,35 @@ if Code.ensure_loaded?(StreamData) do
 
     def registro(layout) do
       layout = Layout.coercer!(layout)
+      registro_de_campos(layout.campos, layout)
+    end
 
-      layout.campos
-      |> Enum.reject(&Campo.relleno?/1)
-      |> Enum.map(fn campo -> {campo.nombre, valor(campo, layout)} end)
-      |> fixed_map()
+    # Las variantes se generan después, con el valor del campo que las elige
+    # ya decidido; y ese campo solo toma valores que tengan variante.
+    defp registro_de_campos(campos, layout) do
+      variantes = Enum.filter(campos, &(&1.tipo == :variante))
+      forzados = Map.new(variantes, fn v -> {v.segun, Map.keys(v.variantes)} end)
+
+      base =
+        campos
+        |> Enum.reject(&(Campo.relleno?(&1) or &1.tipo == :variante))
+        |> Enum.map(fn campo ->
+          case Map.fetch(forzados, campo.nombre) do
+            {:ok, claves} -> {campo.nombre, member_of(claves)}
+            :error -> {campo.nombre, valor(campo, layout)}
+          end
+        end)
+        |> fixed_map()
+
+      bind(base, fn mapa ->
+        variantes
+        |> Enum.map(fn v ->
+          campos_de_variante = Map.fetch!(v.variantes, Map.fetch!(mapa, v.segun))
+          {v.nombre, registro_de_campos(campos_de_variante, layout)}
+        end)
+        |> fixed_map()
+        |> map(&Map.merge(mapa, &1))
+      end)
     end
 
     def linea(layout) do
@@ -171,6 +195,9 @@ if Code.ensure_loaded?(StreamData) do
 
     defp por_tipo(%Campo{tipo: :constante, valor: literal}, _layout),
       do: constant(literal)
+
+    defp por_tipo(%Campo{tipo: :grupo} = campo, layout),
+      do: fixed_list(List.duplicate(registro_de_campos(campo.campos, layout), campo.repetir))
 
     defp por_tipo(%Campo{modulo: modulo} = campo, _layout) do
       if function_exported?(modulo, :generador, 1) do

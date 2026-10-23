@@ -94,6 +94,11 @@ defmodule AnchoFijo.Serializacion do
     if Map.has_key?(@tipos_internos, nombre), do: nombre, else: inspect(tipo)
   end
 
+  defp valor_a_dato([%Campo{} | _] = campos), do: Enum.map(campos, &campo_a_mapa/1)
+
+  defp valor_a_dato(%{} = variantes) when not is_struct(variantes),
+    do: Map.new(variantes, fn {clave, campos} -> {valor_a_dato(clave), valor_a_dato(campos)} end)
+
   defp valor_a_dato(valor) when is_boolean(valor) or is_nil(valor), do: valor
   defp valor_a_dato(valor) when is_atom(valor), do: Atom.to_string(valor)
   defp valor_a_dato({a, b}), do: [valor_a_dato(a), valor_a_dato(b)]
@@ -212,10 +217,26 @@ defmodule AnchoFijo.Serializacion do
     mapa
     |> Map.put("tipo", tipo)
     |> Map.new(fn
-      {"tipo", tipo} -> {:tipo, tipo}
-      {"nombre", nombre} -> {:nombre, a_atomo(nombre)}
-      {"formato", formato} -> {:formato, formato_desde_dato(formato)}
-      {clave, valor} -> clave_campo(clave, valor, conocidas)
+      {"tipo", tipo} ->
+        {:tipo, tipo}
+
+      {"nombre", nombre} ->
+        {:nombre, a_atomo(nombre)}
+
+      {"formato", formato} ->
+        {:formato, formato_desde_dato(formato)}
+
+      {"segun", segun} ->
+        {:segun, a_atomo(segun)}
+
+      {"campos", campos} when is_list(campos) ->
+        {:campos, Enum.map(campos, &campo_desde_mapa/1)}
+
+      {"variantes", variantes} when is_map(variantes) ->
+        {:variantes, Map.new(variantes, fn {k, v} -> {k, Enum.map(v, &campo_desde_mapa/1)} end)}
+
+      {clave, valor} ->
+        clave_campo(clave, valor, conocidas)
     end)
   end
 
