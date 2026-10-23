@@ -51,6 +51,16 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   `:truncar` en la metadata) y `[:ancho_fijo, :escribir_stream, ...]` en
   `Escritor.stream/3`, con el contrato de `stream`.
 
+### Infraestructura
+
+- Tests para los dos caminos de `Campo.formatear/3` que ningún test
+  ejercitaba: un tipo propio con `escribir/2` (round-trip, sin
+  `escribir/2`, que devuelve `{:error, causa}`, que devuelve un texto de
+  otro ancho) y un `:decimal` con `moneda:` que escribe un `Monto` (round-
+  trip, otra moneda, otra precisión, la tupla). La propiedad de round-trip
+  genera también campos con `moneda:`. Los módulos de `test/support` no
+  cuentan para la cobertura.
+
 ## [0.3.1] — 2026-10-20
 
 ### Corregido

@@ -107,7 +107,14 @@ defmodule AnchoFijo.MixProject do
   defp test_coverage do
     [
       summary: [threshold: 90],
-      ignore_modules: [AnchoFijo.Fixtures, AnchoFijo.Generadores]
+      ignore_modules: [
+        AnchoFijo.Fixtures,
+        AnchoFijo.Generadores,
+        AnchoFijo.TipoHora,
+        AnchoFijo.TipoIncompleto,
+        AnchoFijo.TipoSoloLectura,
+        AnchoFijo.TipoAnchoEquivocado
+      ]
     ]
   end
 

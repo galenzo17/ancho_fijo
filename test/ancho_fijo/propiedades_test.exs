@@ -28,6 +28,22 @@ defmodule AnchoFijo.PropiedadesTest do
       end
     end
 
+    property "con moneda, lo escrito se lee como el mismo Monto" do
+      check all(
+              moneda <- member_of([:clp, :usd, :kwd]),
+              {:ok, precision} = AnchoFijo.Monto.escala(moneda),
+              largo <- integer(max(2, precision + 1)..12),
+              unidades <-
+                integer(-(Integer.pow(10, largo - 1) - 1)..(Integer.pow(10, largo - 1) - 1))
+            ) do
+        layout = [campos: [[nombre: :m, largo: largo, tipo: :decimal, moneda: moneda]]]
+        monto = AnchoFijo.Monto.nuevo(unidades, moneda)
+
+        assert {:ok, contenido, []} = AnchoFijo.escribir(layout, [%{m: monto}])
+        assert {:ok, [%{m: ^monto}], []} = AnchoFijo.parsear(layout, contenido)
+      end
+    end
+
     property "cada línea escrita mide exactamente el largo del layout" do
       check all(%{layout: layout, registro: registro} <- layout_con_registro()) do
         assert {:ok, contenido, []} = AnchoFijo.escribir(layout, [registro], terminador: :ninguno)

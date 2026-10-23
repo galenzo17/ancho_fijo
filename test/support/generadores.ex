@@ -29,7 +29,7 @@ defmodule AnchoFijo.Generadores do
   end
 
   defp campo do
-    one_of([texto(), entero(), decimal(), fecha(), rut()])
+    one_of([texto(), entero(), decimal(), decimal_con_moneda(), fecha(), rut()])
   end
 
   @doc false
@@ -116,6 +116,25 @@ defmodule AnchoFijo.Generadores do
         definicion: [largo: largo, tipo: :decimal, precision: precision, signo: signo],
         tipo: :decimal,
         esperado: {unidades, precision},
+        texto: texto
+      }
+    end
+  end
+
+  # Con `moneda:` la precisión la pone la tabla ISO 4217 y el valor es un
+  # `AnchoFijo.Monto`; el texto es el mismo que sin moneda, porque los
+  # decimales son implícitos.
+  defp decimal_con_moneda do
+    gen all(
+          moneda <- member_of([:clp, :usd, :eur, :jpy, :kwd, :bhd]),
+          {:ok, precision} = AnchoFijo.Monto.escala(moneda),
+          largo <- integer(max(1, precision)..12),
+          {signo, unidades, texto} <- numero_con_signo(largo)
+        ) do
+      %{
+        definicion: [largo: largo, tipo: :decimal, moneda: moneda, signo: signo],
+        tipo: :decimal,
+        esperado: AnchoFijo.Monto.nuevo(unidades, moneda),
         texto: texto
       }
     end
