@@ -635,6 +635,30 @@ reparado; `reparar_doble_codificacion: true` en el campo aplica la
 reparación al leer. Un campo que empieza en medio de un carácter multibyte
 lo dice así, en vez de reportar un byte latin-1 cualquiera.
 
+## Diagnósticos para el usuario final y para una API
+
+El mensaje de un diagnóstico es para quien integra. Una pantalla de carga
+necesita decirle al usuario "línea 42: el monto no es válido" en su idioma y
+sin opciones del layout, y una API necesita JSON:
+
+```elixir
+AnchoFijo.Diagnostico.mensaje(d, audiencia: :usuario)
+# "Línea 42, campo monto: el valor no es válido (se esperaba 8 dígitos con 2 decimales implícitos, llegó "AB")."
+AnchoFijo.Diagnostico.mensaje(d, audiencia: :usuario, idioma: :en)
+# "Line 42, field monto: the value is not valid (expected 8 dígitos con 2 decimales implícitos, got "AB")."
+
+AnchoFijo.Diagnostico.a_mapa(d)        # claves estables, con :mensaje; y desde_mapa/1 para la vuelta
+Jason.encode!(diagnosticos)            # con Jason en el proyecto: Jason.Encoder opcional, redactado
+
+AnchoFijo.resumen(diagnosticos)
+# %{errores: 2, advertencias: 1, lineas_afectadas: [2, 7, 9], veredicto: :rechazable,
+#   texto: "2 errores en 2 líneas y 1 advertencia: el archivo se rechaza", ...}
+```
+
+Lo que la librería traduce es el marco del mensaje y la explicación por tipo
+de problema; lo que cada tipo describe en `esperado` y `recibido` es prosa en
+español y se muestra tal cual. Todas las salidas respetan `:sensible`.
+
 ## Los datos personales no viajan en los diagnósticos
 
 El mensaje que se pega en un correo para el banco es el mismo que termina en un

@@ -40,6 +40,15 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- Diagnósticos para el usuario final y para una API: `Diagnostico.mensaje/2`
+  con `audiencia: :usuario` (sin causa probable ni sintaxis de átomos) e
+  `idioma: :en` (el marco y la explicación por tipo en inglés; el detalle
+  que cada tipo describe sigue en español); `Diagnostico.a_mapa/2` y
+  `desde_mapa/1` con claves estables; `Jason.Encoder` opcional cuando
+  `Jason` está en el proyecto; `AnchoFijo.resumen/2` con totales por
+  gravedad, tipo y campo, las primeras líneas afectadas y el veredicto
+  (`:aceptable`, `:aceptable_con_observaciones`, `:rechazable`) con su
+  texto. Todas respetan `:sensible`.
 - `AnchoFijo.escribir/3` con un `Multiregistro`: los `{tipo, mapa}` en el
   orden del archivo, cada uno con el layout de su tipo, con la estructura
   verificada (orden, cantidades, lo obligatorio que falta) y los controles
