@@ -188,3 +188,4 @@ Las que la convención tuvo que zanjar y no eran obvias:
 | [0039](0039-validaciones-por-campo.md) | Issue #60: validaciones declarativas por campo | `en:`, `rango:`, `patron:`, `requerido_si:`/`prohibido_si:`, diagnóstico `:regla`, columna "Reglas", serialización y generadores |
 | [0040](0040-gobernanza.md) | Issue #61: gobernanza para depender del paquete | `SECURITY.md`, `CODEOWNERS`, Dependabot, `mix deps.audit`, política de compatibilidad y soporte en el README |
 | [0041](0041-escritura-en-bytes.md) | Issue #62: bytes frente a grafemas al escribir | Suite y propiedad de escritura en la unidad del layout, relleno multibyte corregido, diagnósticos con bytes y caracteres |
+| [0042](0042-readme-en.md) | Issue #53: guía en inglés y glosario | `README.en.md` completo, glosario sincronizado por test, decisión sobre el idioma de la API y criterio para una fachada |
