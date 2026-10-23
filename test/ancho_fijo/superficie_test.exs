@@ -93,6 +93,18 @@ defmodule AnchoFijo.SuperficieTest do
       end
     end
 
+    test "valores de otro tipo en escribir/3 y Escritor.stream/3" do
+      for opts <- [[terminador: :lf2], [terminador: "\n"], [truncar: 1], [truncarr: true]] do
+        assert_raise ArgumentError, ~r/escribir\/3/, fn ->
+          AnchoFijo.escribir(@layout, [%{codigo: "xx", fecha: ~D[2024-01-01]}], opts)
+        end
+
+        assert_raise ArgumentError, ~r/Escritor\.stream\/3/, fn ->
+          AnchoFijo.Escritor.stream(@layout, [], opts)
+        end
+      end
+    end
+
     test "las opciones válidas siguen pasando" do
       assert {:ok, _, _} = AnchoFijo.parsear(@layout, "xx20240101\n", modo: :tolerante, saltar: 0)
       assert {:ok, _} = AnchoFijo.detectar("abc\ndef\n", lineas: 1, bytes: 10, delimitadores: [";"])

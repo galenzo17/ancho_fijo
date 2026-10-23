@@ -23,6 +23,9 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   `Parser` desde la 0.2.0.
 - `Multiregistro.nuevo/1` rechaza las claves que no existen (`controls:`)
   con un diagnóstico `:layout`, como `Layout.nuevo/1`.
+- `AnchoFijo.escribir/3` y `Escritor.stream/3` validan las opciones:
+  `terminador: :lf2` era un `KeyError` desde `Map.fetch!/2` y `truncarr:`
+  se ignoraba. Ahora son `ArgumentError` que nombra la función y la opción.
 
 ### Agregado
 
@@ -33,6 +36,11 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   cierre cuentan en `errores` pero no en `lineas`.
 - `:nombre` en la definición de un `Multiregistro`; el formato NACHA se
   llama `"NACHA"`.
+- Eventos de telemetría para la escritura: `[:ancho_fijo, :escribir, ...]`
+  en `escribir/3` (`start`, `stop`, `exception`, con `lineas`, `registros`,
+  `errores` y `advertencias` como `parsear`, más `:terminador` y
+  `:truncar` en la metadata) y `[:ancho_fijo, :escribir_stream, ...]` en
+  `Escritor.stream/3`, con el contrato de `stream`.
 
 ## [0.3.1] — 2026-10-20
 

@@ -74,6 +74,22 @@ defmodule AnchoFijo.Telemetria do
   Las cuentas viven en el acumulador del stream, cuatro enteros: la
   instrumentación no acumula registros ni rompe la memoria constante.
 
+  ### `[:ancho_fijo, :escribir, :start]`, `:stop` y `:exception`
+
+  `AnchoFijo.escribir/3`, con el patrón de `parsear`. En `start`, la
+  metadata trae `:terminador` y `:truncar`. En `stop`: medidas `duration`,
+  `lineas` (los registros que se intentaron escribir), `registros` (los
+  que se escribieron; `0` si el resultado es `{:error, _}`, porque no se
+  escribe nada), `errores` y `advertencias`; metadata `:resultado`,
+  `:layout`, `:encoding` y `:unidad`, `nil` las tres si el layout no se
+  pudo construir.
+
+  ### `[:ancho_fijo, :escribir_stream, :start]` y `:stop`
+
+  `AnchoFijo.Escritor.stream/3`, con el contrato de `stream`: `start` al
+  empezar la enumeración, `stop` al terminar o cortarse, y las mismas
+  cuentas. La metadata es la de `escribir`.
+
   ### Con un `AnchoFijo.Multiregistro`
 
   `parsear/3` y `stream/3` con un multiregistro emiten los mismos eventos,
@@ -146,13 +162,13 @@ defmodule AnchoFijo.Telemetria do
 
   Las cuentas viajan en el acumulador: cuatro enteros y el instante de inicio.
   """
-  @spec instrumentar_stream(Enumerable.t(), map()) :: Enumerable.t()
-  def instrumentar_stream(stream, metadata) do
+  @spec instrumentar_stream(Enumerable.t(), map(), atom()) :: Enumerable.t()
+  def instrumentar_stream(stream, metadata, nombre \\ :stream) do
     Stream.transform(
       stream,
-      fn -> iniciar_cuentas(metadata) end,
+      fn -> iniciar_cuentas(metadata, nombre) end,
       fn resultado, cuentas -> {[resultado], contar(resultado, cuentas)} end,
-      fn cuentas -> cerrar_cuentas(cuentas, metadata) end
+      fn cuentas -> cerrar_cuentas(cuentas, metadata, nombre) end
     )
   end
 
@@ -162,9 +178,9 @@ defmodule AnchoFijo.Telemetria do
   # líneas.
 
   @doc false
-  @spec iniciar_cuentas(map()) :: map()
-  def iniciar_cuentas(metadata) do
-    emitir([:stream, :start], %{system_time: System.system_time()}, metadata)
+  @spec iniciar_cuentas(map(), atom()) :: map()
+  def iniciar_cuentas(metadata, nombre \\ :stream) do
+    emitir([nombre, :start], %{system_time: System.system_time()}, metadata)
     %{inicio: System.monotonic_time(), lineas: 0, registros: 0, errores: 0, advertencias: 0}
   end
 
@@ -191,11 +207,11 @@ defmodule AnchoFijo.Telemetria do
   end
 
   @doc false
-  @spec cerrar_cuentas(map(), map()) :: :ok
-  def cerrar_cuentas(cuentas, metadata) do
+  @spec cerrar_cuentas(map(), map(), atom()) :: :ok
+  def cerrar_cuentas(cuentas, metadata, nombre \\ :stream) do
     {inicio, medidas} = Map.pop(cuentas, :inicio)
     duracion = System.monotonic_time() - inicio
-    emitir([:stream, :stop], Map.put(medidas, :duration, duracion), metadata)
+    emitir([nombre, :stop], Map.put(medidas, :duration, duracion), metadata)
   end
 
   @doc false

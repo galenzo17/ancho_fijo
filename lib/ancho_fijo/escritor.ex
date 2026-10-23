@@ -61,11 +61,19 @@ defmodule AnchoFijo.Escritor do
     * `:terminador` — `:lf` (default), `:crlf`, `:cr` o `:ninguno`.
     * `:truncar` — `true` para recortar los `:texto` que no caben, con una
       advertencia por cada uno. Default `false`.
+
+  Una opción que no existe o un valor de otro tipo (`terminador: :lf2`,
+  `truncarr: true`) es un `ArgumentError` que nombra la función y la
+  opción, como en `AnchoFijo.parsear/3`: es un error del programa, no de
+  los datos. `escribir/3` emite los eventos `[:ancho_fijo, :escribir, ...]`
+  de `AnchoFijo.Telemetria`.
   """
 
   alias AnchoFijo.Campo
   alias AnchoFijo.Diagnostico
   alias AnchoFijo.Layout
+  alias AnchoFijo.Opciones
+  alias AnchoFijo.Telemetria
 
   @terminadores %{lf: "\n", crlf: "\r\n", cr: "\r", ninguno: ""}
 
@@ -85,23 +93,76 @@ defmodule AnchoFijo.Escritor do
   @spec escribir(Layout.t() | Enumerable.t(), Enumerable.t(), keyword()) ::
           {:ok, binary(), [Diagnostico.t()]} | {:error, [Diagnostico.t()]}
   def escribir(layout, registros, opts \\ []) do
-    with {:ok, layout} <- Layout.coercer(layout) do
-      {lineas, advertencias, errores} =
-        registros
-        |> stream_con_layout(layout, opts)
-        |> Enum.reduce({[], [], []}, fn
-          {:ok, linea, nuevas}, {lineas, advertencias, errores} ->
-            {[linea | lineas], Enum.reverse(nuevas, advertencias), errores}
+    opts = Opciones.validar!(opts, opciones(), "AnchoFijo.escribir/3")
+    metadata = metadata_de(opts)
 
-          {:error, nuevos}, {lineas, advertencias, errores} ->
-            {lineas, advertencias, Enum.reverse(nuevos, errores)}
-        end)
+    Telemetria.span(:escribir, metadata, fn ->
+      case Layout.coercer(layout) do
+        {:ok, layout} ->
+          {resultado, procesados} = escribir_todo(registros, layout, opts)
+          {medidas, extra} = medir(resultado, procesados)
+          {resultado, medidas, Map.merge(extra, metadata_de_layout(layout))}
 
-      case errores do
-        [] -> {:ok, lineas |> Enum.reverse() |> IO.iodata_to_binary(), Enum.reverse(advertencias)}
-        errores -> {:error, Enum.reverse(errores)}
+        {:error, diagnosticos} ->
+          {medidas, extra} = medir({:error, diagnosticos}, 0)
+          {{:error, diagnosticos}, medidas, Map.merge(extra, metadata_de_layout(nil))}
       end
+    end)
+  end
+
+  # Las mismas cinco medidas que `parsear`. Con `{:ok, _}` todos los
+  # registros se escribieron; con `{:error, _}` ninguno, porque es todo o
+  # nada, y los errores son los diagnósticos devueltos.
+  defp medir({:ok, _contenido, advertencias}, procesados) do
+    {%{lineas: procesados, registros: procesados, errores: 0, advertencias: length(advertencias)},
+     %{resultado: :ok}}
+  end
+
+  defp medir({:error, diagnosticos}, procesados) do
+    {%{lineas: procesados, registros: 0, errores: length(diagnosticos), advertencias: 0},
+     %{resultado: :error}}
+  end
+
+  # Devuelve el resultado y cuántos registros se procesaron, que es lo que
+  # la telemetría mide como `lineas`. Un registro que no es un mapa también
+  # cuenta: se intentó escribir.
+  defp escribir_todo(registros, %Layout{} = layout, opts) do
+    {lineas, advertencias, errores, procesados} =
+      registros
+      |> stream_con_layout(layout, opts)
+      |> Enum.reduce({[], [], [], 0}, fn
+        {:ok, linea, nuevas}, {lineas, advertencias, errores, n} ->
+          {[linea | lineas], Enum.reverse(nuevas, advertencias), errores, n + 1}
+
+        {:error, nuevos}, {lineas, advertencias, errores, n} ->
+          {lineas, advertencias, Enum.reverse(nuevos, errores), n + 1}
+      end)
+
+    case errores do
+      [] ->
+        {{:ok, lineas |> Enum.reverse() |> IO.iodata_to_binary(), Enum.reverse(advertencias)},
+         procesados}
+
+      errores ->
+        {{:error, Enum.reverse(errores)}, procesados}
     end
+  end
+
+  defp metadata_de(opts) do
+    %{terminador: Keyword.get(opts, :terminador, :lf), truncar: Keyword.get(opts, :truncar, false)}
+  end
+
+  defp metadata_de_layout(%Layout{} = layout) do
+    %{layout: layout.nombre, encoding: layout.encoding, unidad: layout.unidad}
+  end
+
+  defp metadata_de_layout(nil), do: %{layout: nil, encoding: nil, unidad: nil}
+
+  defp opciones do
+    [
+      {:terminador, &Map.has_key?(@terminadores, &1), ":lf, :crlf, :cr o :ninguno"},
+      {:truncar, &is_boolean/1, "true o false"}
+    ]
   end
 
   @doc """
@@ -118,15 +179,29 @@ defmodule AnchoFijo.Escritor do
   Un layout inválido levanta `AnchoFijo.Error`, como en `AnchoFijo.stream/3`.
   Qué hacer con un registro que no se puede escribir es decisión del
   consumidor; la variante eager, `escribir/3`, no escribe nada si hay uno.
+
+  Emite `[:ancho_fijo, :escribir_stream, :start]` cuando empieza la
+  enumeración y `:stop` cuando termina o se corta, con las mismas cuentas
+  que `AnchoFijo.stream/3`.
   """
   @spec stream(Layout.t() | Enumerable.t(), Enumerable.t(), keyword()) :: Enumerable.t()
   def stream(layout, registros, opts \\ []) do
+    opts = Opciones.validar!(opts, opciones(), "AnchoFijo.Escritor.stream/3")
+
     case Layout.coercer(layout) do
-      {:ok, layout} -> stream_con_layout(registros, layout, opts)
-      {:error, diagnosticos} -> raise AnchoFijo.Error, diagnosticos
+      {:ok, layout} ->
+        metadata = Map.merge(metadata_de(opts), metadata_de_layout(layout))
+
+        registros
+        |> stream_con_layout(layout, opts)
+        |> Telemetria.instrumentar_stream(metadata, :escribir_stream)
+
+      {:error, diagnosticos} ->
+        raise AnchoFijo.Error, diagnosticos
     end
   end
 
+  # Las opciones ya vienen validadas: el terminador existe en el mapa.
   defp stream_con_layout(registros, %Layout{} = layout, opts) do
     terminador = Map.fetch!(@terminadores, Keyword.get(opts, :terminador, :lf))
     truncar? = Keyword.get(opts, :truncar, false)
