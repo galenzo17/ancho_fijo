@@ -176,3 +176,4 @@ Las que la convención tuvo que zanjar y no eran obvias:
 | [0027](0027-tests-escritura-tipos.md) | Issue #41: tests de escritura para tipos propios y `Monto` | `TipoHora.escribir/2`, tipos de prueba para cada falla, generador con moneda, cobertura sin `test/support` |
 | [0028](0028-campos-constantes.md) | Issue #48: campos constantes y de relleno | Tipos `:constante` y `:relleno`, discriminador por campo, literales contados por `detectar` |
 | [0029](0029-fechas-y-horas.md) | Issue #49: fechas y horas con más formatos | `Tipo.Patron`, ocho formatos de fecha y patrones, `:pivote`, tipos `:hora` y `:fecha_hora` |
+| [0030](0030-discriminador-sin-codigo.md) | Issue #50: discriminar sin código de tipo | `por: :largo`, `por: :posicion_en_archivo`, `por: fun`; `detectar/2` con un Multiregistro y veredicto por tipo |

@@ -63,6 +63,7 @@ defmodule AnchoFijo.Detector do
   alias AnchoFijo.Diagnostico
   alias AnchoFijo.Entrada
   alias AnchoFijo.Layout
+  alias AnchoFijo.Multiregistro
   alias AnchoFijo.Opciones
   alias AnchoFijo.Telemetria
   alias AnchoFijo.Tipo.Constante
@@ -168,7 +169,9 @@ defmodule AnchoFijo.Detector do
       iex> AnchoFijo.Detector.contrastar(reporte, AnchoFijo.Layout.nuevo!(campos: [[nombre: :a, largo: 8]]))
       []
   """
-  @spec contrastar(reporte(), Layout.t() | Enumerable.t()) :: [Diagnostico.t()]
+  @spec contrastar(reporte(), Layout.t() | Multiregistro.t() | Enumerable.t()) :: [Diagnostico.t()]
+  def contrastar(%{largo_predominante: _, encoding_probable: _}, %Multiregistro{}), do: []
+
   def contrastar(%{largo_predominante: _, encoding_probable: _} = reporte, layout) do
     case Layout.coercer(layout) do
       {:ok, layout} ->
@@ -184,8 +187,9 @@ defmodule AnchoFijo.Detector do
       {:lineas, &(is_integer(&1) and &1 > 0), "un entero mayor que cero"},
       {:bytes, &(is_integer(&1) and &1 > 0), "un entero mayor que cero"},
       {:desde, &(&1 in [:auto, :archivo, :contenido]), ":auto, :archivo o :contenido"},
-      {:layout, &(is_struct(&1, Layout) or is_list(&1) or is_map(&1)),
-       "un AnchoFijo.Layout o su definición"},
+      {:layout,
+       &(is_struct(&1, Layout) or is_struct(&1, Multiregistro) or is_list(&1) or is_map(&1)),
+       "un AnchoFijo.Layout o su definición, o un AnchoFijo.Multiregistro"},
       {:delimitadores, &delimitadores?/1, "una lista de binarios no vacíos"}
     ]
   end
@@ -200,6 +204,7 @@ defmodule AnchoFijo.Detector do
   # `{:error, diagnosticos}` como en `parsear/3`, no una observación en prosa
   # dentro de un reporte que dice `:ok`.
   defp coercer_layout(nil), do: {:ok, nil}
+  defp coercer_layout(%Multiregistro{} = multi), do: {:ok, multi}
   defp coercer_layout(layout), do: Layout.coercer(layout)
 
   defp analizar(muestra, truncada?, opts) do
@@ -221,6 +226,7 @@ defmodule AnchoFijo.Detector do
     |> Map.merge(analizar_delimitadores(lineas, opts))
     |> veredicto()
     |> con_observaciones(lineas, opts)
+    |> con_multiregistro(lineas, Keyword.get(opts, :layout))
   end
 
   defp piezas(muestra, true), do: {muestra |> Entrada.dividir() |> Enum.drop(-1), nil}
@@ -376,7 +382,7 @@ defmodule AnchoFijo.Detector do
     observaciones =
       Enum.concat([
         observacion_muestra(reporte),
-        observacion_largos(reporte),
+        observacion_largos(reporte, layout),
         observacion_caracteres(reporte),
         observacion_encoding(reporte),
         observacion_terminador(reporte),
@@ -394,6 +400,7 @@ defmodule AnchoFijo.Detector do
   # bytes sobre la línea cruda, como lo hace el discriminador.
   defp observacion_constantes(_lineas, nil), do: []
   defp observacion_constantes([], _layout), do: []
+  defp observacion_constantes(_lineas, %Multiregistro{}), do: []
 
   defp observacion_constantes(lineas, %Layout{} = layout) do
     total = length(lineas)
@@ -444,22 +451,28 @@ defmodule AnchoFijo.Detector do
 
   defp observacion_muestra(_reporte), do: []
 
-  defp observacion_largos(%{lineas_analizadas: 0}), do: []
+  defp observacion_largos(%{lineas_analizadas: 0}, _layout), do: []
 
-  defp observacion_largos(%{largo_consistente?: true} = reporte) do
+  defp observacion_largos(%{largo_consistente?: true} = reporte, _layout) do
     ["todas las #{reporte.lineas_analizadas} líneas miden #{reporte.largo_predominante} bytes"]
   end
 
-  defp observacion_largos(reporte) do
-    detalle =
-      reporte.largos
-      |> Enum.sort_by(fn {_largo, veces} -> -veces end)
-      |> Enum.map_join(", ", fn {largo, veces} -> "#{largo} (#{lineas(veces)})" end)
+  # Con un multiregistro, varios largos no son sospechosos: son los tipos.
+  defp observacion_largos(reporte, %Multiregistro{}) do
+    ["hay #{map_size(reporte.largos)} largos de línea distintos: #{detalle_de_largos(reporte)}"]
+  end
 
+  defp observacion_largos(reporte, _layout) do
     [
-      "hay #{map_size(reporte.largos)} largos de línea distintos: #{detalle}; " <>
+      "hay #{map_size(reporte.largos)} largos de línea distintos: #{detalle_de_largos(reporte)}; " <>
         "el predominante es #{reporte.largo_predominante}, así que el resto son las filas sospechosas"
     ]
+  end
+
+  defp detalle_de_largos(reporte) do
+    reporte.largos
+    |> Enum.sort_by(fn {_largo, veces} -> -veces end)
+    |> Enum.map_join(", ", fn {largo, veces} -> "#{largo} (#{lineas(veces)})" end)
   end
 
   defp observacion_caracteres(%{largos_en_caracteres: nil}), do: []
@@ -546,7 +559,73 @@ defmodule AnchoFijo.Detector do
     ]
   end
 
+  # Con un multiregistro el veredicto es otro: un archivo con tres largos de
+  # línea es de ancho fijo si cada línea es de un tipo y mide lo que ese
+  # tipo declara. Se dice qué criterio discrimina, cuántas líneas son de
+  # cada tipo, cuántas no son de ninguno y cuántas no miden lo que su tipo
+  # declara. Con una función es lo único que se puede saber: la función no
+  # se contrasta, se cuenta lo que devuelve.
+  defp con_multiregistro(reporte, lineas, %Multiregistro{} = multi) when lineas != [] do
+    total = length(lineas)
+
+    {cuentas, desajustes} =
+      lineas
+      |> Enum.with_index(1)
+      |> Enum.reduce({%{}, 0}, fn {{linea, numero}, indice}, {cuentas, desajustes} ->
+        case Multiregistro.discriminar(multi, linea, numero, ubicacion(indice, total)) do
+          {:ok, tipo, %{layout: layout}} ->
+            cabe? = Multiregistro.largo_de(linea, layout) == layout.largo
+
+            {Map.update(cuentas, tipo, 1, &(&1 + 1)),
+             if(cabe?, do: desajustes, else: desajustes + 1)}
+
+          {:error, _diagnosticos} ->
+            {Map.update(cuentas, :sin_tipo, 1, &(&1 + 1)), desajustes}
+        end
+      end)
+
+    por_tipo =
+      Enum.map_join(multi.registros, ", ", fn {tipo, _} ->
+        "#{Map.get(cuentas, tipo, 0)} #{inspect(tipo)}"
+      end)
+
+    sin_tipo = Map.get(cuentas, :sin_tipo, 0)
+
+    observacion =
+      "multiregistro con discriminador #{criterio(multi.discriminador)}: de #{total} líneas, " <>
+        "#{por_tipo}, #{sin_tipo} sin tipo" <>
+        if(sin_tipo > 0,
+          do: "; las líneas sin tipo son un diagnóstico de estructura al parsear",
+          else: ""
+        ) <>
+        if(desajustes > 0,
+          do: "; #{lineas(desajustes)} no miden lo que su tipo declara",
+          else: ""
+        )
+
+    %{
+      reporte
+      | observaciones: reporte.observaciones ++ [observacion],
+        probablemente_ancho_fijo?:
+          sin_tipo == 0 and desajustes == 0 and is_nil(reporte.delimitador_sugerido)
+    }
+  end
+
+  defp con_multiregistro(reporte, _lineas, _layout), do: reporte
+
+  defp ubicacion(1, _total), do: :primera
+  defp ubicacion(total, total), do: :ultima
+  defp ubicacion(_indice, _total), do: :resto
+
+  defp criterio(%{por: :largo}), do: "por largo de línea"
+  defp criterio(%{por: :posicion_en_archivo}), do: "por posición en el archivo"
+  defp criterio(%{por: :funcion}), do: "por función (no contrastable: se cuenta lo que devuelve)"
+
+  defp criterio(%{posicion: posicion, largo: largo}),
+    do: "por código en las posiciones #{posicion}-#{posicion + largo - 1}"
+
   defp observacion_layout(_reporte, nil), do: []
+  defp observacion_layout(_reporte, %Multiregistro{}), do: []
 
   defp observacion_layout(reporte, layout) do
     Enum.map(contrastar(reporte, layout), &Diagnostico.mensaje/1)

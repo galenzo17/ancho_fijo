@@ -111,9 +111,15 @@ defmodule Mix.Tasks.AnchoFijo.Detectar do
   defp cargar_layout(ruta) do
     {definicion, _binding} = Code.eval_file(ruta)
 
-    case AnchoFijo.Layout.coercer(definicion) do
-      {:ok, layout} -> {:ok, layout}
-      {:error, diagnosticos} -> {:error, "\n" <> Diagnostico.reporte(diagnosticos)}
+    case definicion do
+      %AnchoFijo.Multiregistro{} = multi ->
+        {:ok, multi}
+
+      definicion ->
+        case AnchoFijo.Layout.coercer(definicion) do
+          {:ok, layout} -> {:ok, layout}
+          {:error, diagnosticos} -> {:error, "\n" <> Diagnostico.reporte(diagnosticos)}
+        end
     end
   rescue
     error in [Code.LoadError, File.Error] -> {:error, Exception.message(error)}

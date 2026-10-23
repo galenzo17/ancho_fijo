@@ -142,7 +142,7 @@ defmodule AnchoFijo.Identidad do
       {esperado, %{layout: %Layout{identidad: %{campos: campos}} = layout}} ->
         with {:ok, lineas} <- Entrada.lineas(entrada, opts),
              {:ok, linea, numero} <- primer_registro(lineas, opts, campos),
-             {:ok, tipo, _definicion} <- Multiregistro.discriminar(multi, linea, numero),
+             {:ok, tipo, _definicion} <- Multiregistro.discriminar(multi, linea, numero, :primera),
              :ok <- del_tipo_esperado(tipo, esperado, numero, campos),
              {:ok, registro, _advertencias} <- Parser.parsear_linea(layout, linea, numero) do
           {:ok, Map.take(registro, campos)}

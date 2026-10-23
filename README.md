@@ -338,6 +338,24 @@ nomina = AnchoFijo.Multiregistro.nuevo!(
 )
 ```
 
+Hay formatos sin código de tipo: el header y el trailer se reconocen porque
+miden distinto que el detalle, o porque son la primera y la última línea. El
+discriminador también sabe de eso:
+
+```elixir
+discriminador: [por: :largo]                 # cada tipo mide lo que su layout
+discriminador: [por: :posicion_en_archivo]   # header: [ubicacion: :primera, ...], trailer: [ubicacion: :ultima, ...]
+discriminador: [por: fn linea, numero -> ... end]   # para lo que no cabe arriba
+```
+
+Dos tipos que miden lo mismo son una definición inválida. Con
+`:posicion_en_archivo` la última línea se reconoce con una línea de
+anticipación, así que `stream/3` sigue en memoria constante. Y una función es
+el último recurso: no se serializa ni se contrasta, `detectar/2` solo cuenta
+lo que devuelve. `AnchoFijo.detectar(ruta, layout: multi)` dice qué criterio
+discrimina, cuántas líneas son de cada tipo y cuántas no son de ninguno, y
+con un multiregistro un archivo con tres largos de línea sí es de ancho fijo.
+
 Cuando cada layout declara su código de tipo como un campo `:constante`, el
 discriminador apunta al campo y los valores salen de los literales:
 
