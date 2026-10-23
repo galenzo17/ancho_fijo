@@ -186,3 +186,4 @@ Las que la convención tuvo que zanjar y no eran obvias:
 | [0037](0037-helpers-de-test.md) | Issue #58: aserciones y generadores para los consumidores | `AnchoFijo.Test`, `Test.Generadores` con StreamData opcional, callback `generador/1`, round-trip como propiedad |
 | [0038](0038-occurs-y-redefines.md) | Issue #59: OCCURS y REDEFINES | Tipos `:grupo` y `:variante`, `AnchoFijo.Anidados`, diagnósticos con ruta, serialización, documentación y generadores |
 | [0039](0039-validaciones-por-campo.md) | Issue #60: validaciones declarativas por campo | `en:`, `rango:`, `patron:`, `requerido_si:`/`prohibido_si:`, diagnóstico `:regla`, columna "Reglas", serialización y generadores |
+| [0040](0040-gobernanza.md) | Issue #61: gobernanza para depender del paquete | `SECURITY.md`, `CODEOWNERS`, Dependabot, `mix deps.audit`, política de compatibilidad y soporte en el README |

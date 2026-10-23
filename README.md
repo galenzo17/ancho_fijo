@@ -1093,6 +1093,52 @@ dos, que son las que importan, más las de la región y las de reserva. Una
 moneda que falta con `:precision` explícita se acepta con una advertencia
 del layout; sin `:precision`, es un error.
 
+## Mantenimiento, compatibilidad y soporte
+
+Lo que un equipo necesita saber antes de depender de esto, en un lugar.
+
+**Quién lo mantiene.** [@galenzo17](https://github.com/galenzo17), que es
+también el dueño del paquete en Hex. Los PRs piden su revisión por
+[`CODEOWNERS`](.github/CODEOWNERS). Cada cambio tiene su prompt en
+[`prompts/`](prompts/README.md), con el pedido, el resultado y las decisiones.
+
+**Cómo reportar un problema de seguridad.** Por el reporte privado de GitHub,
+como dice [SECURITY.md](SECURITY.md): acuse en 3 días hábiles, plan en 14,
+corrección publicada en Hex con una entrada `### Seguridad` en el CHANGELOG.
+No en un issue público.
+
+**Qué versiones de Elixir y OTP.** `elixir: "~> 1.14"`. La CI corre la suite
+completa, con warnings como errores, en Elixir 1.14 / OTP 25, 1.16 / OTP 26,
+1.18 / OTP 27 y 1.20 / OTP 28, y además compila la librería como dependencia
+de un proyecto vacío en la versión más vieja y en la más nueva. Una versión
+de Elixir sale de la matriz solo en una versión mayor o menor nueva de la
+librería, y el CHANGELOG lo dice. No hay dependencias de runtime; `:decimal`
+y `:telemetry` son opcionales y la librería compila con y sin ellas.
+
+**Qué es un cambio incompatible.** El paquete sigue
+[versionado semántico](https://semver.org/lang/es/). Mientras la versión sea
+`0.x`, una versión menor (`0.3` → `0.4`) puede romper compatibilidad, siempre
+bajo un título `### Cambiado — rompe compatibilidad` en el CHANGELOG que dice
+qué hay que tocar; una versión de corrección (`0.3.1` → `0.3.2`) nunca. Es
+incompatible todo lo que obligue a cambiar código que hoy funciona: la forma
+de los valores devueltos (`{unidades, precision}`, `%Monto{}`, `%Decimal{}`),
+las opciones de layout y de campo y su significado, los campos de
+`%Diagnostico{}` y la forma de los mapas de `a_mapa/1`. No lo es agregar
+tipos, opciones, diagnósticos nuevos o texto a los mensajes, ni cambiar
+módulos `@moduledoc false`.
+
+**Cuánto dura una serie.** Se mantiene la última serie publicada. Cuando sale
+una serie nueva que rompe compatibilidad, la anterior recibe correcciones de
+seguridad durante los seis meses siguientes, si el arreglo es acotado.
+[SECURITY.md](SECURITY.md) tiene la tabla.
+
+**Cómo se publica.** Solo desde CI, al empujar un tag `vX.Y.Z`
+([`release.yml`](.github/workflows/release.yml)): el workflow verifica que el
+tag coincida con `mix.exs` y el CHANGELOG, corre la suite y publica paquete y
+docs con la credencial del repositorio. Las dependencias de desarrollo pasan
+por `mix hex.audit` y `mix deps.audit` en cada CI y Dependabot propone las
+actualizaciones.
+
 ## Documentación
 
 [hexdocs.pm/ancho_fijo](https://hexdocs.pm/ancho_fijo)

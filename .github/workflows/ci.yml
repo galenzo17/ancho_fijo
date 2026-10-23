@@ -137,8 +137,10 @@ jobs:
 
       - run: mix credo --strict
 
-      # Avisos de seguridad de las dependencias, incluidas las opcionales.
+      # Paquetes retirados y avisos de seguridad conocidos de las
+      # dependencias, incluidas las opcionales. Ver SECURITY.md.
       - run: mix hex.audit
+      - run: mix deps.audit
 
       - name: Construir el PLT si no vino del cache
         if: steps.plt.outputs.cache-hit != 'true'

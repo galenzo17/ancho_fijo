@@ -187,6 +187,13 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Infraestructura
 
+- Gobernanza para depender del paquete: `SECURITY.md` con el canal de reporte
+  privado y los plazos, `CODEOWNERS`, Dependabot para las dependencias de
+  desarrollo y las acciones de CI, `mix deps.audit` en la CI junto a
+  `mix hex.audit`, y la sección "Mantenimiento, compatibilidad y soporte" del
+  README: versiones de Elixir y OTP soportadas, qué es un cambio
+  incompatible, cuánto se mantiene una serie y cómo se publica.
+
 - Tests para los dos caminos de `Campo.formatear/3` que ningún test
   ejercitaba: un tipo propio con `escribir/2` (round-trip, sin
   `escribir/2`, que devuelve `{:error, causa}`, que devuelve un texto de

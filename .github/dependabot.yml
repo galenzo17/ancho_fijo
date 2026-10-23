@@ -1,0 +1,18 @@
+# Versiones nuevas de las dependencias de desarrollo y de las acciones de CI.
+# El paquete no tiene dependencias de runtime; esto cubre credo, dialyxir,
+# ex_doc, stream_data y compañía, y las acciones de los workflows.
+version: 2
+updates:
+  - package-ecosystem: mix
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: "ci"
