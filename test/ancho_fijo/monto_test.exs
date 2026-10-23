@@ -136,6 +136,40 @@ defmodule AnchoFijo.MontoTest do
     end
   end
 
+  describe "desde_decimal/2 y nuevo/3 con un Decimal" do
+    test "con la escala de la moneda, exacto" do
+      assert {:ok, monto} = Monto.desde_decimal(Decimal.new("1234.56"), :usd)
+      assert monto == Monto.nuevo(123_456, :usd)
+      assert {:ok, Monto.nuevo(-125_000, :clp)} == Monto.desde_decimal(Decimal.new("-125000"), :clp)
+
+      assert {:ok, Monto.nuevo(1_234_567, :kwd)} ==
+               Monto.desde_decimal(Decimal.new("1234.567"), :kwd)
+
+      assert Monto.nuevo(Decimal.new("12.5"), 2, :usd) == Monto.nuevo(1250, :usd)
+    end
+
+    test "más decimales que la escala es un diagnóstico, nunca un redondeo" do
+      assert {:error, %Diagnostico{tipo: :moneda} = d} =
+               Monto.desde_decimal(Decimal.new("125000.5"), :clp)
+
+      assert d.esperado == "un decimal con a lo más 0 decimales, la escala de CLP"
+      assert d.recibido == "125000.5"
+
+      assert_raise ArgumentError, ~r/a lo más 2 decimales/, fn ->
+        Monto.nuevo(Decimal.new("1.005"), 2, :usd)
+      end
+
+      assert_raise ArgumentError, ~r/no está en la tabla/, fn ->
+        Monto.desde_decimal(Decimal.new("1"), :xyz)
+      end
+    end
+
+    test "a_decimal y desde_decimal son inversos" do
+      monto = Monto.nuevo(-9_876_543, :usd)
+      assert Monto.desde_decimal(Monto.a_decimal(monto), :usd) == {:ok, monto}
+    end
+  end
+
   describe "formatear/2 y a_decimal/1" do
     test "formatea con la escala de la moneda" do
       assert Monto.formatear(Monto.nuevo(0, :clp)) == "0 CLP"

@@ -1,6 +1,37 @@
 defmodule AnchoFijo.LayoutTest do
   use ExUnit.Case, async: true
 
+  describe "decimales_como: :decimal" do
+    test "es el default de :como para los campos :decimal que no lo declaran" do
+      layout =
+        AnchoFijo.Layout.nuevo!(
+          decimales_como: :decimal,
+          campos: [
+            [nombre: :a, largo: 6, tipo: :decimal, precision: 2],
+            [nombre: :b, largo: 6, tipo: :decimal, moneda: :clp],
+            [nombre: :c, largo: 3, tipo: :entero],
+            AnchoFijo.Campo.nuevo!(nombre: :d, largo: 6, tipo: :decimal, precision: 1)
+          ]
+        )
+
+      assert Enum.map(layout.campos, & &1.como) == [:decimal, :decimal, nil, :decimal]
+      assert layout.decimales_como == :decimal
+
+      assert {:ok, [registro], []} = AnchoFijo.parsear(layout, "001250125000042001250\n")
+      assert Decimal.equal?(registro.a, Decimal.new("12.50"))
+      assert Decimal.equal?(registro.b, Decimal.new("125000"))
+      assert registro.c == 42
+      assert Decimal.equal?(registro.d, Decimal.new("125.0"))
+
+      assert {:ok, "001250125000042001250\n", []} = AnchoFijo.escribir(layout, [registro])
+    end
+
+    test "otro valor es un layout inválido" do
+      assert {:error, [%AnchoFijo.Diagnostico{tipo: :layout}]} =
+               AnchoFijo.Layout.nuevo(decimales_como: :float, campos: [[nombre: :a, largo: 2]])
+    end
+  end
+
   alias AnchoFijo.Diagnostico
   alias AnchoFijo.Layout
 

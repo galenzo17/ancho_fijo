@@ -363,7 +363,7 @@ defmodule AnchoFijo.EscritorTest do
     test "un Monto en un campo sin moneda es un valor de otro tipo" do
       layout = Layout.nuevo!(campos: [[nombre: :m, largo: 6, tipo: :decimal, precision: 2]])
 
-      assert {:error, [%Diagnostico{esperado: "un monto {unidades, 2}"}]} =
+      assert {:error, [%Diagnostico{esperado: "un monto {unidades, 2}, un Decimal o un entero"}]} =
                AnchoFijo.escribir(layout, [%{m: AnchoFijo.Monto.nuevo(100, :usd)}])
     end
   end

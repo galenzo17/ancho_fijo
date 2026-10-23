@@ -221,6 +221,92 @@ defmodule AnchoFijo.CampoTest do
     end
   end
 
+  describe ":decimal como Decimal" do
+    test "con como: :decimal el valor es un Decimal con la escala del campo" do
+      campo =
+        Campo.nuevo!(
+          nombre: :m,
+          posicion: 1,
+          largo: 8,
+          tipo: :decimal,
+          precision: 2,
+          como: :decimal
+        )
+
+      assert {:ok, decimal} = Campo.extraer(campo, "00123456")
+      assert Decimal.equal?(decimal, Decimal.new("1234.56"))
+      assert decimal.exp == -2
+
+      assert {:ok, negativo} = Campo.extraer(campo, "-0012345")
+      assert Decimal.equal?(negativo, Decimal.new("-123.45"))
+
+      con_moneda =
+        Campo.nuevo!(
+          nombre: :m,
+          posicion: 1,
+          largo: 8,
+          tipo: :decimal,
+          moneda: :usd,
+          como: :decimal
+        )
+
+      assert {:ok, decimal} = Campo.extraer(con_moneda, "00123456")
+      assert Decimal.equal?(decimal, Decimal.new("1234.56"))
+    end
+
+    test "al escribir, cualquier :decimal acepta un Decimal, un entero o un string" do
+      campo = Campo.nuevo!(nombre: :m, posicion: 1, largo: 8, tipo: :decimal, precision: 2)
+      assert Campo.formatear(campo, Decimal.new("1234.56")) == {:ok, "00123456", []}
+      assert Campo.formatear(campo, Decimal.new("1234.5")) == {:ok, "00123450", []}
+      assert Campo.formatear(campo, Decimal.new("-7")) == {:ok, "-0000700", []}
+      assert Campo.formatear(campo, 1234) == {:ok, "00123400", []}
+      assert Campo.formatear(campo, "1234.56") == {:ok, "00123456", []}
+
+      con_punto =
+        Campo.nuevo!(
+          nombre: :m,
+          posicion: 1,
+          largo: 8,
+          tipo: :decimal,
+          precision: 2,
+          separador: :punto
+        )
+
+      assert Campo.formatear(con_punto, Decimal.new("12.5")) == {:ok, "00012.50", []}
+
+      con_moneda = Campo.nuevo!(nombre: :m, posicion: 1, largo: 8, tipo: :decimal, moneda: :clp)
+      assert Campo.formatear(con_moneda, Decimal.new("125000")) == {:ok, "00125000", []}
+    end
+
+    test "más decimales que la precisión es un diagnóstico, nunca un redondeo" do
+      campo = Campo.nuevo!(nombre: :m, posicion: 1, largo: 8, tipo: :decimal, precision: 2)
+
+      assert {:error, d} = Campo.formatear(campo, Decimal.new("1234.567"))
+      assert d.esperado == "un monto {unidades, 2}, un Decimal o un entero"
+      assert d.recibido == "Decimal.new(\"1234.567\")"
+      assert d.causa_probable =~ "más decimales que la precisión del campo (2)"
+
+      assert {:error, %{causa_probable: causa}} = Campo.formatear(campo, "12.345")
+      assert causa =~ "más decimales"
+
+      assert {:error, %{causa_probable: "el string no es un número decimal"}} =
+               Campo.formatear(campo, "12,5")
+
+      assert {:error, %{causa_probable: "NaN o infinito no son un monto"}} =
+               Campo.formatear(campo, Decimal.new("NaN"))
+    end
+
+    test "la definición valida :como" do
+      assert {:error, [d]} =
+               Campo.nuevo(nombre: :m, largo: 8, tipo: :decimal, precision: 2, como: :float)
+
+      assert d.esperado == "como: :decimal, o ninguno para leer {unidades, precision}"
+
+      assert {:error, [d]} = Campo.nuevo(nombre: :m, largo: 8, tipo: :entero, como: :decimal)
+      assert d.esperado == ":como solo en campos :decimal"
+    end
+  end
+
   describe ":fecha" do
     test "lee AAAAMMDD" do
       assert extraer([nombre: :a, largo: 8, tipo: :fecha, formato: :aaaammdd], "20240229") ==
