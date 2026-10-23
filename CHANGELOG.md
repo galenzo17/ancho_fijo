@@ -40,6 +40,15 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- `AnchoFijo.Test`: `assert_parsea/4`, `assert_diagnostico/2`,
+  `assert_round_trip/3` y `assert_escribe/4` para los tests de quien usa la
+  librería, con los diagnósticos en el mensaje del fallo. Y
+  `AnchoFijo.Test.Generadores` (con `StreamData` en el proyecto):
+  `registro/1` genera registros válidos para cualquier layout o
+  multiregistro a partir de sus campos, `linea/1` y `linea_invalida/1` con
+  el campo roto anotado. Callback opcional `generador/1` en
+  `AnchoFijo.Tipo` para los tipos propios. La suite de la librería corre el
+  round-trip como propiedad sobre sus fixtures, NACHA incluido.
 - Layouts como datos: `Layout.a_mapa/1` y `desde_mapa/1` (mapa de claves
   string, sin átomos ni funciones, con `"version"` del esquema y los mismos
   diagnósticos que `nuevo/1`), `a_json/1` y `desde_json/1` sin dependencias,

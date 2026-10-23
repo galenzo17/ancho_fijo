@@ -77,6 +77,8 @@ defmodule AnchoFijo.Tipo do
     * `c:escribir/2` — opcional: serializa el valor al ancho del campo, para
       `AnchoFijo.escribir/3`. Un tipo sin `escribir/2` se lee pero no se
       escribe, y `AnchoFijo.Campo.formatear/3` lo dice como diagnóstico.
+    * `c:generador/1` — opcional: un generador de `StreamData` de valores
+      válidos, para `AnchoFijo.Test.Generadores`.
 
   ## Cuándo se verifica que el módulo implementa el behaviour
 
@@ -105,7 +107,14 @@ defmodule AnchoFijo.Tipo do
   @doc "Serializa un valor al ancho del campo. Opcional, para la escritura."
   @callback escribir(valor :: term(), campo :: Campo.t()) :: {:ok, binary()} | {:error, String.t()}
 
-  @optional_callbacks escribir: 2
+  @doc """
+  Un generador de `StreamData` de valores válidos para el campo. Opcional,
+  para `AnchoFijo.Test.Generadores`; sin él, un layout con este tipo no se
+  puede generar y el generador lo dice.
+  """
+  @callback generador(campo :: Campo.t()) :: term()
+
+  @optional_callbacks escribir: 2, generador: 1
 
   # Keyword list y no mapa: el orden es el de la documentación y el de los
   # mensajes de error.

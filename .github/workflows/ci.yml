@@ -249,6 +249,7 @@ jobs:
           # Sin Decimal: como: :decimal es un layout inválido que lo dice, y un
           # string numérico no se puede escribir; la tupla y el entero sí.
           false = AnchoFijo.Tipo.Decimal.decimal_disponible?()
+          false = AnchoFijo.Test.Generadores.disponible?()
           {:error, [%AnchoFijo.Diagnostico{tipo: :layout, campo: :monto} = d]} = AnchoFijo.Layout.nuevo(campos: [[nombre: :monto, largo: 8, tipo: :decimal, precision: 2, como: :decimal]])
           true = String.contains?(d.causa_probable, "agregue {:decimal")
           {:error, [%AnchoFijo.Diagnostico{campo: :monto} = d]} = AnchoFijo.escribir([campos: [[nombre: :monto, largo: 8, tipo: :decimal, precision: 2]]], [%{monto: "12.50"}])

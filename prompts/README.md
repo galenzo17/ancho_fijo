@@ -183,3 +183,4 @@ Las que la convención tuvo que zanjar y no eran obvias:
 | [0034](0034-diagnosticos-usuario.md) | Issue #55: diagnósticos para el usuario final | `mensaje/2` con idioma y audiencia, `a_mapa/2`, `desde_mapa/1`, `Jason.Encoder` opcional, `resumen/2` |
 | [0035](0035-documentar.md) | Issue #56: la especificación desde el layout | `Documentacion.documentar/2` en Markdown, CSV y JSON, `mix ancho_fijo.documentar`, `descripcion:` y `ejemplo:` |
 | [0036](0036-layouts-como-datos.md) | Issue #57: layouts como datos | `Layout.a_mapa/1` y `desde_mapa/1`, JSON sin dependencias, `.json` en las tareas, JSON Schema en `priv/` |
+| [0037](0037-helpers-de-test.md) | Issue #58: aserciones y generadores para los consumidores | `AnchoFijo.Test`, `Test.Generadores` con StreamData opcional, callback `generador/1`, round-trip como propiedad |
