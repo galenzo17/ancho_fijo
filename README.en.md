@@ -33,7 +33,7 @@ error says what happened instead of `{:error, :invalid}`.
 
 ```elixir
 def deps do
-  [{:ancho_fijo, "~> 0.3.1"}]
+  [{:ancho_fijo, "~> 0.4.0"}]
 end
 ```
 

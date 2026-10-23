@@ -2,7 +2,25 @@
 
 Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
-## [No publicado]
+## [0.4.0] — 2026-10-23
+
+### Cambiado — rompe compatibilidad
+
+- `AnchoFijo.Multiregistro.nuevo/1` rechaza las claves que no existen en la
+  definición (`controls:`, `discriminator:`) con un diagnóstico `:layout`,
+  como ya hacía `Layout.nuevo/1`. Antes se ignoraban en silencio. Qué tocar:
+  corregir la clave; el diagnóstico la nombra.
+- `AnchoFijo.Multiregistro.parsear/3`, `stream/3`, `AnchoFijo.escribir/3` y
+  `Escritor.stream/3` validan sus opciones: una opción desconocida
+  (`truncarr:`) o un valor fuera del esquema (`modo: :otro`,
+  `terminador: :lf2`) es `ArgumentError` que nombra la función y la opción.
+  Antes se ignoraban o fallaban con `KeyError`/`FunctionClauseError`. Qué
+  tocar: corregir la opción.
+- Un `:relleno` de más de un byte (`"·"`) en un layout que mide en bytes y
+  codifica UTF-8 es un error al escribir y una advertencia de
+  `Layout.nuevo/1`. Antes se escribía repetido tantas veces como bytes
+  faltaban y la línea quedaba más ancha que su largo. Qué tocar: usar un
+  relleno de un byte (`" "`, `"0"`) o declarar `unidad: :caracteres`.
 
 ### Cambiado
 
@@ -205,6 +223,12 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Infraestructura
 
+- El paquete de Hex excluye `priv/plts/`: con un PLT de dialyzer construido en
+  local, el tarball pasaba el tope de 16 MB y `mix hex.build` fallaba. Incluye
+  `SECURITY.md`, que hexdocs publica como "Seguridad", y la documentación ya no
+  enlaza a archivos que hexdocs no tiene ni a módulos ocultos
+  (`AnchoFijo.Reglas` pasa a estar documentado: es el struct de
+  `campo.reglas`).
 - Gobernanza para depender del paquete: `SECURITY.md` con el canal de reporte
   privado y los plazos, `CODEOWNERS`, Dependabot para las dependencias de
   desarrollo y las acciones de CI, `mix deps.audit` en la CI junto a
@@ -450,17 +474,17 @@ Primera versión. Solo lectura.
 - Las posiciones son 1-based, como en las especificaciones bancarias.
 - Cero dependencias de runtime.
 
-## Candidatos a 0.2
+## Candidatos
 
 Ninguno de estos está implementado. Quedan anotados como lo que sigue:
 
-- **Multiregistro (header / detalle / trailer).** Un layout por tipo de registro,
-  discriminado por el contenido de un campo —típicamente las primeras una o dos
-  posiciones— y validación cruzada del trailer contra los detalles (cantidad de
-  registros y suma de montos). Es la funcionalidad que más piden las cartolas
-  bancarias reales y la razón principal de que exista una 0.2.
-- **Escritura y serialización.** Generar archivos de ancho fijo desde el mismo
-  layout que los lee. Requiere decidir el comportamiento cuando un valor no cabe
-  en el campo: truncar, fallar o rellenar.
-- **Más encodings.** cp1252 y las variantes de EBCDIC que aparecen en
-  integraciones con sistemas antiguos.
+- **Previred (Chile)** como formato incluido, con vigencia y fuente, como
+  NACHA. Es el que convierte "un parser genérico" en "sabe leer lo que
+  necesito" para el mercado al que apunta la librería.
+- **Más encodings.** cp1252 (cuya señal `detectar/2` ya reconoce) y las
+  variantes de EBCDIC que aparecen en integraciones con sistemas antiguos.
+- **Escritura lazy de un multiregistro.** `Escritor.stream/3` lo rechaza
+  porque el trailer necesita los totales; una primera pasada que acumule
+  cuentas y sumas lo permitiría en memoria constante.
+- **Una fachada en inglés** (`fixed_width`) como paquete hermano, cuando haya
+  un proyecto que la necesite. El criterio está en el README.
