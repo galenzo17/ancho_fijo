@@ -246,8 +246,11 @@ defmodule AnchoFijo do
       iex> {:ok, identidad} = AnchoFijo.identidad([campos: [[nombre: :a, largo: 3]]], "001\\n002\\n")
       iex> {identidad.declarada, String.starts_with?(identidad.huella, "sha256:")}
       {nil, true}
+
+  Con un `AnchoFijo.Multiregistro`, la identidad declarada sale del header:
+  del primer tipo de `:registros` cuyo layout tenga `identidad:`.
   """
-  @spec identidad(Layout.t() | Enumerable.t(), term(), keyword()) ::
+  @spec identidad(Layout.t() | Multiregistro.t() | Enumerable.t(), term(), keyword()) ::
           {:ok, Identidad.t()} | {:error, [Diagnostico.t()]}
   defdelegate identidad(layout, entrada, opts \\ []), to: Identidad
 end

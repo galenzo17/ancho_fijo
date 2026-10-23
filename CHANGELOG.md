@@ -26,6 +26,11 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 - `AnchoFijo.escribir/3` y `Escritor.stream/3` validan las opciones:
   `terminador: :lf2` era un `KeyError` desde `Map.fetch!/2` y `truncarr:`
   se ignoraba. Ahora son `ArgumentError` que nombra la función y la opción.
+- `AnchoFijo.identidad/3` acepta un `Multiregistro`: la identidad declarada
+  se lee del header, con el layout del primer tipo de `:registros` que
+  tenga `identidad:`; si el archivo empieza por otro tipo, es un
+  diagnóstico `:identidad`. Antes fallaba con los diagnósticos de layout
+  engañosos de `parsear!/3`.
 
 ### Agregado
 
@@ -36,6 +41,10 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   cierre cuentan en `errores` pero no en `lineas`.
 - `:nombre` en la definición de un `Multiregistro`; el formato NACHA se
   llama `"NACHA"`.
+- `Formatos.Nacha.encabezado_de_archivo/0` declara la identidad del archivo:
+  `immediate_origin`, `file_creation_date`, `file_creation_time` y
+  `file_id_modifier`, los campos que la especificación define para
+  distinguir archivos del mismo originador.
 - Eventos de telemetría para la escritura: `[:ancho_fijo, :escribir, ...]`
   en `escribir/3` (`start`, `stop`, `exception`, con `lineas`, `registros`,
   `errores` y `advertencias` como `parsear`, más `:terminador` y

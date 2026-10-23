@@ -92,12 +92,23 @@ defmodule AnchoFijo.Formatos.Nacha do
     )
   end
 
-  @doc "File Header Record, tipo 1."
+  @doc """
+  File Header Record, tipo 1.
+
+  Declara la identidad del archivo para `AnchoFijo.identidad/3`: el
+  *Immediate Origin*, la fecha y la hora de creación y el *File ID
+  Modifier*, que la especificación define para distinguir varios archivos
+  del mismo originador en el mismo día (fuente: la misma del módulo, campo
+  "File ID Modifier" del File Header Record).
+  """
   @spec encabezado_de_archivo() :: Layout.t()
   def encabezado_de_archivo do
     Layout.nuevo!(
       nombre: "NACHA file header",
       largo: @largo,
+      identidad: [
+        campos: [:immediate_origin, :file_creation_date, :file_creation_time, :file_id_modifier]
+      ],
       campos: [
         [nombre: :record_type_code, largo: 1],
         [nombre: :priority_code, largo: 2],

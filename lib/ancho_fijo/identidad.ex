@@ -34,6 +34,20 @@ defmodule AnchoFijo.Identidad do
       iex> identidad.huella
       "sha256:83777cc281b739e2b20d1c0bf81036b3e478a787b8ade119e2a4503970b314e5"
 
+  ## Con header, detalle y trailer
+
+  Justo los formatos con header son los que traen una identidad declarada
+  de verdad, y en un archivo multiregistro el header tiene su propio
+  layout. `identidad/3` acepta un `AnchoFijo.Multiregistro`: la identidad
+  declarada se lee con el layout del primer tipo de `:registros` que tenga
+  `identidad:`, y el primer registro del archivo tiene que ser de ese tipo;
+  si es de otro, es un diagnóstico `:identidad`. Si ningún tipo la declara,
+  `:declarada` es `nil`, como con un layout plano sin `identidad:`.
+
+      iex> {:ok, identidad} = AnchoFijo.identidad(AnchoFijo.Formatos.nacha(), "test/fixtures/nacha_ppd.txt")
+      iex> identidad.declarada
+      %{immediate_origin: "991000012", file_creation_date: "240115", file_creation_time: "0930", file_id_modifier: "A"}
+
   ## Cotejar contra lo ya visto
 
   `cotejar/2` compara una identidad con la lista de las que ya se
@@ -59,6 +73,7 @@ defmodule AnchoFijo.Identidad do
   alias AnchoFijo.Diagnostico
   alias AnchoFijo.Entrada
   alias AnchoFijo.Layout
+  alias AnchoFijo.Multiregistro
   alias AnchoFijo.Parser
   alias AnchoFijo.Traza
 
@@ -72,7 +87,7 @@ defmodule AnchoFijo.Identidad do
   defstruct declarada: nil, huella: nil, nombre: nil
 
   @doc """
-  La identidad de un archivo según un layout.
+  La identidad de un archivo según un layout o un multiregistro.
 
   `entrada` es el contenido o una ruta, como en `AnchoFijo.parsear/3`. Si
   el layout declara `identidad: [campos: [...]]`, el primer registro se lee
@@ -80,10 +95,23 @@ defmodule AnchoFijo.Identidad do
   no se puede leer es `{:error, diagnosticos}`. Sin esa opción, `:declarada`
   es `nil` y la identidad es la huella. `:nombre` es el nombre del archivo
   cuando la entrada es una ruta.
+
+  Con un `AnchoFijo.Multiregistro`, el layout que declara la identidad es
+  el del primer tipo de `:registros` que tenga `identidad:`, y el primer
+  registro del archivo tiene que ser de ese tipo.
   """
-  @spec identidad(Layout.t() | Enumerable.t(), term(), keyword()) ::
+  @spec identidad(Layout.t() | Multiregistro.t() | Enumerable.t(), term(), keyword()) ::
           {:ok, t()} | {:error, [Diagnostico.t()]}
-  def identidad(layout, entrada, opts \\ []) do
+  def identidad(layout, entrada, opts \\ [])
+
+  def identidad(%Multiregistro{} = multi, entrada, opts) do
+    with {:ok, huella} <- Traza.huella(entrada, opts),
+         {:ok, declarada} <- declarada_multi(multi, entrada, opts) do
+      {:ok, %__MODULE__{declarada: declarada, huella: huella, nombre: nombre(entrada, opts)}}
+    end
+  end
+
+  def identidad(layout, entrada, opts) do
     with {:ok, layout} <- Layout.coercer(layout),
          {:ok, huella} <- Traza.huella(entrada, opts),
          {:ok, declarada} <- declarada(layout, entrada, opts) do
@@ -99,6 +127,46 @@ defmodule AnchoFijo.Identidad do
          {:ok, registro, _advertencias} <- Parser.parsear_linea(layout, linea, numero) do
       {:ok, Map.take(registro, campos)}
     end
+  end
+
+  # El tipo que declara la identidad es el primero de :registros con
+  # `identidad:` en su layout. El primer registro del archivo se discrimina
+  # con el multiregistro, para que un archivo que empieza por otro tipo no
+  # se lea con el layout equivocado y falle con diagnósticos de campos que
+  # no vienen al caso.
+  defp declarada_multi(%Multiregistro{} = multi, entrada, opts) do
+    case Enum.find(multi.registros, fn {_tipo, d} -> d.layout.identidad != nil end) do
+      nil ->
+        {:ok, nil}
+
+      {esperado, %{layout: %Layout{identidad: %{campos: campos}} = layout}} ->
+        with {:ok, lineas} <- Entrada.lineas(entrada, opts),
+             {:ok, linea, numero} <- primer_registro(lineas, opts, campos),
+             {:ok, tipo, _definicion} <- Multiregistro.discriminar(multi, linea, numero),
+             :ok <- del_tipo_esperado(tipo, esperado, numero, campos),
+             {:ok, registro, _advertencias} <- Parser.parsear_linea(layout, linea, numero) do
+          {:ok, Map.take(registro, campos)}
+        end
+    end
+  end
+
+  defp del_tipo_esperado(tipo, tipo, _numero, _campos), do: :ok
+
+  defp del_tipo_esperado(tipo, esperado, numero, campos) do
+    {:error,
+     [
+       Diagnostico.nuevo(
+         tipo: :identidad,
+         linea: numero,
+         esperado:
+           "un primer registro #{inspect(esperado)}, que es el que declara la identidad " <>
+             "en #{inspect(campos)}",
+         recibido: inspect(tipo),
+         causa_probable:
+           "el archivo no empieza por el registro que trae la identidad; " <>
+             "puede ser un archivo sin header o pegado a otro"
+       )
+     ]}
   end
 
   # La primera línea con contenido, respetando :saltar, sin leer el resto.
