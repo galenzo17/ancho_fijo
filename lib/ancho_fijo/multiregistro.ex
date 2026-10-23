@@ -198,7 +198,7 @@ defmodule AnchoFijo.Multiregistro do
   """
   @spec nuevo(keyword() | map()) :: {:ok, t()} | {:error, [Diagnostico.t()]}
   def nuevo(definicion) do
-    with {:ok, definicion} <- a_mapa(definicion),
+    with {:ok, definicion} <- definicion_a_mapa(definicion),
          :ok <- sin_claves_desconocidas(definicion),
          {:ok, nombre} <- validar_nombre(Map.get(definicion, :nombre)),
          {:ok, discriminador} <- validar_discriminador(Map.get(definicion, :discriminador)),
@@ -217,7 +217,7 @@ defmodule AnchoFijo.Multiregistro do
     end
   end
 
-  defp a_mapa(definicion) do
+  defp definicion_a_mapa(definicion) do
     case Opciones.a_mapa(definicion) do
       {:ok, mapa} ->
         {:ok, mapa}
@@ -237,7 +237,7 @@ defmodule AnchoFijo.Multiregistro do
          [
            falla(
              "opciones en #{inspect(@claves)}",
-             inspect(clave),
+             clave,
              "la opción no existe y se ignoraría en silencio; probablemente un error de tipeo"
            )
          ]}
@@ -1553,6 +1553,31 @@ defmodule AnchoFijo.Multiregistro do
          causa_probable: "sin el tipo no se sabe con qué layout escribir el registro"
        )
      ]}
+  end
+
+  @doc """
+  El multiregistro como datos, con el layout de cada tipo adentro: ver
+  `AnchoFijo.Layout.a_mapa/1`. Un discriminador por función no se puede
+  serializar y levanta `ArgumentError`.
+  """
+  @spec a_mapa(t()) :: map()
+  def a_mapa(%__MODULE__{} = multi), do: AnchoFijo.Serializacion.multiregistro_a_mapa(multi)
+
+  @doc "La vuelta de `a_mapa/1`, con los diagnósticos de `nuevo/1`."
+  @spec desde_mapa(map()) :: {:ok, t()} | {:error, [Diagnostico.t()]}
+  def desde_mapa(mapa), do: AnchoFijo.Serializacion.multiregistro_desde_mapa(mapa)
+
+  @doc "El multiregistro como JSON."
+  @spec a_json(t()) :: String.t()
+  def a_json(%__MODULE__{} = multi), do: multi |> a_mapa() |> AnchoFijo.Json.codificar()
+
+  @doc "Un multiregistro desde su JSON."
+  @spec desde_json(binary()) :: {:ok, t()} | {:error, [Diagnostico.t()]}
+  def desde_json(json) when is_binary(json) do
+    case AnchoFijo.Json.decodificar(json) do
+      {:ok, mapa} -> desde_mapa(mapa)
+      {:error, motivo} -> {:error, [Layout.json_invalido(motivo)]}
+    end
   end
 
   @doc """

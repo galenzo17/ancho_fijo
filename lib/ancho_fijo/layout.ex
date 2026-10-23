@@ -140,7 +140,7 @@ defmodule AnchoFijo.Layout do
   """
   @spec nuevo(term()) :: {:ok, t()} | {:error, [Diagnostico.t()]}
   def nuevo(atributos) do
-    with {:ok, atributos} <- a_mapa(atributos),
+    with {:ok, atributos} <- definicion_a_mapa(atributos),
          :ok <- validar_claves(atributos),
          {:ok, globales} <- validar_globales(atributos),
          {:ok, campos} <- construir_campos(Map.get(atributos, :campos, []), globales),
@@ -221,6 +221,78 @@ defmodule AnchoFijo.Layout do
   def coercer(%__MODULE__{} = layout), do: {:ok, layout}
   def coercer(atributos), do: nuevo(atributos)
 
+  @doc """
+  El layout como datos: un mapa de claves string, sin átomos ni funciones,
+  con la `"version"` del esquema. Para compartirlo entre servicios,
+  guardarlo o dejarlo editar a quien no programa. `desde_mapa/1` es la
+  vuelta, y JSON Schema para validarlo fuera de Elixir está en
+  `priv/layout.schema.json`.
+
+      iex> layout = AnchoFijo.Layout.nuevo!(nombre: "nómina", campos: [
+      ...>   [nombre: :rut, largo: 10, tipo: :rut],
+      ...>   [nombre: :monto, largo: 8, tipo: :decimal, precision: 2, signo: :final]
+      ...> ])
+      iex> AnchoFijo.Layout.a_mapa(layout)
+      %{
+        "version" => 1,
+        "nombre" => "nómina",
+        "encoding" => "utf8",
+        "unidad" => "bytes",
+        "relleno_final" => "estricto",
+        "largo" => 18,
+        "campos" => [
+          %{"nombre" => "rut", "posicion" => 1, "largo" => 10, "tipo" => "rut"},
+          %{"nombre" => "monto", "posicion" => 11, "largo" => 8, "tipo" => "decimal", "precision" => 2, "signo" => "final"}
+        ]
+      }
+      iex> AnchoFijo.Layout.desde_mapa(AnchoFijo.Layout.a_mapa(layout)) == {:ok, layout}
+      true
+
+  Un tipo propio viaja por el nombre de su módulo (`"MiApp.Hora"`) y vuelve
+  con `AnchoFijo.Tipo.resolver/1`, con sus opciones.
+  """
+  @spec a_mapa(t()) :: map()
+  def a_mapa(%__MODULE__{} = layout), do: AnchoFijo.Serializacion.layout_a_mapa(layout)
+
+  @doc """
+  Construye y valida un layout desde el mapa de `a_mapa/1` (o uno escrito a
+  mano, o decodificado de un JSON), con los mismos diagnósticos que
+  `nuevo/1`: una clave desconocida se reclama, no se ignora, y otra
+  `"version"` también.
+
+      iex> {:error, [d]} = AnchoFijo.Layout.desde_mapa(%{"version" => 1, "campos" => [%{"nombre" => "a", "largo" => 2}], "enconding" => "latin1"})
+      iex> d.recibido
+      "enconding"
+  """
+  @spec desde_mapa(map()) :: {:ok, t()} | {:error, [Diagnostico.t()]}
+  def desde_mapa(mapa), do: AnchoFijo.Serializacion.layout_desde_mapa(mapa)
+
+  @doc "El layout como JSON, sin dependencias: `a_mapa/1` codificado."
+  @spec a_json(t()) :: String.t()
+  def a_json(%__MODULE__{} = layout), do: layout |> a_mapa() |> AnchoFijo.Json.codificar()
+
+  @doc """
+  Un layout desde su JSON. Un JSON que no se puede leer es un diagnóstico
+  `:entrada`; uno que sí, pasa por `desde_mapa/1`.
+  """
+  @spec desde_json(binary()) :: {:ok, t()} | {:error, [Diagnostico.t()]}
+  def desde_json(json) when is_binary(json) do
+    case AnchoFijo.Json.decodificar(json) do
+      {:ok, mapa} -> desde_mapa(mapa)
+      {:error, motivo} -> {:error, [json_invalido(motivo)]}
+    end
+  end
+
+  @doc false
+  def json_invalido(motivo) do
+    Diagnostico.nuevo(
+      tipo: :entrada,
+      esperado: "un JSON válido con la definición del layout",
+      recibido: motivo,
+      causa_probable: "el archivo no es JSON o está cortado"
+    )
+  end
+
   @doc "Como `coercer/1`, pero levanta `AnchoFijo.Error`."
   @spec coercer!(t() | term()) :: t()
   def coercer!(layout) do
@@ -282,7 +354,7 @@ defmodule AnchoFijo.Layout do
     %{encoding: layout.encoding, unidad: layout.unidad, linea: linea}
   end
 
-  defp a_mapa(atributos) do
+  defp definicion_a_mapa(atributos) do
     case Opciones.a_mapa(atributos) do
       {:ok, mapa} ->
         {:ok, mapa}

@@ -277,6 +277,11 @@ defmodule AnchoFijo.Campo do
     Map.take(atributos, propias)
   end
 
+  @doc false
+  # Las claves que una definición de campo puede traer, para la serialización.
+  @spec claves() :: [atom()]
+  def claves, do: @comunes ++ Keyword.keys(@de_tipos_internos)
+
   @doc """
   Igual que `nuevo/1` pero levanta `AnchoFijo.Error` si la definición es inválida.
 
