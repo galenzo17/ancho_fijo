@@ -38,6 +38,8 @@ defmodule AnchoFijo.Generadores do
       decimal(),
       decimal_con_moneda(),
       fecha(),
+      hora(),
+      fecha_hora(),
       rut(),
       constante(),
       relleno()
@@ -210,31 +212,110 @@ defmodule AnchoFijo.Generadores do
     end
   end
 
+  # Los formatos con año de cuatro dígitos leen cualquier fecha; los de dos
+  # solo la ventana del pivote (2000-2099 por default), así que para esos la
+  # fecha se genera adentro de la ventana.
   defp fecha do
     gen all(
-          formato <- member_of([:aaaammdd, :ddmmaaaa]),
+          formato <-
+            member_of([
+              :aaaammdd,
+              :ddmmaaaa,
+              :mmddaaaa,
+              :aammdd,
+              :ddmmaa,
+              :mmddaa,
+              :aaaaddd,
+              :aaddd,
+              "DD/MM/AAAA",
+              "AAAA-MM-DD"
+            ]),
           dias <- integer(0..36_500)
         ) do
-      fecha = Date.add(~D[1950-01-01], dias)
+      inicio = if dos_digitos?(formato), do: ~D[2000-01-01], else: ~D[1950-01-01]
+      fecha = Date.add(inicio, dias)
+      texto = serializar(fecha, formato)
 
       %{
-        definicion: [largo: 8, tipo: :fecha, formato: formato],
+        definicion: [largo: String.length(texto), tipo: :fecha, formato: formato],
         tipo: :fecha,
         esperado: fecha,
-        texto: serializar_fecha(fecha, formato)
+        texto: texto
       }
     end
   end
+
+  defp hora do
+    gen all(
+          formato <- member_of([:hhmmss, :hhmm, "HH:MM:SS"]),
+          segundos <- integer(0..86_399)
+        ) do
+      hora = Time.add(~T[00:00:00], segundos, :second)
+      hora = if formato == :hhmm, do: %{hora | second: 0}, else: hora
+      texto = serializar(hora, formato)
+
+      %{
+        definicion: [largo: String.length(texto), tipo: :hora, formato: formato],
+        tipo: :hora,
+        esperado: hora,
+        texto: texto
+      }
+    end
+  end
+
+  defp fecha_hora do
+    gen all(
+          formato <-
+            member_of([:aaaammddhhmmss, :aaaammddhhmm, :ddmmaaaahhmmss, "AAAA-MM-DD HH:MM:SS"]),
+          dias <- integer(0..36_500),
+          segundos <- integer(0..86_399)
+        ) do
+      valor =
+        NaiveDateTime.new!(
+          Date.add(~D[1950-01-01], dias),
+          Time.add(~T[00:00:00], segundos, :second)
+        )
+
+      valor = if formato == :aaaammddhhmm, do: %{valor | second: 0}, else: valor
+      texto = serializar(valor, formato)
+
+      %{
+        definicion: [largo: String.length(texto), tipo: :fecha_hora, formato: formato],
+        tipo: :fecha_hora,
+        esperado: valor,
+        texto: texto
+      }
+    end
+  end
+
+  defp dos_digitos?(formato), do: formato in [:aammdd, :ddmmaa, :mmddaa, :aaddd]
+
+  # La serialización de los generadores es independiente de la librería a
+  # propósito: Calendar.strftime es el oráculo.
+  @strftime %{
+    :aaaammdd => "%Y%m%d",
+    :ddmmaaaa => "%d%m%Y",
+    :mmddaaaa => "%m%d%Y",
+    :aammdd => "%y%m%d",
+    :ddmmaa => "%d%m%y",
+    :mmddaa => "%m%d%y",
+    :aaaaddd => "%Y%j",
+    :aaddd => "%y%j",
+    "DD/MM/AAAA" => "%d/%m/%Y",
+    "AAAA-MM-DD" => "%Y-%m-%d",
+    :hhmmss => "%H%M%S",
+    :hhmm => "%H%M",
+    "HH:MM:SS" => "%H:%M:%S",
+    :aaaammddhhmmss => "%Y%m%d%H%M%S",
+    :aaaammddhhmm => "%Y%m%d%H%M",
+    :ddmmaaaahhmmss => "%d%m%Y%H%M%S",
+    "AAAA-MM-DD HH:MM:SS" => "%Y-%m-%d %H:%M:%S"
+  }
+
+  defp serializar(valor, formato), do: Calendar.strftime(valor, Map.fetch!(@strftime, formato))
 
   defp nombrar(especificacion, indice) do
     nombre = :"campo_#{indice}"
     %{especificacion | definicion: [{:nombre, nombre} | especificacion.definicion]}
   end
-
-  defp serializar_fecha(fecha, :aaaammdd), do: anio(fecha) <> mes(fecha) <> dia(fecha)
-  defp serializar_fecha(fecha, :ddmmaaaa), do: dia(fecha) <> mes(fecha) <> anio(fecha)
-
-  defp anio(fecha), do: fecha.year |> Integer.to_string() |> String.pad_leading(4, "0")
-  defp mes(fecha), do: fecha.month |> Integer.to_string() |> String.pad_leading(2, "0")
-  defp dia(fecha), do: fecha.day |> Integer.to_string() |> String.pad_leading(2, "0")
 end

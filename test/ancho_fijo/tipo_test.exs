@@ -123,17 +123,17 @@ defmodule AnchoFijo.TipoTest do
     end
 
     test "un átomo que no es tipo interno lista los tipos" do
-      assert {:error, [diagnostico]} = Layout.nuevo(campos: [[nombre: :h, largo: 4, tipo: :hora]])
+      assert {:error, [diagnostico]} = Layout.nuevo(campos: [[nombre: :h, largo: 4, tipo: :fechas]])
 
       assert diagnostico.esperado ==
-               "un :tipo en [:texto, :entero, :decimal, :fecha, :rut, :constante, :relleno] o un módulo que implemente AnchoFijo.Tipo"
+               "un :tipo en [:texto, :entero, :decimal, :fecha, :hora, :fecha_hora, :rut, :constante, :relleno] o un módulo que implemente AnchoFijo.Tipo"
 
-      assert diagnostico.recibido == ":hora"
+      assert diagnostico.recibido == ":fechas"
     end
 
     test "el resto de la definición se valida igual, para reportar todo junto" do
-      assert {:error, diagnosticos} = Layout.nuevo(campos: [[nombre: :h, largo: 0, tipo: :hora]])
-      assert Enum.map(diagnosticos, & &1.recibido) == ["0", ":hora"]
+      assert {:error, diagnosticos} = Layout.nuevo(campos: [[nombre: :h, largo: 0, tipo: :fechas]])
+      assert Enum.map(diagnosticos, & &1.recibido) == ["0", ":fechas"]
     end
   end
 end

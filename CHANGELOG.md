@@ -4,6 +4,12 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+### Cambiado
+
+- El diagnóstico de una fecha con el largo equivocado dice "se esperaban 8
+  posiciones (DDMMAAAA)" en vez de "8 dígitos", porque ahora un formato
+  puede traer separadores.
+
 ### Corregido
 
 - `AnchoFijo.parsear!/3` acepta un `AnchoFijo.Multiregistro`, como
@@ -34,6 +40,16 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- Más formatos de fecha y dos tipos nuevos. `:fecha` acepta `:mmddaaaa`,
+  `:aammdd`, `:ddmmaa`, `:mmddaa`, `:aaaaddd` y `:aaddd` (julianos) además
+  de `:aaaammdd` y `:ddmmaaaa`, y un patrón explícito de tokens con
+  separadores (`"DD/MM/AAAA"`, `"AAAA-MM-DD"`) cuando ninguno calza. Los
+  años de dos dígitos se expanden con `:pivote` (default `2000`). `:hora`
+  lee `Time` (`:hhmmss`, `:hhmm`, `"HH:MM:SS"`) y `:fecha_hora` lee
+  `NaiveDateTime` (`:aaaammddhhmmss`, `:aaaammddhhmm`, `:ddmmaaaahhmmss`,
+  `:ddmmaaaahhmm`, `"AAAA-MM-DD HH:MM:SS"`), con la misma política de
+  blancos y ceros que `:fecha`. Escritura simétrica para todos, y un año
+  fuera de la ventana del pivote es un diagnóstico al escribir.
 - Tipos `:constante` y `:relleno`: las posiciones cuyo valor lo pone el
   formato y no el dato. `[tipo: :constante, valor: "01"]` se verifica al
   leer (un literal distinto es un diagnóstico con `esperado` y `recibido`)
