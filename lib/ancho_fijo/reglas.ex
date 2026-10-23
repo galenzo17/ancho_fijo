@@ -1,11 +1,15 @@
 defmodule AnchoFijo.Reglas do
-  @moduledoc false
-  # Las reglas declarativas de un campo: las del valor (`en:`, `rango:`,
-  # `patron:`) se verifican al leer y al escribir, sobre el valor ya
-  # convertido; las cruzadas (`requerido_si:`, `prohibido_si:`) se
-  # verifican sobre el registro entero, cuando ya están todos los campos.
-  # Cada falla es un diagnóstico de tipo :regla, con la línea, el campo y
-  # las posiciones de siempre, y sensible si el campo lo es.
+  @moduledoc """
+  Las reglas declarativas de un campo, tal como quedan en `campo.reglas`.
+
+  Las del valor (`en:`, `rango:`, `patron:`) se verifican al leer y al
+  escribir, sobre el valor ya convertido; las cruzadas (`requerido_si:`,
+  `prohibido_si:`) se verifican sobre el registro entero, cuando ya están
+  todos los campos. Cada falla es un diagnóstico de tipo `:regla`, con la
+  línea, el campo y las posiciones de siempre, y redactado si el campo es
+  sensible. Las opciones se declaran en el campo (ver `AnchoFijo.Campo`); este
+  struct es solo dónde quedan guardadas.
+  """
 
   alias AnchoFijo.Campo
   alias AnchoFijo.Diagnostico

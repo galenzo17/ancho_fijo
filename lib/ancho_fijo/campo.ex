@@ -483,7 +483,7 @@ defmodule AnchoFijo.Campo do
 
   @doc """
   Si el campo es un `:grupo` o una `:variante`: se lee y se escribe campo
-  por campo, con `AnchoFijo.Anidados`.
+  por campo, con el módulo interno de campos anidados.
 
       iex> AnchoFijo.Campo.anidado?(AnchoFijo.Campo.nuevo!(nombre: :t, tipo: :grupo, repetir: 2, campos: [[nombre: :a, largo: 1]]))
       true

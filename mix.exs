@@ -66,9 +66,12 @@ defmodule AnchoFijo.MixProject do
       name: "ancho_fijo",
       licenses: ["MIT"],
       maintainers: ["Agustin Bereciartua"],
-      files: ~w(lib priv mix.exs README.md README.en.md CHANGELOG.md LICENSE .formatter.exs),
-      # La verificación de prompts/ es del repositorio, no del paquete.
-      exclude_patterns: [~r"lib/mix/tasks/prompts\."],
+      files:
+        ~w(lib priv mix.exs README.md README.en.md CHANGELOG.md SECURITY.md LICENSE .formatter.exs),
+      # La verificación de prompts/ es del repositorio, no del paquete. Los PLT
+      # de dialyzer viven en priv/plts (gitignored) y no deben viajar: con
+      # ellos el tarball pasa el tope de 16 MB de Hex.
+      exclude_patterns: [~r"lib/mix/tasks/prompts\.", ~r"^priv/plts/"],
       links: %{
         "GitHub" => @source_url,
         "Changelog" => "#{@source_url}/blob/main/CHANGELOG.md"
@@ -85,13 +88,15 @@ defmodule AnchoFijo.MixProject do
         "README.md",
         "CHANGELOG.md",
         "LICENSE",
-        "README.en.md": [title: "English guide"]
+        "README.en.md": [title: "English guide"],
+        "SECURITY.md": [title: "Seguridad"]
       ],
       groups_for_extras: [],
       groups_for_modules: [
         "Definición del formato": [
           AnchoFijo.Layout,
           AnchoFijo.Campo,
+          AnchoFijo.Reglas,
           AnchoFijo.Rut,
           AnchoFijo.Monto,
           AnchoFijo.Multiregistro
