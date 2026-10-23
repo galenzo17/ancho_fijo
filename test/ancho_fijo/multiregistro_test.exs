@@ -211,6 +211,298 @@ defmodule AnchoFijo.MultiregistroTest do
     end
   end
 
+  describe "escribir/3" do
+    test "round-trip: lo parseado se vuelve a escribir byte a byte, con los controles ya puestos" do
+      contenido = leer("nomina_multiregistro.txt")
+      {:ok, registros, []} = AnchoFijo.parsear(nomina(), contenido)
+
+      assert {:ok, ^contenido, []} = AnchoFijo.escribir(nomina(), registros)
+      assert {:ok, ^contenido, []} = Multiregistro.escribir(nomina(), registros)
+    end
+
+    test "los controles del trailer se calculan cuando el mapa no los trae, y lo escrito cuadra" do
+      {:ok, registros, []} = AnchoFijo.parsear(nomina(), leer("nomina_multiregistro.txt"))
+
+      sin_controles =
+        Enum.map(registros, fn
+          {:trailer, mapa} -> {:trailer, Map.drop(mapa, [:cantidad, :total])}
+          otro -> otro
+        end)
+
+      assert {:ok, contenido, []} = AnchoFijo.escribir(nomina(), sin_controles)
+      assert contenido == leer("nomina_multiregistro.txt")
+      assert {:ok, ^registros, []} = AnchoFijo.parsear(nomina(), contenido)
+    end
+
+    test "un control declarado distinto del calculado es un diagnóstico, no se sobreescribe" do
+      {:ok, registros, []} = AnchoFijo.parsear(nomina(), leer("nomina_multiregistro.txt"))
+
+      mal =
+        Enum.map(registros, fn
+          {:trailer, mapa} -> {:trailer, %{mapa | cantidad: 99}}
+          otro -> otro
+        end)
+
+      assert {:error, [d]} = AnchoFijo.escribir(nomina(), mal)
+      assert %Diagnostico{tipo: :control, linea: 5, campo: :cantidad, recibido: "99"} = d
+      assert d.esperado == "3 en :cantidad, la cantidad de registros :detalle, o el campo ausente"
+      assert d.causa_probable =~ "no se sobreescribe en silencio"
+    end
+
+    test "la estructura se verifica: trailer que falta, tipo desconocido, fuera de orden, registro que no es mapa" do
+      {:ok, registros, []} = AnchoFijo.parsear(nomina(), leer("nomina_multiregistro.txt"))
+
+      assert {:error,
+              [%Diagnostico{tipo: :estructura, esperado: "un registro :trailer en el archivo"}]} =
+               AnchoFijo.escribir(nomina(), Enum.take(registros, 4))
+
+      assert {:error, [%Diagnostico{tipo: :estructura, linea: 2, recibido: ":otro"}]} =
+               AnchoFijo.escribir(nomina(), List.insert_at(registros, 1, {:otro, %{}}))
+
+      assert {:error, [%Diagnostico{tipo: :estructura, linea: 6, recibido: ":detalle"}]} =
+               AnchoFijo.escribir(nomina(), registros ++ [Enum.at(registros, 1)])
+
+      assert {:error, [%Diagnostico{tipo: :entrada, linea: 1} | _faltantes]} =
+               AnchoFijo.escribir(nomina(), ["linea"])
+    end
+
+    test "sin detalles el trailer sale en cero" do
+      multi = nomina(header: :opcional)
+
+      multi = %{
+        multi
+        | registros: Keyword.update!(multi.registros, :detalle, &%{&1 | cantidad: :varios})
+      }
+
+      assert {:ok, "090000000000000000000000\n", []} = AnchoFijo.escribir(multi, trailer: %{})
+    end
+
+    test "con el discriminador por campo, un mapa con el literal alcanza" do
+      header = [
+        campos: [
+          [nombre: :tipo, largo: 2, tipo: :constante, valor: "01"],
+          [nombre: :n, largo: 3, tipo: :entero]
+        ]
+      ]
+
+      detalle = [
+        campos: [
+          [nombre: :tipo, largo: 2, tipo: :constante, valor: "02"],
+          [nombre: :m, largo: 5, tipo: :entero]
+        ]
+      ]
+
+      multi =
+        Multiregistro.nuevo!(
+          discriminador: [campo: :tipo],
+          registros: [header: [cantidad: :uno, layout: header], detalle: [layout: detalle]],
+          controles: [[en: :header, campo: :n, cuenta: :detalle]]
+        )
+
+      assert {:ok, "01002\n0200010\n0200020\n", []} =
+               AnchoFijo.escribir(multi, [%{tipo: "01"}, %{tipo: "02", m: 10}, %{tipo: "02", m: 20}])
+
+      assert {:error, [%Diagnostico{tipo: :estructura, recibido: "\"77\""} | _faltantes]} =
+               AnchoFijo.escribir(multi, [%{tipo: "77"}])
+    end
+
+    test "los errores de los campos se devuelven todos, y las opciones se validan" do
+      {:ok, registros, []} = AnchoFijo.parsear(nomina(), leer("nomina_multiregistro.txt"))
+
+      roto =
+        Enum.map(registros, fn
+          {:detalle, mapa} -> {:detalle, %{mapa | cuenta: "x"}}
+          otro -> otro
+        end)
+
+      assert {:error, diagnosticos} = AnchoFijo.escribir(nomina(), roto)
+      assert Enum.map(diagnosticos, & &1.linea) == [2, 3, 4]
+
+      assert_raise ArgumentError, ~r/escribir\/3/, fn ->
+        AnchoFijo.escribir(nomina(), registros, terminador: :x)
+      end
+
+      assert {:ok, contenido, []} = AnchoFijo.escribir(nomina(), registros, terminador: :crlf)
+      assert contenido == String.replace(leer("nomina_multiregistro.txt"), "\n", "\r\n")
+
+      assert_raise ArgumentError, ~r/no acepta un Multiregistro/, fn ->
+        AnchoFijo.Escritor.stream(nomina(), registros)
+      end
+    end
+  end
+
+  describe "controles agrupados y sumas con Monto" do
+    @por_moneda Multiregistro.nuevo!(
+                  discriminador: [largo: 1],
+                  registros: [
+                    d: [
+                      valor: "D",
+                      layout: [
+                        campos: [
+                          [nombre: :t, largo: 1],
+                          [nombre: :moneda, largo: 3],
+                          [nombre: :importe, largo: 6, tipo: :decimal, precision: 2]
+                        ]
+                      ]
+                    ],
+                    t: [
+                      valor: "T",
+                      cantidad: :al_menos_uno,
+                      layout: [
+                        campos: [
+                          [nombre: :t, largo: 1],
+                          [nombre: :moneda, largo: 3],
+                          [nombre: :cantidad, largo: 2, tipo: :entero],
+                          [nombre: :total, largo: 8, tipo: :decimal, precision: 2]
+                        ]
+                      ]
+                    ]
+                  ],
+                  controles: [
+                    [en: :t, campo: :cantidad, cuenta: :d, agrupar_por: :moneda],
+                    [en: :t, campo: :total, suma: {:d, :importe}, agrupar_por: :moneda]
+                  ]
+                )
+
+    test "un trailer por moneda cuadra contra los detalles de su moneda, al leer y al escribir" do
+      archivo = "DCLP000100\nDUSD000250\nDCLP000300\nTCLP0200000400\nTUSD0100000250\n"
+      assert {:ok, registros, []} = AnchoFijo.parsear(@por_moneda, archivo)
+
+      assert {:ok, ^archivo, []} = AnchoFijo.escribir(@por_moneda, registros)
+
+      sin_totales =
+        Enum.map(registros, fn
+          {:t, mapa} -> {:t, Map.drop(mapa, [:cantidad, :total])}
+          otro -> otro
+        end)
+
+      assert {:ok, ^archivo, []} = AnchoFijo.escribir(@por_moneda, sin_totales)
+
+      assert {:error, [d]} =
+               AnchoFijo.parsear(
+                 @por_moneda,
+                 String.replace(archivo, "TUSD0100000250", "TUSD0100000300")
+               )
+
+      assert %Diagnostico{tipo: :control, linea: 5, campo: :total, recibido: "{300, 2}"} = d
+      assert d.esperado == "{250, 2} en :total, la suma de :importe de los :d"
+    end
+
+    test "agrupar_por tiene que existir en los dos layouts" do
+      assert {:error, [d]} =
+               Multiregistro.nuevo(
+                 discriminador: [largo: 1],
+                 registros: [
+                   d: [
+                     valor: "D",
+                     layout: [
+                       campos: [[nombre: :t, largo: 1], [nombre: :m, largo: 3, tipo: :entero]]
+                     ]
+                   ],
+                   t: [
+                     valor: "T",
+                     layout: [
+                       campos: [[nombre: :t, largo: 1], [nombre: :total, largo: 3, tipo: :entero]]
+                     ]
+                   ]
+                 ],
+                 controles: [[en: :t, campo: :total, suma: {:d, :m}, agrupar_por: :moneda]]
+               )
+
+      assert d.esperado == "un :agrupar_por que exista en el layout de :t y en el de :d"
+    end
+
+    test "las sumas sobre Monto cuadran, y de otra moneda no cuadran" do
+      multi =
+        Multiregistro.nuevo!(
+          discriminador: [largo: 1],
+          registros: [
+            d: [
+              valor: "D",
+              layout: [
+                campos: [
+                  [nombre: :t, largo: 1],
+                  [nombre: :m, largo: 6, tipo: :decimal, moneda: :usd]
+                ]
+              ]
+            ],
+            t: [
+              valor: "T",
+              cantidad: :uno,
+              layout: [
+                campos: [
+                  [nombre: :t, largo: 1],
+                  [nombre: :total, largo: 8, tipo: :decimal, moneda: :usd]
+                ]
+              ]
+            ]
+          ],
+          controles: [[en: :t, campo: :total, suma: {:d, :m}]]
+        )
+
+      archivo = "D000100\nD000250\nT00000350\n"
+      assert {:ok, registros, []} = AnchoFijo.parsear(multi, archivo)
+      assert {:t, %{total: %AnchoFijo.Monto{unidades: 350, moneda: :usd}}} = List.last(registros)
+
+      assert {:ok, ^archivo, []} =
+               AnchoFijo.escribir(
+                 multi,
+                 Enum.map(registros, fn
+                   {:t, _} -> {:t, %{}}
+                   otro -> otro
+                 end)
+               )
+
+      assert {:error, [%Diagnostico{tipo: :control}]} =
+               AnchoFijo.parsear(multi, "D000100\nT00000999\n")
+    end
+
+    test "las sumas sobre Decimal también" do
+      multi =
+        Multiregistro.nuevo!(
+          discriminador: [largo: 1],
+          registros: [
+            d: [
+              valor: "D",
+              layout: [
+                decimales_como: :decimal,
+                campos: [
+                  [nombre: :t, largo: 1],
+                  [nombre: :m, largo: 6, tipo: :decimal, precision: 2]
+                ]
+              ]
+            ],
+            t: [
+              valor: "T",
+              cantidad: :uno,
+              layout: [
+                decimales_como: :decimal,
+                campos: [
+                  [nombre: :t, largo: 1],
+                  [nombre: :total, largo: 8, tipo: :decimal, precision: 2]
+                ]
+              ]
+            ]
+          ],
+          controles: [[en: :t, campo: :total, suma: {:d, :m}]]
+        )
+
+      archivo = "D000100\nD000250\nT00000350\n"
+      assert {:ok, registros, []} = AnchoFijo.parsear(multi, archivo)
+      assert {:t, %{total: total}} = List.last(registros)
+      assert Decimal.equal?(total, Decimal.new("3.50"))
+
+      assert {:ok, ^archivo, []} =
+               AnchoFijo.escribir(
+                 multi,
+                 Enum.map(registros, fn
+                   {:t, _} -> {:t, %{}}
+                   otro -> otro
+                 end)
+               )
+    end
+  end
+
   describe "discriminador por campo :constante" do
     defp layout_con_tipo(valor, posicion \\ 1) do
       [

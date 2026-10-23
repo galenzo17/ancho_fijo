@@ -40,6 +40,19 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- `AnchoFijo.escribir/3` con un `Multiregistro`: los `{tipo, mapa}` en el
+  orden del archivo, cada uno con el layout de su tipo, con la estructura
+  verificada (orden, cantidades, lo obligatorio que falta) y los controles
+  calculados: `cuenta:` y `suma:` salen de los detalles sin que el trailer
+  los traiga, y si los trae con otro valor es un diagnóstico `:control`.
+  Con `discriminador: [campo: ...]` también acepta el mapa solo. Sin
+  versión lazy: el trailer necesita los totales de todos los detalles, y
+  `Escritor.stream/3` lo dice con un `ArgumentError`.
+- Controles agrupados: `agrupar_por: campo` en un control compara (o
+  calcula) el trailer contra los registros con el mismo valor en ese
+  campo, para los formatos con un trailer por moneda.
+- Las sumas de los controles también sobre `AnchoFijo.Monto` de la misma
+  moneda y sobre `Decimal`; antes un campo con `moneda:` no cuadraba nunca.
 - Interoperar con `Decimal` sin tuplas: `como: :decimal` en un campo
   `:decimal` (o `decimales_como: :decimal` en el layout, para todos) lee un
   `%Decimal{}` con la escala del campo; requiere la librería y sin ella el

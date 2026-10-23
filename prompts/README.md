@@ -179,3 +179,4 @@ Las que la convención tuvo que zanjar y no eran obvias:
 | [0030](0030-discriminador-sin-codigo.md) | Issue #50: discriminar sin código de tipo | `por: :largo`, `por: :posicion_en_archivo`, `por: fun`; `detectar/2` con un Multiregistro y veredicto por tipo |
 | [0031](0031-encoding-por-campo.md) | Issue #51: encodings mezclados por campo | `encoding:` por campo, `:doble_codificacion` reparable, `:mixto` y `unidad_probable` en el detector |
 | [0032](0032-decimal-interop.md) | Issue #52: interoperar con `Decimal` | `como: :decimal`, `decimales_como:`, escritura desde `Decimal`, entero o string, `Monto.desde_decimal/2` |
+| [0033](0033-escribir-multiregistro.md) | Issue #54: escribir un Multiregistro | `Multiregistro.escribir/3` con controles calculados, `agrupar_por:`, sumas sobre `Monto` y `Decimal` |

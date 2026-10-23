@@ -233,10 +233,19 @@ defmodule AnchoFijo do
   Todo o nada: si algún valor no se puede escribir, devuelve todos los
   diagnósticos. Ver `AnchoFijo.Escritor`, y `AnchoFijo.Escritor.stream/3`
   para la versión lazy.
+
+  Con un `AnchoFijo.Multiregistro` recibe los `{tipo, mapa}` en el orden
+  del archivo y calcula los controles del trailer: ver
+  `AnchoFijo.Multiregistro.escribir/3`.
   """
-  @spec escribir(Layout.t() | Enumerable.t(), Enumerable.t(), keyword()) ::
+  @spec escribir(Layout.t() | Multiregistro.t() | Enumerable.t(), Enumerable.t(), keyword()) ::
           {:ok, binary(), [Diagnostico.t()]} | {:error, [Diagnostico.t()]}
-  defdelegate escribir(layout, registros, opts \\ []), to: Escritor
+  def escribir(layout, registros, opts \\ [])
+
+  def escribir(%Multiregistro{} = multi, registros, opts),
+    do: Multiregistro.escribir(multi, registros, opts)
+
+  def escribir(layout, registros, opts), do: Escritor.escribir(layout, registros, opts)
 
   @doc """
   La identidad del lote: lo que el archivo declara, su huella y su nombre.
