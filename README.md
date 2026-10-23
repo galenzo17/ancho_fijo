@@ -554,6 +554,33 @@ Enum.map(layout.advertencias, &AnchoFijo.Diagnostico.mensaje/1)
 #   si el formato tiene relleno ahí, ignore esta advertencia"]
 ```
 
+## Encodings mezclados por campo
+
+Un caso frecuente en las respuestas de los bancos: el archivo se mide en
+bytes y viene en latin-1, salvo el campo de texto libre, que viene en UTF-8.
+Decodificar todo como latin-1 da `operaciÃ³n`; decodificar todo como UTF-8
+corre los offsets. El encoding se declara por campo:
+
+```elixir
+AnchoFijo.Layout.nuevo!(
+  encoding: :latin1,
+  campos: [
+    [nombre: :rut, largo: 10, tipo: :rut],
+    [nombre: :nombre, largo: 14],
+    [nombre: :mensaje, largo: 24, encoding: :utf8],
+    [nombre: :fecha, largo: 8, tipo: :fecha, formato: :aaaammdd]
+  ]
+)
+```
+
+`detectar/2` reconoce la mezcla (`encoding_probable: :mixto`) y sugiere esa
+declaración; `unidad_probable` dice en qué unidad son consistentes los largos
+cuando hay caracteres multibyte. Y si un `:texto` llega ya con doble
+codificación, hay una advertencia `:doble_codificacion` con el texto
+reparado; `reparar_doble_codificacion: true` en el campo aplica la
+reparación al leer. Un campo que empieza en medio de un carácter multibyte
+lo dice así, en vez de reportar un byte latin-1 cualquiera.
+
 ## Los datos personales no viajan en los diagnósticos
 
 El mensaje que se pega en un correo para el banco es el mismo que termina en un

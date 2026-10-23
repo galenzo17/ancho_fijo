@@ -33,7 +33,11 @@ defmodule AnchoFijo.Transcodificacion do
   que la provocó.
   """
   @type detalle :: %{
-          motivo: :bytes_invalidos | :secuencia_incompleta | :caracter_de_control,
+          motivo:
+            :bytes_invalidos
+            | :secuencia_incompleta
+            | :continuacion_suelta
+            | :caracter_de_control,
           posicion: non_neg_integer(),
           byte: non_neg_integer()
         }
@@ -141,10 +145,69 @@ defmodule AnchoFijo.Transcodificacion do
   def primer_byte_invalido(binario) when is_binary(binario) do
     case :unicode.characters_to_binary(binario, :utf8, :utf8) do
       resultado when is_binary(resultado) -> nil
-      {:error, validos, resto} -> detalle(:bytes_invalidos, validos, resto)
+      {:error, validos, resto} -> detalle(motivo_del_byte(resto), validos, resto)
       {:incomplete, validos, resto} -> detalle(:secuencia_incompleta, validos, resto)
     end
   end
+
+  # Un byte 0x80-0xBF suelto es la continuación de un carácter multibyte que
+  # empezó antes: distinto de un byte latin-1 cualquiera, y con otra causa.
+  defp motivo_del_byte(<<byte, _::binary>>) when byte in 0x80..0xBF, do: :continuacion_suelta
+  defp motivo_del_byte(_resto), do: :bytes_invalidos
+
+  @doc """
+  `true` si el binario contiene al menos una secuencia UTF-8 multibyte
+  válida, aunque el resto no sea UTF-8. Es la señal de un archivo con
+  encodings mezclados por campo: latin-1 en unos, UTF-8 en otros.
+
+      iex> AnchoFijo.Transcodificacion.multibyte_utf8?(<<74, 79, 83, 201, 32>> <> "operación")
+      true
+      iex> AnchoFijo.Transcodificacion.multibyte_utf8?(<<74, 79, 83, 201>>)
+      false
+  """
+  @spec multibyte_utf8?(binary()) :: boolean()
+  def multibyte_utf8?(<<lead, _::binary>> = binario) when lead in 0xC2..0xF4 do
+    largo = if lead < 0xE0, do: 2, else: if(lead < 0xF0, do: 3, else: 4)
+
+    if byte_size(binario) >= largo and String.valid?(binary_part(binario, 0, largo)) do
+      true
+    else
+      binario |> binary_part(1, byte_size(binario) - 1) |> multibyte_utf8?()
+    end
+  end
+
+  def multibyte_utf8?(<<_, resto::binary>>), do: multibyte_utf8?(resto)
+  def multibyte_utf8?(<<>>), do: false
+
+  @doc """
+  Detecta la doble codificación: UTF-8 que alguien decodificó como latin-1 y
+  volvió a codificar, el `operaciÃ³n` de los catálogos que dejan de calzar.
+  Devuelve el texto reparado, o `:no` si el texto no tiene esa forma.
+
+  La prueba es exacta y no una lista de pares sospechosos: el texto,
+  reinterpretado como bytes latin-1, tiene que ser UTF-8 válido con al
+  menos un carácter multibyte. `"JOSÉ"` no lo es (0xC9 seguido de nada que
+  lo continúe) y queda como está.
+
+      iex> AnchoFijo.Transcodificacion.doble_codificacion("operaciÃ³n")
+      {:ok, "operación"}
+      iex> AnchoFijo.Transcodificacion.doble_codificacion("JOSÉ")
+      :no
+      iex> AnchoFijo.Transcodificacion.doble_codificacion("ASCII")
+      :no
+  """
+  @spec doble_codificacion(String.t()) :: {:ok, String.t()} | :no
+  def doble_codificacion(texto) when is_binary(texto) do
+    if ascii?(texto),
+      do: :no,
+      else: reinterpretar(:unicode.characters_to_binary(texto, :utf8, :latin1))
+  end
+
+  defp reinterpretar(bytes) when is_binary(bytes) do
+    if String.valid?(bytes) and multibyte_utf8?(bytes), do: {:ok, bytes}, else: :no
+  end
+
+  defp reinterpretar(_no_cabe_en_latin1), do: :no
 
   @doc """
   Redacta el byte problemático con su posición absoluta en la línea.
@@ -174,6 +237,17 @@ defmodule AnchoFijo.Transcodificacion do
     "una secuencia UTF-8 quedó cortada a la mitad; si el archivo trae caracteres " <>
       "multibyte, las posiciones del layout no se pueden contar en bytes: " <>
       "pruebe unidad: :caracteres"
+  end
+
+  def causa_probable(%{motivo: :continuacion_suelta, posicion: 0, byte: byte}, _encoding) do
+    "el campo empieza con 0x#{hex(byte)}, la continuación de un carácter multibyte que " <>
+      "empezó en el campo anterior: las posiciones en bytes cortan el texto UTF-8 a la mitad; " <>
+      "pruebe unidad: :caracteres"
+  end
+
+  def causa_probable(%{motivo: :continuacion_suelta, byte: byte}, _encoding) do
+    "el byte 0x#{hex(byte)} es la continuación de un carácter multibyte sin su inicio; " <>
+      "el texto UTF-8 quedó cortado o el campo está corrido"
   end
 
   def causa_probable(%{motivo: :caracter_de_control, byte: byte}, :latin1)

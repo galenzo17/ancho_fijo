@@ -1,6 +1,64 @@
 defmodule AnchoFijo.ParserTest do
   use ExUnit.Case, async: true
 
+  describe "encodings mezclados por campo" do
+    import AnchoFijo.Fixtures, only: [ruta: 1, layout_respuesta_mixta: 0, layout_respuesta_mixta: 1]
+
+    test "la respuesta mixta parsea con los offsets correctos y los textos legibles" do
+      assert {:ok, registros, []} =
+               AnchoFijo.parsear(layout_respuesta_mixta(), ruta("respuesta_mixta.txt"))
+
+      assert Enum.map(registros, & &1.nombre) == ["JOSÉ MUÑOZ", "ANA ROJAS", "PEÑA SOTO"]
+
+      assert Enum.map(registros, & &1.mensaje) == [
+               "operación completada",
+               "rechazada: sin fondos",
+               "en revisión, día 2"
+             ]
+
+      assert Enum.map(registros, & &1.fecha) == [~D[2024-01-15], ~D[2024-01-15], ~D[2024-01-16]]
+    end
+
+    test "leída toda como latin-1, el mensaje sale con doble codificación y una advertencia lo dice" do
+      todo_latin1 =
+        layout_respuesta_mixta(
+          campos: [
+            [nombre: :rut, largo: 10, tipo: :rut],
+            [nombre: :nombre, largo: 14],
+            [nombre: :mensaje, largo: 24],
+            [nombre: :fecha, largo: 8, tipo: :fecha, formato: :aaaammdd]
+          ]
+        )
+
+      assert {:ok, registros, advertencias} =
+               AnchoFijo.parsear(todo_latin1, ruta("respuesta_mixta.txt"))
+
+      assert hd(registros).mensaje == "operaciÃ³n completada"
+
+      assert [
+               %AnchoFijo.Diagnostico{
+                 tipo: :doble_codificacion,
+                 linea: 1,
+                 esperado: "operación completada"
+               },
+               %{linea: 3}
+             ] = advertencias
+    end
+
+    test "un campo que empieza en medio de un carácter multibyte lo dice" do
+      corrido =
+        AnchoFijo.Layout.nuevo!(campos: [[nombre: :a, largo: 8], [nombre: :b, largo: 5]])
+
+      # Los dos campos lo dicen: el que termina a la mitad y el que empieza a la mitad.
+      assert {:error, [a, b]} = AnchoFijo.parsear(corrido, "operación   \n")
+      assert %AnchoFijo.Diagnostico{tipo: :encoding, campo: :a, linea: 1} = a
+      assert a.causa_probable =~ "quedó cortada a la mitad"
+      assert %AnchoFijo.Diagnostico{tipo: :encoding, campo: :b, linea: 1} = b
+      assert b.causa_probable =~ "empieza con 0xB3, la continuación de un carácter multibyte"
+      assert b.causa_probable =~ "pruebe unidad: :caracteres"
+    end
+  end
+
   describe "constantes y rellenos" do
     @con_literales AnchoFijo.Layout.nuevo!(
                      relleno_final: :tolerar,

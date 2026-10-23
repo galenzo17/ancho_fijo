@@ -26,6 +26,15 @@ defmodule AnchoFijo.Campo do
       aplica a `:texto`; los tipos numéricos y de fecha siempre recortan
       espacios porque el relleno no es parte del dato.
     * `:relleno` — carácter de relleno a recortar en `:texto`. Default `" "`.
+    * `:encoding` — `:utf8` o `:latin1` para este campo, por encima del
+      `:encoding` del layout. Para los archivos que mezclan: offsets en bytes
+      y latin-1 en todo, salvo el campo de texto libre que viene en UTF-8.
+      Solo con `unidad: :bytes`; con `:caracteres` la línea se decodifica
+      entera antes de cortar los campos.
+    * `:reparar_doble_codificacion` — en `:texto`: si es `true`, un valor con
+      doble codificación (`operaciÃ³n`) se lee reparado (`operación`), con
+      una advertencia `:doble_codificacion`. Default `false`: se lee como
+      viene y la advertencia trae el texto reparado como sugerencia.
     * `:precision` — obligatorio en `:decimal`. Cantidad de decimales que el
       formato declara.
     * `:separador` — en `:decimal`: `:implicito` (default), `:punto` o `:coma`.
@@ -76,8 +85,9 @@ defmodule AnchoFijo.Campo do
   alias AnchoFijo.Tipo
   alias AnchoFijo.Transcodificacion
 
-  @comunes [:nombre, :posicion, :largo, :tipo, :opcional, :trim, :relleno, :sensible]
+  @comunes [:nombre, :posicion, :largo, :tipo, :opcional, :trim, :relleno, :sensible, :encoding]
   @de_tipos_internos [
+    reparar_doble_codificacion: false,
     precision: nil,
     separador: :implicito,
     moneda: nil,
@@ -118,6 +128,8 @@ defmodule AnchoFijo.Campo do
           opcional: boolean(),
           trim: :ambos | :izquierda | :derecha | false,
           relleno: String.t(),
+          encoding: :utf8 | :latin1 | nil,
+          reparar_doble_codificacion: boolean(),
           precision: non_neg_integer() | nil,
           separador: :implicito | :punto | :coma,
           moneda: Monto.moneda() | nil,
@@ -138,6 +150,8 @@ defmodule AnchoFijo.Campo do
             opcional: false,
             trim: :ambos,
             relleno: " ",
+            encoding: nil,
+            reparar_doble_codificacion: false,
             precision: nil,
             separador: :implicito,
             moneda: nil,
@@ -336,14 +350,86 @@ defmodule AnchoFijo.Campo do
   """
   @spec extraer(t(), binary(), contexto() | keyword()) :: {:ok, valor()} | {:error, Diagnostico.t()}
   def extraer(%__MODULE__{} = campo, linea, contexto \\ %{}) do
-    contexto = Map.new(contexto)
+    case leer(campo, linea, contexto) do
+      {:ok, valor, _advertencias} -> {:ok, valor}
+      {:error, diagnostico} -> {:error, diagnostico}
+    end
+  end
+
+  @doc """
+  Como `extraer/3`, pero con las advertencias: lo que se leyó asumiendo
+  algo, hoy solo la doble codificación de un `:texto`.
+
+      iex> campo = AnchoFijo.Campo.nuevo!(nombre: :glosa, posicion: 1, largo: 12)
+      iex> {:ok, "operaciÃ³n", [advertencia]} = AnchoFijo.Campo.leer(campo, "operaciÃ³n ")
+      iex> advertencia.tipo
+      :doble_codificacion
+      iex> advertencia.esperado
+      "operación"
+  """
+  @spec leer(t(), binary(), contexto() | keyword()) ::
+          {:ok, valor(), [Diagnostico.t()]} | {:error, Diagnostico.t()}
+  def leer(%__MODULE__{} = campo, linea, contexto \\ %{}) do
+    contexto = contexto |> Map.new() |> con_encoding_del_campo(campo)
     unidad = Map.get(contexto, :unidad, :bytes)
 
     with {:ok, crudo} <- campo |> rebanar(linea, unidad, contexto) |> sensibilizar(campo, nil),
          {:ok, texto} <- campo |> decodificar(crudo, unidad, contexto) |> sensibilizar(campo, nil) do
-      texto = limpiar(texto, campo)
-      campo |> convertir(texto, contexto) |> sensibilizar(campo, texto)
+      {texto, advertencias} = texto |> limpiar(campo) |> revisar_doble_codificacion(campo, contexto)
+
+      case campo |> convertir(texto, contexto) |> sensibilizar(campo, texto) do
+        {:ok, valor} -> {:ok, valor, advertencias}
+        {:error, diagnostico} -> {:error, diagnostico}
+      end
     end
+  end
+
+  # El encoding del campo manda sobre el del layout, al leer y al escribir.
+  defp con_encoding_del_campo(contexto, %__MODULE__{encoding: nil}), do: contexto
+
+  defp con_encoding_del_campo(contexto, %__MODULE__{encoding: encoding}),
+    do: Map.put(contexto, :encoding, encoding)
+
+  # Solo un :texto puede traer doble codificación que valga la pena señalar:
+  # en un número o una fecha el byte raro ya es un diagnóstico del tipo.
+  defp revisar_doble_codificacion(texto, %__MODULE__{modulo: Tipo.Texto} = campo, contexto) do
+    case Transcodificacion.doble_codificacion(texto) do
+      {:ok, reparado} ->
+        if campo.reparar_doble_codificacion,
+          do: {reparado, [doble_codificacion(campo, texto, reparado, true, contexto)]},
+          else: {texto, [doble_codificacion(campo, texto, reparado, false, contexto)]}
+
+      :no ->
+        {texto, []}
+    end
+  end
+
+  defp revisar_doble_codificacion(texto, _campo, _contexto), do: {texto, []}
+
+  defp doble_codificacion(%__MODULE__{} = campo, texto, reparado, reparado?, contexto) do
+    # En un campo sensible el texto reparado también es el dato: queda en
+    # :contenido, que la redacción oculta, y :esperado lo describe.
+    diagnostico =
+      diagnostico(campo, contexto,
+        tipo: :doble_codificacion,
+        gravedad: :advertencia,
+        esperado:
+          if(campo.sensible, do: "el texto UTF-8 decodificado una sola vez", else: reparado),
+        recibido: inspect(texto),
+        contenido: reparado,
+        causa_probable:
+          if(reparado?,
+            do:
+              "el campo traía UTF-8 decodificado como latin-1 y vuelto a codificar; " <>
+                "se reparó porque el campo declara reparar_doble_codificacion: true",
+            else:
+              "el campo trae UTF-8 decodificado como latin-1 y vuelto a codificar; " <>
+                "si el archivo mezcla encodings, declare encoding: :utf8 en este campo; " <>
+                "si el emisor ya lo mandó así, reparar_doble_codificacion: true"
+          )
+      )
+
+    if campo.sensible, do: Diagnostico.marcar_sensible(diagnostico, texto), else: diagnostico
   end
 
   # Cada diagnóstico de un campo sensible sale marcado, con la forma del valor
@@ -408,8 +494,16 @@ defmodule AnchoFijo.Campo do
       validar_trim(campo),
       validar_relleno(campo),
       validar_opcional(campo),
-      validar_sensible(campo)
+      validar_sensible(campo),
+      validar_encoding(campo)
     ])
+  end
+
+  defp validar_encoding(%__MODULE__{encoding: encoding}) when encoding in [nil, :utf8, :latin1],
+    do: []
+
+  defp validar_encoding(%__MODULE__{nombre: nombre, encoding: encoding}) do
+    [falla(nombre, ":encoding :utf8 o :latin1, o ninguno para usar el del layout", encoding, nil)]
   end
 
   defp validar_nombre(%__MODULE__{nombre: :__traza__}) do
@@ -640,7 +734,7 @@ defmodule AnchoFijo.Campo do
   @spec formatear(t(), term(), contexto() | keyword()) ::
           {:ok, binary(), [Diagnostico.t()]} | {:error, Diagnostico.t()}
   def formatear(%__MODULE__{} = campo, valor, contexto \\ %{}) do
-    contexto = Map.new(contexto)
+    contexto = contexto |> Map.new() |> con_encoding_del_campo(campo)
 
     with {:ok, texto, advertencias} <- representar(campo, valor, contexto),
          {:ok, codificado} <- codificar(campo, texto, contexto) do

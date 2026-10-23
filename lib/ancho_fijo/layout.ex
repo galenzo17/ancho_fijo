@@ -135,6 +135,7 @@ defmodule AnchoFijo.Layout do
          {:ok, campos} <- construir_campos(Map.get(atributos, :campos, [])),
          campos = posicionar(campos),
          :ok <- validar_disposicion(campos),
+         :ok <- validar_encodings(campos, globales),
          {:ok, identidad} <- validar_identidad(Map.get(atributos, :identidad), campos),
          {:ok, largo, advertencias} <- resolver_largo(campos, globales, atributos) do
       {:ok,
@@ -412,6 +413,32 @@ defmodule AnchoFijo.Layout do
     |> elem(0)
     |> Enum.sort_by(& &1.posicion)
   end
+
+  # Con `unidad: :caracteres` la línea se decodifica entera con el encoding
+  # del layout antes de cortar los campos: un encoding por campo no tendría
+  # dónde aplicarse, y aceptarlo sería ignorarlo en silencio.
+  defp validar_encodings(campos, %{unidad: :caracteres}) do
+    case Enum.filter(campos, &(not is_nil(&1.encoding))) do
+      [] ->
+        :ok
+
+      [campo | _] ->
+        {:error,
+         [
+           Diagnostico.nuevo(
+             tipo: :layout,
+             campo: campo.nombre,
+             esperado: "ningún :encoding por campo con unidad: :caracteres",
+             recibido: inspect(campo.encoding),
+             causa_probable:
+               "con :caracteres la línea se decodifica entera con el encoding del layout; " <>
+                 "el encoding por campo solo aplica con unidad: :bytes"
+           )
+         ]}
+    end
+  end
+
+  defp validar_encodings(_campos, _globales), do: :ok
 
   defp validar_disposicion(campos) do
     diagnosticos =

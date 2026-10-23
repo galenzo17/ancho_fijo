@@ -289,6 +289,61 @@ defmodule AnchoFijo.DetectorTest do
       refute reporte.probablemente_ancho_fijo?
     end
 
+    test "encodings mezclados por campo: :mixto, la sugerencia y los contrastes" do
+      assert {:ok, reporte} = Detector.detectar(ruta("respuesta_mixta.txt"))
+      assert reporte.encoding_probable == :mixto
+      assert reporte.largo_consistente?
+
+      assert Enum.any?(
+               reporte.observaciones,
+               &String.contains?(
+                 &1,
+                 "mezclados por campo; declare encoding: :latin1 en el layout y encoding: :utf8 en los campos"
+               )
+             )
+
+      assert [%AnchoFijo.Diagnostico{} = d] = Detector.contrastar(reporte, layout_nomina(largo: 56))
+      assert d.recibido =~ "bytes latin-1 junto con secuencias UTF-8"
+
+      assert [%AnchoFijo.Diagnostico{} = d] =
+               Detector.contrastar(reporte, layout_nomina(largo: 56, encoding: :latin1))
+
+      assert d.causa_probable =~ "doble codificación"
+
+      assert Detector.contrastar(reporte, layout_respuesta_mixta()) == []
+    end
+
+    test "la unidad probable sale de en qué unidad los largos son consistentes" do
+      en_bytes = "operación \nrechazada  \n"
+      assert {:ok, reporte} = Detector.detectar(en_bytes)
+      assert reporte.unidad_probable == :bytes
+
+      assert Enum.any?(
+               reporte.observaciones,
+               &String.contains?(&1, "deje unidad: :bytes (el default) con encoding: :utf8")
+             )
+
+      assert [%AnchoFijo.Diagnostico{causa_probable: causa}] =
+               Detector.contrastar(reporte, unidad: :caracteres, campos: [[nombre: :a, largo: 10]])
+
+      assert causa =~ "mide en bytes"
+
+      en_caracteres = "operación \nrechazada \n"
+      assert {:ok, reporte} = Detector.detectar(en_caracteres)
+      assert reporte.unidad_probable == :caracteres
+      assert Enum.any?(reporte.observaciones, &String.contains?(&1, "declare unidad: :caracteres"))
+
+      assert [%AnchoFijo.Diagnostico{causa_probable: causa}] =
+               Detector.contrastar(reporte, campos: [[nombre: :a, largo: 10]])
+
+      assert causa =~ "mide en caracteres"
+
+      assert Detector.contrastar(reporte, unidad: :caracteres, campos: [[nombre: :a, largo: 10]]) ==
+               []
+
+      assert {:ok, %{unidad_probable: nil}} = Detector.detectar("ascii\nascii\n")
+    end
+
     test "un layout inválido devuelve sus propios diagnósticos" do
       {:ok, reporte} = Detector.detectar(leer("nomina_correcta.txt"))
 

@@ -15,6 +15,19 @@ defmodule AnchoFijo.EscritorTest do
       assert {:ok, ^contenido, []} = AnchoFijo.escribir(layout_nomina(), registros)
     end
 
+    test "la respuesta con encodings mezclados por campo se vuelve a escribir byte a byte" do
+      contenido = leer("respuesta_mixta.txt")
+
+      {:ok, registros, []} =
+        AnchoFijo.parsear(AnchoFijo.Fixtures.layout_respuesta_mixta(), contenido)
+
+      assert {:ok, ^contenido, []} =
+               AnchoFijo.escribir(AnchoFijo.Fixtures.layout_respuesta_mixta(), registros)
+
+      refute String.valid?(contenido)
+      assert contenido =~ "operación"
+    end
+
     test "la nómina latin-1 se escribe en latin-1" do
       layout = layout_nomina(encoding: :latin1)
       contenido = leer("nomina_latin1.txt")
