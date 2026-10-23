@@ -54,7 +54,7 @@ jobs:
     env:
       MIX_ENV: test
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Instalar Erlang y Elixir
         id: beam
@@ -96,7 +96,7 @@ jobs:
     name: Formato, credo y dialyzer
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Instalar Erlang y Elixir
         id: beam
@@ -160,7 +160,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       # Historia completa: la verificación lee el commit que agregó cada archivo.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -200,7 +200,7 @@ jobs:
           - elixir: "1.20"
             otp: "28"
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           path: ancho_fijo
 
