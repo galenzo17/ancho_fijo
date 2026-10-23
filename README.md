@@ -28,7 +28,7 @@ error diga qué pasó en vez de `{:error, :invalid}`.
 
 ```elixir
 def deps do
-  [{:ancho_fijo, "~> 0.3.1"}]
+  [{:ancho_fijo, "~> 0.4.0"}]
 end
 ```
 
@@ -1224,7 +1224,7 @@ Lo que un equipo necesita saber antes de depender de esto, en un lugar.
 
 **Quién lo mantiene.** [@galenzo17](https://github.com/galenzo17), que es
 también el dueño del paquete en Hex. Los PRs piden su revisión por
-[`CODEOWNERS`](.github/CODEOWNERS). Cada cambio tiene su prompt en
+[`CODEOWNERS`](https://github.com/galenzo17/ancho_fijo/blob/main/.github/CODEOWNERS). Cada cambio tiene su prompt en
 [`prompts/`](prompts/README.md), con el pedido, el resultado y las decisiones.
 
 **Cómo reportar un problema de seguridad.** Por el reporte privado de GitHub,
