@@ -80,6 +80,9 @@ defmodule AnchoFijo.Diagnostico do
   * `:moneda` — una operación entre montos incompatibles. Ver `AnchoFijo.Monto`.
   * `:campo_truncado` — al escribir, un `:texto` no cabía y se pidió
     `truncar: true`. Siempre de gravedad `:advertencia`.
+  * `:regla` — el valor se leyó bien pero no cumple una regla del layout
+    (`en:`, `rango:`, `patron:`, `requerido_si:`, `prohibido_si:`). En modo
+    tolerante el registro se entrega igual, con este diagnóstico.
   * `:doble_codificacion` — un `:texto` trae UTF-8 decodificado como latin-1
     y vuelto a codificar (`operaciÃ³n`); el diagnóstico trae el texto
     reparado y dice si se aplicó. Siempre de gravedad `:advertencia`.
@@ -100,6 +103,7 @@ defmodule AnchoFijo.Diagnostico do
           | :moneda
           | :campo_truncado
           | :doble_codificacion
+          | :regla
           | :estructura
           | :control
           | :identidad
@@ -396,6 +400,8 @@ defmodule AnchoFijo.Diagnostico do
     campo_truncado: {"el texto no cabía y se recortó", "the text did not fit and was truncated"},
     doble_codificacion:
       {"el texto viene con la codificación duplicada", "the text is double-encoded"},
+    regla:
+      {"el valor no cumple una regla del formato", "the value does not meet a rule of the format"},
     estructura:
       {"la estructura del archivo no es la esperada", "the file structure is not the expected one"},
     control: {"los totales no cuadran", "the totals do not add up"},

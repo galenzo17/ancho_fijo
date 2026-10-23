@@ -62,6 +62,19 @@ defmodule AnchoFijo.Campo do
       `AnchoFijo.Tipo.Variante`.
     * `:dv` — en `:rut`: `:validar` (default), `:no_validar` o `:ausente`. Ver
       `AnchoFijo.Rut`.
+    * `:en`, `:rango`, `:patron`, `:requerido_si`, `:prohibido_si` — reglas
+      del dominio, verificadas al leer y al escribir: `en: ["01", "02"]`
+      (o una función `valor -> boolean`), `rango: {min, max}` (con `nil` en
+      el extremo abierto) en `:entero`, `:decimal`, `:fecha`, `:hora` y
+      `:fecha_hora`, `patron: ~r/.../` en `:texto` sobre el valor ya
+      recortado, y `requerido_si: [campo: :tipo, en: ["02"]]` o
+      `prohibido_si: [campo: :otro]` (sin `en:`, la condición es que el otro
+      campo tenga valor). Cada falla es un diagnóstico `:regla`; en modo
+      tolerante el registro se entrega igual y el diagnóstico se acumula,
+      en estricto la línea se rechaza.
+    * `:generador` — un generador de `StreamData` propio para
+      `AnchoFijo.Test.Generadores`, para los campos con reglas que no se
+      pueden deducir (un `:patron`, un `:en` con función).
     * `:descripcion` y `:ejemplo` — texto libre para la especificación que
       genera `AnchoFijo.Documentacion` (y `mix ancho_fijo.documentar`). El
       parser los ignora.
@@ -97,6 +110,7 @@ defmodule AnchoFijo.Campo do
   alias AnchoFijo.Diagnostico
   alias AnchoFijo.Monto
   alias AnchoFijo.Opciones
+  alias AnchoFijo.Reglas
   alias AnchoFijo.Rut
   alias AnchoFijo.Tipo
   alias AnchoFijo.Transcodificacion
@@ -112,7 +126,13 @@ defmodule AnchoFijo.Campo do
     :sensible,
     :encoding,
     :descripcion,
-    :ejemplo
+    :ejemplo,
+    :en,
+    :rango,
+    :patron,
+    :requerido_si,
+    :prohibido_si,
+    :generador
   ]
   @de_tipos_internos [
     reparar_doble_codificacion: false,
@@ -167,6 +187,8 @@ defmodule AnchoFijo.Campo do
           encoding: :utf8 | :latin1 | nil,
           descripcion: String.t() | nil,
           ejemplo: String.t() | nil,
+          reglas: Reglas.t(),
+          generador: term(),
           reparar_doble_codificacion: boolean(),
           precision: non_neg_integer() | nil,
           separador: :implicito | :punto | :coma,
@@ -196,6 +218,8 @@ defmodule AnchoFijo.Campo do
             encoding: nil,
             descripcion: nil,
             ejemplo: nil,
+            reglas: %Reglas{},
+            generador: nil,
             reparar_doble_codificacion: false,
             precision: nil,
             separador: :implicito,
@@ -259,6 +283,7 @@ defmodule AnchoFijo.Campo do
 
   defp construir(atributos) do
     campo = struct(%__MODULE__{}, normalizar(atributos))
+    campo = %{campo | reglas: Reglas.desde_atributos(campo_reglas(atributos))}
 
     case Tipo.resolver(campo.tipo) do
       {:ok, modulo} ->
@@ -544,8 +569,10 @@ defmodule AnchoFijo.Campo do
   end
 
   @doc """
-  Como `extraer/3`, pero con las advertencias: lo que se leyó asumiendo
-  algo, hoy solo la doble codificación de un `:texto`.
+  Como `extraer/3`, pero con los diagnósticos que no impiden leer el
+  valor: las advertencias (la doble codificación de un `:texto`) y las
+  reglas del campo que no se cumplen (`en:`, `rango:`, `patron:`), que son
+  errores de tipo `:regla` con el valor ya leído.
 
       iex> campo = AnchoFijo.Campo.nuevo!(nombre: :glosa, posicion: 1, largo: 12)
       iex> {:ok, "operaciÃ³n", [advertencia]} = AnchoFijo.Campo.leer(campo, "operaciÃ³n ")
@@ -565,7 +592,7 @@ defmodule AnchoFijo.Campo do
       {texto, advertencias} = texto |> limpiar(campo) |> revisar_doble_codificacion(campo, contexto)
 
       case campo |> convertir(texto, contexto) |> sensibilizar(campo, texto) do
-        {:ok, valor} -> {:ok, valor, advertencias}
+        {:ok, valor} -> {:ok, valor, advertencias ++ Reglas.del_valor(campo, valor, contexto)}
         {:error, diagnostico} -> {:error, diagnostico}
       end
     end
@@ -643,6 +670,13 @@ defmodule AnchoFijo.Campo do
   defp convertir(%__MODULE__{modulo: modulo} = campo, texto, contexto),
     do: modulo.leer(texto, campo, contexto)
 
+  # Las reglas van juntas en `:reglas` (ver `AnchoFijo.Reglas`); aquí solo
+  # se separan de los demás atributos.
+  defp campo_reglas(%{reglas: %Reglas{} = reglas} = atributos),
+    do: reglas |> Map.from_struct() |> Map.merge(Map.take(atributos, Reglas.claves()))
+
+  defp campo_reglas(atributos), do: Map.take(atributos, Reglas.claves())
+
   defp normalizar(atributos) do
     atributos
     |> Map.update(:moneda, nil, fn moneda -> if is_atom(moneda), do: moneda, else: nil end)
@@ -684,7 +718,8 @@ defmodule AnchoFijo.Campo do
       validar_sensible(campo),
       validar_encoding(campo),
       validar_texto_libre(campo, :descripcion),
-      validar_texto_libre(campo, :ejemplo)
+      validar_texto_libre(campo, :ejemplo),
+      Reglas.validar(campo)
     ])
   end
 
@@ -798,7 +833,8 @@ defmodule AnchoFijo.Campo do
       |> Enum.map(fn {opcion, _default} -> opcion end)
 
     conocidas =
-      @comunes ++ propias ++ Keyword.keys(@de_tipos_internos) ++ [:__struct__, :modulo, :opciones]
+      @comunes ++
+        propias ++ Keyword.keys(@de_tipos_internos) ++ [:__struct__, :modulo, :opciones, :reglas]
 
     desconocidas = atributos |> Map.keys() |> Enum.reject(&(&1 in conocidas))
 
@@ -935,9 +971,13 @@ defmodule AnchoFijo.Campo do
   def formatear(%__MODULE__{} = campo, valor, contexto \\ %{}) do
     contexto = contexto |> Map.new() |> con_encoding_del_campo(campo)
 
-    with {:ok, texto, advertencias} <- representar(campo, valor, contexto),
+    with [] <- Reglas.del_valor(campo, valor, contexto),
+         {:ok, texto, advertencias} <- representar(campo, valor, contexto),
          {:ok, codificado} <- codificar(campo, texto, contexto) do
       {:ok, codificado, advertencias}
+    else
+      [regla | _] -> {:error, regla}
+      {:error, diagnostico} -> {:error, diagnostico}
     end
   end
 

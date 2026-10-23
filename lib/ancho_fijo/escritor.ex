@@ -74,6 +74,7 @@ defmodule AnchoFijo.Escritor do
   alias AnchoFijo.Diagnostico
   alias AnchoFijo.Layout
   alias AnchoFijo.Opciones
+  alias AnchoFijo.Reglas
   alias AnchoFijo.Telemetria
 
   @terminadores %{lf: "\n", crlf: "\r\n", cr: "\r", ninguno: ""}
@@ -270,7 +271,7 @@ defmodule AnchoFijo.Escritor do
         end
       end)
 
-    case errores do
+    case errores ++ Enum.reverse(Reglas.cruzadas(layout.campos, registro, contexto)) do
       [] ->
         relleno_final = String.duplicate(" ", layout.largo + 1 - cursor)
 

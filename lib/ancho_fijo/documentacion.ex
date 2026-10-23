@@ -21,10 +21,10 @@ defmodule AnchoFijo.Documentacion do
         "",
         "20 posiciones · UTF-8 · medido en bytes",
         "",
-        "| Campo | Posiciones | Largo | Tipo | Formato | Opcional | Descripción | Ejemplo |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- |",
-        "| `rut` | 1-10 | 10 | RUT | dígito verificador validado | no | RUT del beneficiario | `12345678-5` |",
-        "| `monto` | 11-20 | 10 | decimal | 2 decimales implícitos | no | Monto a pagar, en pesos con dos decimales |  |",
+        "| Campo | Posiciones | Largo | Tipo | Formato | Opcional | Reglas | Descripción | Ejemplo |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| `rut` | 1-10 | 10 | RUT | dígito verificador validado | no |  | RUT del beneficiario | `12345678-5` |",
+        "| `monto` | 11-20 | 10 | decimal | 2 decimales implícitos | no |  | Monto a pagar, en pesos con dos decimales |  |",
         ""
       ]
 
@@ -142,6 +142,7 @@ defmodule AnchoFijo.Documentacion do
       tipo: nombre_de_tipo(campo, idioma),
       formato: formato_de(campo, idioma),
       opcional: campo.opcional,
+      reglas: AnchoFijo.Reglas.describir(campo, idioma),
       descripcion: campo.descripcion,
       ejemplo: campo.ejemplo
     }
@@ -215,6 +216,7 @@ defmodule AnchoFijo.Documentacion do
             f.tipo,
             f.formato || "",
             t(if(f.opcional, do: :si, else: :no), idioma),
+            Enum.join(f.reglas, "; "),
             f.descripcion || "",
             if(f.ejemplo, do: "`#{f.ejemplo}`", else: "")
           ]
@@ -266,6 +268,7 @@ defmodule AnchoFijo.Documentacion do
       f.tipo,
       f.formato || "",
       t(if(f.opcional, do: :si, else: :no), idioma),
+      Enum.join(f.reglas, "; "),
       f.descripcion || "",
       f.ejemplo || ""
     ]
@@ -289,7 +292,17 @@ defmodule AnchoFijo.Documentacion do
   # --------------------------------------------------------- descripciones
 
   defp columnas,
-    do: [:campo, :posiciones_col, :largo, :tipo, :formato, :opcional, :descripcion, :ejemplo]
+    do: [
+      :campo,
+      :posiciones_col,
+      :largo,
+      :tipo,
+      :formato,
+      :opcional,
+      :reglas,
+      :descripcion,
+      :ejemplo
+    ]
 
   # Los nombres de tipo traducibles; `decimal` y `RUT` son iguales en los dos
   # idiomas y un módulo propio se muestra por su nombre.
@@ -399,6 +412,7 @@ defmodule AnchoFijo.Documentacion do
     tipo: {"Tipo", "Type"},
     formato: {"Formato", "Format"},
     opcional: {"Opcional", "Optional"},
+    reglas: {"Reglas", "Rules"},
     descripcion: {"Descripción", "Description"},
     ejemplo: {"Ejemplo", "Example"},
     registro: {"Registro", "Record"},

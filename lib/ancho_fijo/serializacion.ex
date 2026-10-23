@@ -16,6 +16,8 @@ defmodule AnchoFijo.Serializacion do
   alias AnchoFijo.Tipo
   alias AnchoFijo.Tipo.Patron
 
+  @compile {:no_warn_undefined, Decimal}
+
   @version 1
 
   @tipos_internos Map.new(Tipo.internos(), fn {atomo, _modulo} -> {Atom.to_string(atomo), atomo} end)
@@ -72,8 +74,15 @@ defmodule AnchoFijo.Serializacion do
     declaradas =
       campo
       |> Map.from_struct()
-      |> Map.drop([:nombre, :posicion, :largo, :tipo, :modulo, :opciones])
+      |> Map.drop([:nombre, :posicion, :largo, :tipo, :modulo, :opciones, :reglas])
       |> Enum.reject(fn {clave, valor} -> Map.get(defaults, clave) == valor end)
+      |> Map.new(fn {clave, valor} -> {Atom.to_string(clave), valor_a_dato(valor)} end)
+
+    # Las reglas salen planas, como se declaran en `Campo.nuevo/1`.
+    reglas =
+      campo.reglas
+      |> Map.from_struct()
+      |> Enum.reject(fn {_clave, valor} -> is_nil(valor) end)
       |> Map.new(fn {clave, valor} -> {Atom.to_string(clave), valor_a_dato(valor)} end)
 
     propias =
@@ -86,6 +95,7 @@ defmodule AnchoFijo.Serializacion do
       "tipo" => tipo_a_dato(campo.tipo)
     }
     |> Map.merge(declaradas)
+    |> Map.merge(reglas)
     |> Map.merge(propias)
   end
 
@@ -96,6 +106,21 @@ defmodule AnchoFijo.Serializacion do
 
   defp valor_a_dato([%Campo{} | _] = campos), do: Enum.map(campos, &campo_a_mapa/1)
 
+  defp valor_a_dato(%Regex{} = patron),
+    do: %{"patron" => Regex.source(patron), "opciones" => Regex.opts(patron) |> to_string()}
+
+  defp valor_a_dato(%Date{} = fecha), do: Date.to_iso8601(fecha)
+  defp valor_a_dato(%Time{} = hora), do: Time.to_iso8601(hora)
+  defp valor_a_dato(%NaiveDateTime{} = valor), do: NaiveDateTime.to_iso8601(valor)
+  defp valor_a_dato(%{__struct__: Decimal} = decimal), do: Decimal.to_string(decimal, :normal)
+
+  defp valor_a_dato(%AnchoFijo.Monto{} = monto),
+    do: [monto.unidades, monto.precision, Atom.to_string(monto.moneda)]
+
+  defp valor_a_dato(condicion)
+       when is_list(condicion) and condicion != [] and is_tuple(hd(condicion)),
+       do: Map.new(condicion, fn {clave, valor} -> {Atom.to_string(clave), valor_a_dato(valor)} end)
+
   defp valor_a_dato(%{} = variantes) when not is_struct(variantes),
     do: Map.new(variantes, fn {clave, campos} -> {valor_a_dato(clave), valor_a_dato(campos)} end)
 
@@ -105,7 +130,14 @@ defmodule AnchoFijo.Serializacion do
   defp valor_a_dato(valor) when is_list(valor), do: Enum.map(valor, &valor_a_dato/1)
 
   defp valor_a_dato(valor) when is_function(valor),
-    do: raise(ArgumentError, "una función no se puede serializar")
+    do:
+      raise(
+        ArgumentError,
+        "una función (en: o generador:) no se puede serializar; use una lista o quítela antes de a_mapa/1"
+      )
+
+  defp valor_a_dato(%{__struct__: modulo} = valor) when modulo != Decimal,
+    do: raise(ArgumentError, "#{inspect(valor)} no se puede serializar como dato del layout")
 
   defp valor_a_dato(valor), do: valor
 
@@ -229,6 +261,15 @@ defmodule AnchoFijo.Serializacion do
       {"segun", segun} ->
         {:segun, a_atomo(segun)}
 
+      {"patron", %{"patron" => fuente} = patron} ->
+        {:patron, Regex.compile!(fuente, Map.get(patron, "opciones", ""))}
+
+      {"rango", [min, max]} ->
+        {:rango, {rango_desde_dato(min, tipo), rango_desde_dato(max, tipo)}}
+
+      {clave, condicion} when clave in ["requerido_si", "prohibido_si"] and is_map(condicion) ->
+        {String.to_atom(clave), condicion_desde_dato(condicion)}
+
       {"campos", campos} when is_list(campos) ->
         {:campos, Enum.map(campos, &campo_desde_mapa/1)}
 
@@ -268,6 +309,29 @@ defmodule AnchoFijo.Serializacion do
   end
 
   defp tipo_desde_dato(otro), do: otro
+
+  # Los extremos de un rango vuelven al tipo del campo: enteros, tuplas,
+  # fechas y horas ISO, decimales como string.
+  defp rango_desde_dato(nil, _tipo), do: nil
+  defp rango_desde_dato(valor, _tipo) when is_integer(valor), do: valor
+  defp rango_desde_dato([u, p], _tipo) when is_integer(u) and is_integer(p), do: {u, p}
+
+  defp rango_desde_dato([u, p, moneda], _tipo) when is_integer(u),
+    do: AnchoFijo.Monto.nuevo(u, p, a_atomo(moneda))
+
+  defp rango_desde_dato(valor, :fecha) when is_binary(valor), do: Date.from_iso8601!(valor)
+  defp rango_desde_dato(valor, :hora) when is_binary(valor), do: Time.from_iso8601!(valor)
+
+  defp rango_desde_dato(valor, :fecha_hora) when is_binary(valor),
+    do: NaiveDateTime.from_iso8601!(valor)
+
+  defp rango_desde_dato(valor, :decimal) when is_binary(valor), do: Decimal.new(valor)
+  defp rango_desde_dato(valor, _tipo), do: valor
+
+  defp condicion_desde_dato(condicion) do
+    [campo: condicion |> Map.get("campo") |> a_atomo()] ++
+      if(Map.has_key?(condicion, "en"), do: [en: Map.get(condicion, "en")], else: [])
+  end
 
   defp opciones_propias(modulo) when is_atom(modulo) do
     case Tipo.resolver(modulo) do

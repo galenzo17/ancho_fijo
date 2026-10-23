@@ -40,6 +40,21 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- Reglas declarativas por campo, para cualquier tipo: `en:` (catálogo, lista
+  o función), `rango: {min, max}` en `:entero`, `:decimal`, `:fecha`,
+  `:hora` y `:fecha_hora`, `patron:` en `:texto`, y `requerido_si:` /
+  `prohibido_si:` condicionadas a otro campo del registro. Se verifican al
+  leer y al escribir, sobre el valor convertido; cada falla es un
+  diagnóstico de tipo `:regla` (nuevo) con línea, campo y posiciones,
+  redactado si el campo es sensible. En modo estricto rechaza la línea; en
+  tolerante el registro se entrega y el diagnóstico queda como error.
+  `Layout.nuevo/1` valida la forma de cada regla y que las condiciones
+  nombren un campo del layout. `documentar/2` suma la columna "Reglas", la
+  serialización conserva patrón, rangos y condiciones (`en:` con función es
+  `ArgumentError`), y los generadores de `AnchoFijo.Test.Generadores`
+  eligen del catálogo, respetan el rango y satisfacen las condiciones;
+  `generador:` admite un `StreamData` propio para un campo, obligatorio si
+  tiene `patron:`.
 - Tipos `:grupo` y `:variante`, el `OCCURS` y el `REDEFINES` de los formatos
   heredados: `[tipo: :grupo, repetir: 3, campos: [...]]` lee una lista de
   mapas y `[tipo: :variante, segun: :tipo_cuenta, variantes: %{"01" =>

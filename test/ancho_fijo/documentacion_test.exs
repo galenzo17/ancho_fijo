@@ -23,7 +23,7 @@ defmodule AnchoFijo.DocumentacionTest do
       assert markdown =~ "### detalle (al menos uno)"
 
       assert markdown =~
-               "| `monto` | 27-36 | 10 | decimal | 2 decimales implícitos | no | Monto a pagar | `0000125000` |"
+               "| `monto` | 27-36 | 10 | decimal | 2 decimales implícitos | no |  | Monto a pagar | `0000125000` |"
 
       assert markdown =~
                "### Controles\n\n- `trailer.cantidad` = cantidad de `detalle`\n- `trailer.total` = suma de `detalle.monto`\n"
@@ -37,9 +37,9 @@ defmodule AnchoFijo.DocumentacionTest do
       assert en =~ "### header (exactly one)"
 
       assert en =~
-               "| Field | Positions | Length | Type | Format | Optional | Description | Example |"
+               "| Field | Positions | Length | Type | Format | Optional | Rules | Description | Example |"
 
-      assert en =~ "| `fecha` | 11-18 | 8 | date | AAAAMMDD | no | Fecha de pago |  |"
+      assert en =~ "| `fecha` | 11-18 | 8 | date | AAAAMMDD | no |  | Fecha de pago |  |"
       assert en =~ "| `empresa` | 1-10 | 10 | RUT | check digit validated | no |"
       assert en =~ "- `trailer.cantidad` = count of `detalle`"
     end
@@ -77,7 +77,7 @@ defmodule AnchoFijo.DocumentacionTest do
       assert es =~ "| `e` | 35-36 | 2 | constante | literal \"01\" | no |"
       assert es =~ "| `f` | 37-39 | 3 | relleno | relleno de \"0\" | no |"
       assert es =~ "| `g` | 40-48 | 9 | RUT | sin dígito verificador | no |"
-      assert es =~ "| `h` | 49-53 | 5 | texto | UTF-8 | no | con \\| barra |"
+      assert es =~ "| `h` | 49-53 | 5 | texto | UTF-8 | no |  | con \\| barra |"
       assert es =~ "| `i` | 54-57 | 4 | AnchoFijo.TipoHora |  | no |"
 
       en = Documentacion.documentar(layout, idioma: :en)
@@ -100,14 +100,14 @@ defmodule AnchoFijo.DocumentacionTest do
         )
 
       assert csv ==
-               "Campo;Posiciones;Largo;Tipo;Formato;Opcional;Descripción;Ejemplo\na;1-2;2;texto;;no;\"con; punto y coma\";\nb;3-5;3;entero;;no;;\n"
+               "Campo;Posiciones;Largo;Tipo;Formato;Opcional;Reglas;Descripción;Ejemplo\na;1-2;2;texto;;no;;\"con; punto y coma\";\nb;3-5;3;entero;;no;;;\n"
 
       csv = Documentacion.documentar(sin_codigo(), formato: :csv, idioma: :en)
 
       assert csv =~
-               "Record;Field;Positions;Length;Type;Format;Optional;Description;Example\nheader;empresa;1-10;10;RUT;check digit validated;no;RUT de la empresa pagadora;76543210-3\n"
+               "Record;Field;Positions;Length;Type;Format;Optional;Rules;Description;Example\nheader;empresa;1-10;10;RUT;check digit validated;no;;RUT de la empresa pagadora;76543210-3\n"
 
-      assert csv =~ "\ntrailer;total;7-20;14;decimal;2 implicit decimals;no;Suma de los montos;\n"
+      assert csv =~ "\ntrailer;total;7-20;14;decimal;2 implicit decimals;no;;Suma de los montos;\n"
     end
 
     test "json con la forma de a_mapa/2, decodificable" do
@@ -135,6 +135,7 @@ defmodule AnchoFijo.DocumentacionTest do
                  tipo: "texto",
                  formato: nil,
                  opcional: false,
+                 reglas: [],
                  descripcion: nil,
                  ejemplo: nil,
                  relativa: false

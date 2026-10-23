@@ -725,12 +725,23 @@ defmodule AnchoFijo.Multiregistro do
   # Las líneas llegan de a una y se cuentan al pasar, como en `Parser`:
   # devuelve el resultado y esa cuenta, que es lo que la telemetría mide. En
   # estricto, el primer error corta y la cuenta es la de las líneas leídas.
+  # Una regla que no se cumple es un error que viene con el registro leído:
+  # en estricto rechaza la línea, como cualquier otro error.
+  defp sin_errores({:ok, registro, diagnosticos, estado}) do
+    case Enum.filter(diagnosticos, &(&1.gravedad == :error)) do
+      [] -> {:ok, registro, diagnosticos, estado}
+      errores -> {:error, errores, estado}
+    end
+  end
+
+  defp sin_errores(otro), do: otro
+
   defp recorrer(multi, lineas, :estricto) do
     resultado =
       Enum.reduce_while(lineas, {[], [], estado_inicial(multi), 0}, fn {linea, marca, pista},
                                                                        {registros, advertencias,
                                                                         estado, leidas} ->
-        case paso(multi, linea, marca, pista, estado) do
+        case paso(multi, linea, marca, pista, estado) |> sin_errores() do
           {:ok, registro, nuevas, estado} ->
             {:cont,
              {[registro | registros], Enum.reverse(nuevas, advertencias), estado, leidas + 1}}

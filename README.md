@@ -464,27 +464,27 @@ Tipo de registro por el largo de la línea
 
 ### header (exactamente uno)
 
-| Campo | Posiciones | Largo | Tipo | Formato | Opcional | Descripción | Ejemplo |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `empresa` | 1-10 | 10 | RUT | dígito verificador validado | no | RUT de la empresa pagadora | `76543210-3` |
-| `fecha` | 11-18 | 8 | fecha | AAAAMMDD | no | Fecha de pago |  |
-| `glosa` | 19-32 | 14 | texto |  | no | Glosa libre del lote |  |
+| Campo | Posiciones | Largo | Tipo | Formato | Opcional | Reglas | Descripción | Ejemplo |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `empresa` | 1-10 | 10 | RUT | dígito verificador validado | no |  | RUT de la empresa pagadora | `76543210-3` |
+| `fecha` | 11-18 | 8 | fecha | AAAAMMDD | no |  | Fecha de pago |  |
+| `glosa` | 19-32 | 14 | texto |  | no |  | Glosa libre del lote |  |
 
 ### detalle (al menos uno)
 
-| Campo | Posiciones | Largo | Tipo | Formato | Opcional | Descripción | Ejemplo |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `rut` | 1-10 | 10 | RUT | dígito verificador validado | no | RUT del beneficiario |  |
-| `nombre` | 11-26 | 16 | texto |  | no | Nombre del beneficiario |  |
-| `monto` | 27-36 | 10 | decimal | 2 decimales implícitos | no | Monto a pagar | `0000125000` |
-| `cuenta` | 37-40 | 4 | entero |  | no | Cuenta de destino |  |
+| Campo | Posiciones | Largo | Tipo | Formato | Opcional | Reglas | Descripción | Ejemplo |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `rut` | 1-10 | 10 | RUT | dígito verificador validado | no |  | RUT del beneficiario |  |
+| `nombre` | 11-26 | 16 | texto |  | no |  | Nombre del beneficiario |  |
+| `monto` | 27-36 | 10 | decimal | 2 decimales implícitos | no |  | Monto a pagar | `0000125000` |
+| `cuenta` | 37-40 | 4 | entero |  | no |  | Cuenta de destino |  |
 
 ### trailer (exactamente uno)
 
-| Campo | Posiciones | Largo | Tipo | Formato | Opcional | Descripción | Ejemplo |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| `cantidad` | 1-6 | 6 | entero |  | no | Cantidad de detalles |  |
-| `total` | 7-20 | 14 | decimal | 2 decimales implícitos | no | Suma de los montos |  |
+| Campo | Posiciones | Largo | Tipo | Formato | Opcional | Reglas | Descripción | Ejemplo |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `cantidad` | 1-6 | 6 | entero |  | no |  | Cantidad de detalles |  |
+| `total` | 7-20 | 14 | decimal | 2 decimales implícitos | no |  | Suma de los montos |  |
 
 ### Controles
 
@@ -654,6 +654,51 @@ verifica también al construir el layout, con `Code.ensure_loaded?/1` por
 delante: un módulo que no existe o no implementa los callbacks es un
 diagnóstico `:layout`, no un `UndefinedFunctionError` en la línea 40.000. El
 ejemplo completo, con una opción propia, está en `AnchoFijo.Tipo`.
+
+## Las reglas del dominio van en el layout
+
+Un tipo dice cómo se lee el campo; el dominio dice qué valores admite. Un
+código que solo puede ser `"01"`, `"02"` o `"09"`, un importe que no puede
+ser negativo, un identificador con una forma fija, un campo que es
+obligatorio solo cuando otro trae cierto valor. Si eso se verifica después
+de `parsear/3`, el error ya perdió la línea y la posición. Las reglas se
+declaran en el campo, con cualquier tipo:
+
+```elixir
+campos: [
+  [nombre: :tipo, largo: 2, en: ["01", "02", "09"]],
+  [nombre: :monto, largo: 10, tipo: :decimal, precision: 2, rango: {{0, 0}, nil}],
+  [nombre: :fecha, largo: 8, tipo: :fecha, formato: :aaaammdd, rango: {~D[2000-01-01], nil}],
+  [nombre: :codigo, largo: 4, patron: ~r/^[A-Z]{2}\d{2}$/],
+  [nombre: :banco, largo: 3, tipo: :entero, opcional: true, requerido_si: [campo: :tipo, en: ["02"]]],
+  [nombre: :glosa, largo: 20, opcional: true, prohibido_si: [campo: :banco]]
+]
+```
+
+- `en:` es el catálogo: una lista de valores admitidos, o una función de un
+  argumento para catálogos grandes o calculados.
+- `rango: {min, max}` vale para `:entero`, `:decimal`, `:fecha`, `:hora` y
+  `:fecha_hora`, con `nil` en el extremo abierto. Se compara sobre el valor
+  ya convertido: una tupla, un `Monto`, un `Decimal` o una fecha, da igual
+  cómo venga escrito.
+- `patron:` es una expresión regular sobre el texto recortado.
+- `requerido_si:` y `prohibido_si:` miran otro campo del mismo registro:
+  `[campo: :tipo, en: [...]]` se cumple cuando ese campo vale alguno de esos;
+  `[campo: :banco]`, cuando tiene valor. El layout verifica que el campo
+  nombrado exista.
+
+Cada falla es un diagnóstico de tipo `:regla`, con la línea, el campo y sus
+posiciones, y `esperado` dice la regla ("un valor en `"01"`, `"02"`",
+"un valor de ~D[2000-01-01] en adelante", "un valor, porque :tipo es `"02"`").
+En modo estricto rechaza la línea; en tolerante el registro se entrega y el
+diagnóstico queda como error. Un campo sensible redacta el valor, como
+siempre. Las mismas reglas se aplican al escribir, así que un registro que
+no las cumple no sale al archivo. `documentar/2` las muestra en la columna
+"Reglas", el layout serializado las conserva (salvo `en:` con función, que
+no es un dato) y los generadores de `AnchoFijo.Test.Generadores` las
+respetan: eligen del catálogo, se quedan dentro del rango y satisfacen las
+condiciones cruzadas. Un `patron:` no se puede invertir, así que ese campo
+pide `generador:` con un `StreamData` propio.
 
 ## Probar tu layout
 

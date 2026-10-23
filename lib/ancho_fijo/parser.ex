@@ -49,6 +49,10 @@ defmodule AnchoFijo.Parser do
   La tercera posición de `{:ok, registros, diagnosticos}` mezcla las dos
   gravedades de `AnchoFijo.Diagnostico`: un `:error` es una fila que no se pudo
   leer, una `:advertencia` es una fila que sí se leyó pero asumiendo algo.
+  Hay un error que sí trae su fila: el de tipo `:regla` (un valor leído
+  bien que no cumple `en:`, `rango:`, `patron:`, `requerido_si:` o
+  `prohibido_si:`). En `:tolerante` el registro está en la lista y el
+  diagnóstico en la tercera posición; en `:estricto` la línea se rechaza.
 
   Una advertencia no tiene fila propia en `registros`, la tiene **además**: el
   registro está ahí, con su valor. Para separarlas, `Diagnostico.separar/1`.
@@ -83,6 +87,7 @@ defmodule AnchoFijo.Parser do
   alias AnchoFijo.Entrada
   alias AnchoFijo.Layout
   alias AnchoFijo.Opciones
+  alias AnchoFijo.Reglas
   alias AnchoFijo.Telemetria
   alias AnchoFijo.Transcodificacion
   alias AnchoFijo.Traza
@@ -429,11 +434,22 @@ defmodule AnchoFijo.Parser do
   # En estricto un error aborta el archivo completo y las advertencias de las
   # líneas ya leídas se descartan: no hay resultado parcial que anotar. Las
   # advertencias solo viajan cuando el archivo entero se pudo leer.
+  # Una regla que no se cumple es un error que viene con el registro leído:
+  # en estricto rechaza la línea, como cualquier otro error.
+  defp sin_errores({:ok, registro, diagnosticos}) do
+    case Enum.filter(diagnosticos, &(&1.gravedad == :error)) do
+      [] -> {:ok, registro, diagnosticos}
+      errores -> {:error, errores}
+    end
+  end
+
+  defp sin_errores(otro), do: otro
+
   defp procesar(numeradas, layout, :estricto) do
     resultado =
       Enum.reduce_while(numeradas, {[], [], 0}, fn {linea, marca},
                                                    {registros, advertencias, lineas} ->
-        case parsear_marcada(layout, linea, marca) do
+        case parsear_marcada(layout, linea, marca) |> sin_errores() do
           {:ok, registro, nuevas} ->
             {:cont, {[registro | registros], apilar(nuevas, advertencias), lineas + 1}}
 
@@ -671,8 +687,14 @@ defmodule AnchoFijo.Parser do
       end)
 
     case diagnosticos do
-      [] -> {:ok, Map.new(valores), Enum.reverse(advertencias)}
-      diagnosticos -> {:error, Enum.reverse(diagnosticos)}
+      [] ->
+        registro = Map.new(valores)
+
+        {:ok, registro,
+         Enum.reverse(advertencias) ++ Reglas.cruzadas(layout.campos, registro, contexto)}
+
+      diagnosticos ->
+        {:error, Enum.reverse(diagnosticos)}
     end
   end
 end
