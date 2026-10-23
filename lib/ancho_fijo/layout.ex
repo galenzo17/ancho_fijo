@@ -675,13 +675,40 @@ defmodule AnchoFijo.Layout do
 
     case declarado do
       nil ->
-        {:ok, ocupado, huecos(campos, ocupado, ocupado, unidad)}
+        {:ok, ocupado,
+         huecos(campos, ocupado, ocupado, unidad) ++ rellenos_anchos(campos, globales)}
 
       largo when is_integer(largo) and largo >= ocupado ->
-        {:ok, largo, huecos(campos, ocupado, largo, unidad)}
+        {:ok, largo, huecos(campos, ocupado, largo, unidad) ++ rellenos_anchos(campos, globales)}
 
       largo ->
         {:error, [largo_insuficiente(largo, ocupado, unidad)]}
+    end
+  end
+
+  # Con `unidad: :bytes` y UTF-8, un relleno de más de un byte no puede
+  # completar un campo a su largo exacto: al leer no se repone en la zona
+  # de relleno recortado, y al escribir es un error. Se avisa al construir el
+  # layout, que es cuando todavía se puede cambiar.
+  defp rellenos_anchos(campos, globales) do
+    if Map.get(globales, :unidad, :bytes) == :bytes do
+      for campo <- campos,
+          (campo.encoding || Map.get(globales, :encoding, :utf8)) == :utf8,
+          byte_size(campo.relleno) > 1 do
+        Diagnostico.nuevo(
+          tipo: :layout,
+          campo: campo.nombre,
+          posicion: Campo.rango(campo),
+          esperado: "un :relleno de un byte, porque el layout mide en bytes en UTF-8",
+          recibido: inspect(campo.relleno),
+          causa_probable:
+            "#{inspect(campo.relleno)} ocupa #{byte_size(campo.relleno)} bytes: al escribir, " <>
+              "el campo no se puede completar a su largo exacto y es un error; al leer, el " <>
+              "relleno recortado al final de la línea no se repone"
+        )
+      end
+    else
+      []
     end
   end
 

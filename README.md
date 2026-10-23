@@ -271,6 +271,46 @@ donde se pierde el peso), y el encoding del layout se respeta: con
 `encoding: :latin1` el archivo sale en latin-1, y un carácter que latin-1 no
 tiene es un diagnóstico con el carácter y su posición.
 
+### Bytes o caracteres, también al escribir
+
+El error clásico de un escritor de ancho fijo hecho con `String.pad_trailing`
+es medir caracteres: "José" mide cuatro, pero en UTF-8 ocupa cinco bytes, y
+un campo de cuatro bytes que recibe cinco corre todas las columnas que
+siguen. Esta librería mide al escribir en la misma unidad en que lee:
+`:bytes` por default, en el encoding del layout (o del campo, si lo
+declara), o `:caracteres` si el layout lo dice.
+
+```elixir
+layout = AnchoFijo.Layout.nuevo!(campos: [[nombre: :nombre, largo: 4]])
+
+AnchoFijo.escribir(layout, [%{nombre: "añ"}])
+# => {:ok, "añ \n", []}            # 2 caracteres, 3 bytes: sobra un byte, va un espacio
+
+{:error, [d]} = AnchoFijo.escribir(layout, [%{nombre: "José"}])
+d.causa_probable
+# => "el valor no cabe en el campo: 5 posiciones en 4 (5 bytes, 4 caracteres)"
+
+AnchoFijo.escribir(layout, [%{nombre: "a€bc"}], truncar: true)
+# => {:ok, "a€\n", [advertencia]}  # el corte cae en una frontera de carácter: 1 + 3 bytes
+```
+
+Con `truncar: true` el corte nunca parte un carácter: se recorta por grafemas
+hasta que quepa y el byte que sobra se completa con espacio. Sin `truncar:`,
+el diagnóstico dice el largo en las dos unidades cuando difieren, que es lo
+que explica por qué "cuatro letras" no caben en cuatro posiciones. Con
+`encoding: :latin1` el valor se transcodifica antes de medir, así que "añoo"
+ocupa cuatro bytes, y un carácter que latin-1 no tiene (`"€"`) es un
+diagnóstico `:encoding` con la posición del carácter, nunca un `?` silencioso.
+Con `unidad: :caracteres` se cuentan grafemas, igual que al leer.
+
+Hay un caso que ninguna medición arregla: un `:relleno` que ocupa más de un
+byte (`"·"`) en un layout que mide en bytes en UTF-8. Repetirlo tantas veces
+como bytes faltan no puede dar el largo exacto. `Layout.nuevo!/1` lo deja en
+`layout.advertencias` y, si se intenta escribir ese campo, es un error. Los
+tests de regresión de todo esto están en `test/ancho_fijo/escritura_en_bytes_test.exs`,
+con una propiedad que escribe textos con tildes, ñ, `€` y emojis en las tres
+configuraciones y mide cada línea en la unidad del layout.
+
 ### Líneas cortas por relleno recortado
 
 Hay emisores que recortan los espacios finales de cada línea, o solo de la
