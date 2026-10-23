@@ -67,7 +67,7 @@ jobs:
       # la matriz: "1.20" puede resolver a 1.20.1 mañana y los .beam compilados
       # con 1.20.0 no sirven.
       - name: Cache de deps y _build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             deps
@@ -108,7 +108,7 @@ jobs:
       # Sin MIX_ENV fijo: `cli/0` en mix.exs elige test para credo y dev para
       # dialyzer, y _build guarda los dos.
       - name: Cache de deps y _build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             deps
@@ -124,7 +124,7 @@ jobs:
       # falla no guarda nada.
       - name: Restaurar el PLT de dialyzer
         id: plt
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: priv/plts
           key: plt-${{ steps.beam.outputs.otp-version }}-${{ steps.beam.outputs.elixir-version }}-${{ hashFiles('mix.lock') }}
@@ -148,7 +148,7 @@ jobs:
 
       - name: Guardar el PLT de dialyzer
         if: always() && steps.plt.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: priv/plts
           key: ${{ steps.plt.outputs.cache-primary-key }}
@@ -172,7 +172,7 @@ jobs:
           otp-version: "28"
 
       - name: Cache de deps y _build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             deps
