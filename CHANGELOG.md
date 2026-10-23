@@ -40,6 +40,13 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- La especificación del formato generada desde el layout:
+  `AnchoFijo.Documentacion.documentar/2` (también `Layout.documentar/2` y
+  `Multiregistro.documentar/2`) en Markdown, CSV o JSON, en español o en
+  inglés (encabezados y tipos; los nombres de campo son del formato), y
+  `mix ancho_fijo.documentar RUTA.exs [--formato ...] [--idioma ...]`. Con
+  un multiregistro, una tabla por tipo más los controles. Opciones de campo
+  `descripcion:` y `ejemplo:`, que el parser ignora.
 - Diagnósticos para el usuario final y para una API: `Diagnostico.mensaje/2`
   con `audiencia: :usuario` (sin causa probable ni sintaxis de átomos) e
   `idioma: :en` (el marco y la explicación por tipo en inglés; el detalle

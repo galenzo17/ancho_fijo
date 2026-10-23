@@ -418,6 +418,53 @@ Las decisiones, y por qué:
 - **Las sumas son sobre enteros o `{unidades, precision}`**, nunca floats;
   con precisiones distintas se comparan a la mayor.
 
+## La especificación sale del layout
+
+La especificación de un formato vive dos veces: en el documento que se manda
+al banco y en el layout del código, y divergen sin que nadie se entere. Si el
+layout es la fuente de verdad, la tabla tiene que salir de él. Cada campo
+acepta `descripcion:` y `ejemplo:`, que el parser ignora, y
+`mix ancho_fijo.documentar RUTA.exs [--formato markdown|csv|json] [--idioma es|en]`
+(o `AnchoFijo.Layout.documentar/2` desde el código) imprime la tabla. Esta es
+la de `test/fixtures/multiregistro_sin_codigo.exs`, tal como sale, y un test
+verifica que el README la tenga sin edición manual:
+
+## nómina sin código de tipo
+
+Tipo de registro por el largo de la línea
+
+### header (exactamente uno)
+
+| Campo | Posiciones | Largo | Tipo | Formato | Opcional | Descripción | Ejemplo |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `empresa` | 1-10 | 10 | RUT | dígito verificador validado | no | RUT de la empresa pagadora | `76543210-3` |
+| `fecha` | 11-18 | 8 | fecha | AAAAMMDD | no | Fecha de pago |  |
+| `glosa` | 19-32 | 14 | texto |  | no | Glosa libre del lote |  |
+
+### detalle (al menos uno)
+
+| Campo | Posiciones | Largo | Tipo | Formato | Opcional | Descripción | Ejemplo |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `rut` | 1-10 | 10 | RUT | dígito verificador validado | no | RUT del beneficiario |  |
+| `nombre` | 11-26 | 16 | texto |  | no | Nombre del beneficiario |  |
+| `monto` | 27-36 | 10 | decimal | 2 decimales implícitos | no | Monto a pagar | `0000125000` |
+| `cuenta` | 37-40 | 4 | entero |  | no | Cuenta de destino |  |
+
+### trailer (exactamente uno)
+
+| Campo | Posiciones | Largo | Tipo | Formato | Opcional | Descripción | Ejemplo |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `cantidad` | 1-6 | 6 | entero |  | no | Cantidad de detalles |  |
+| `total` | 7-20 | 14 | decimal | 2 decimales implícitos | no | Suma de los montos |  |
+
+### Controles
+
+- `trailer.cantidad` = cantidad de `detalle`
+- `trailer.total` = suma de `detalle.monto`
+
+Con `--idioma en` se traducen los encabezados y los nombres de tipo, no los
+nombres de los campos, que son del formato.
+
 ## Formatos incluidos
 
 Los formatos de verdad son públicos y estables, y transcribirlos desde cero

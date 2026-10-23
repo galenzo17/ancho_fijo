@@ -9,9 +9,21 @@ AnchoFijo.Multiregistro.nuevo!(
       cantidad: :uno,
       layout: [
         campos: [
-          [nombre: :empresa, largo: 10, tipo: :rut],
-          [nombre: :fecha, largo: 8, tipo: :fecha, formato: :aaaammdd],
-          [nombre: :glosa, largo: 14]
+          [
+            nombre: :empresa,
+            largo: 10,
+            tipo: :rut,
+            descripcion: "RUT de la empresa pagadora",
+            ejemplo: "76543210-3"
+          ],
+          [
+            nombre: :fecha,
+            largo: 8,
+            tipo: :fecha,
+            formato: :aaaammdd,
+            descripcion: "Fecha de pago"
+          ],
+          [nombre: :glosa, largo: 14, descripcion: "Glosa libre del lote"]
         ]
       ]
     ],
@@ -19,10 +31,17 @@ AnchoFijo.Multiregistro.nuevo!(
       cantidad: :al_menos_uno,
       layout: [
         campos: [
-          [nombre: :rut, largo: 10, tipo: :rut],
-          [nombre: :nombre, largo: 16],
-          [nombre: :monto, largo: 10, tipo: :decimal, precision: 2],
-          [nombre: :cuenta, largo: 4, tipo: :entero]
+          [nombre: :rut, largo: 10, tipo: :rut, descripcion: "RUT del beneficiario"],
+          [nombre: :nombre, largo: 16, descripcion: "Nombre del beneficiario"],
+          [
+            nombre: :monto,
+            largo: 10,
+            tipo: :decimal,
+            precision: 2,
+            descripcion: "Monto a pagar",
+            ejemplo: "0000125000"
+          ],
+          [nombre: :cuenta, largo: 4, tipo: :entero, descripcion: "Cuenta de destino"]
         ]
       ]
     ],
@@ -30,8 +49,14 @@ AnchoFijo.Multiregistro.nuevo!(
       cantidad: :uno,
       layout: [
         campos: [
-          [nombre: :cantidad, largo: 6, tipo: :entero],
-          [nombre: :total, largo: 14, tipo: :decimal, precision: 2]
+          [nombre: :cantidad, largo: 6, tipo: :entero, descripcion: "Cantidad de detalles"],
+          [
+            nombre: :total,
+            largo: 14,
+            tipo: :decimal,
+            precision: 2,
+            descripcion: "Suma de los montos"
+          ]
         ]
       ]
     ]

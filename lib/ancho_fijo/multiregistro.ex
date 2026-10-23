@@ -1555,6 +1555,14 @@ defmodule AnchoFijo.Multiregistro do
      ]}
   end
 
+  @doc """
+  La especificación del multiregistro como texto: una tabla por tipo de
+  registro y la lista de controles. Ver `AnchoFijo.Documentacion.documentar/2`.
+  """
+  @spec documentar(t(), keyword()) :: String.t()
+  def documentar(%__MODULE__{} = multi, opts \\ []),
+    do: AnchoFijo.Documentacion.documentar(multi, opts)
+
   # ----------------------------------------------------------------- agrupar
 
   @doc """
