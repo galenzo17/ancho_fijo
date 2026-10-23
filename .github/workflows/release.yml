@@ -20,7 +20,7 @@ jobs:
   publicar:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       - name: Verificar que el tag coincide con mix.exs y el CHANGELOG
         run: |
