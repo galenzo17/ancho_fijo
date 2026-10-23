@@ -527,7 +527,7 @@ defmodule AnchoFijo.Parser do
   # entre campos: nadie los lee), después los campos de atrás hacia adelante
   # mientras sean `:texto` con el mismo carácter de relleno.
   #
-  # Solo `:texto`, y sin mirar su `:trim`: un emisor que recorta espacios
+  # Solo `:texto` y `:relleno`, y sin mirar su `:trim`: un emisor que recorta espacios
   # finales produce una línea corta exactamente cuando el original terminaba
   # en relleno, y reponerlo reconstruye el original byte a byte. En un
   # `:entero`, un `:decimal` o una `:fecha` el final de la línea son dígitos:
@@ -546,7 +546,7 @@ defmodule AnchoFijo.Parser do
         zona = sumar_no_declarado(zona, Campo.fin(campo))
 
         cond do
-          not Campo.texto?(campo) -> {:halt, cerrar(zona)}
+          not (Campo.texto?(campo) or Campo.relleno?(campo)) -> {:halt, cerrar(zona)}
           not reponible?(campo.relleno, unidad) -> {:halt, cerrar(zona)}
           zona.caracter in [nil, campo.relleno] -> {:cont, sumar_campo(zona, campo)}
           true -> {:halt, cerrar(zona)}
@@ -639,15 +639,23 @@ defmodule AnchoFijo.Parser do
       "distinto del que se usó para cortar las líneas"
   end
 
+  defp extraer_campo(%Campo{} = campo, linea, contexto, {valores, diagnosticos}) do
+    case Campo.extraer(campo, linea, contexto) do
+      {:ok, valor} -> {[{campo.nombre, valor} | valores], diagnosticos}
+      {:error, diagnostico} -> {valores, [diagnostico | diagnosticos]}
+    end
+  end
+
   defp extraer_campos(%Layout{} = layout, linea, numero) do
     contexto = Layout.contexto(layout, numero)
 
+    # Un :relleno no se lee ni va al registro: nadie se compromete a lo que
+    # hay en esas posiciones.
     {valores, diagnosticos} =
-      Enum.reduce(layout.campos, {[], []}, fn campo, {valores, diagnosticos} ->
-        case Campo.extraer(campo, linea, contexto) do
-          {:ok, valor} -> {[{campo.nombre, valor} | valores], diagnosticos}
-          {:error, diagnostico} -> {valores, [diagnostico | diagnosticos]}
-        end
+      Enum.reduce(layout.campos, {[], []}, fn campo, acumulado ->
+        if Campo.relleno?(campo),
+          do: acumulado,
+          else: extraer_campo(campo, linea, contexto, acumulado)
       end)
 
     case diagnosticos do

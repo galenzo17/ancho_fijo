@@ -323,6 +323,82 @@ defmodule AnchoFijo.CampoTest do
     end
   end
 
+  describe ":constante" do
+    test "lee el literal, con el relleno final sin contar" do
+      campo = Campo.nuevo!(nombre: :tipo, posicion: 1, largo: 2, tipo: :constante, valor: "01")
+      assert Campo.extraer(campo, "01xxxx") == {:ok, "01"}
+
+      literal = Campo.nuevo!(nombre: :h, posicion: 1, largo: 10, tipo: :constante, valor: "HEADER")
+      assert Campo.extraer(literal, "HEADER    ") == {:ok, "HEADER"}
+
+      assert {:error, %AnchoFijo.Diagnostico{tipo: :largo_de_linea}} =
+               Campo.extraer(literal, "HEADER")
+    end
+
+    test "otro literal es un diagnóstico con esperado y recibido" do
+      campo = Campo.nuevo!(nombre: :tipo, posicion: 1, largo: 2, tipo: :constante, valor: "01")
+
+      assert {:error, d} = Campo.extraer(campo, "02xxxx", linea: 3)
+
+      assert %AnchoFijo.Diagnostico{tipo: :campo_invalido, campo: :tipo, linea: 3, posicion: {1, 2}} =
+               d
+
+      assert d.esperado == "el literal \"01\""
+      assert d.recibido == "\"02\""
+      assert d.causa_probable =~ "puede ser un archivo multiregistro"
+
+      literal = Campo.nuevo!(nombre: :h, posicion: 1, largo: 10, tipo: :constante, valor: "HEADER")
+
+      assert {:error, %AnchoFijo.Diagnostico{recibido: "\"HEADER  X \""}} =
+               Campo.extraer(literal, "HEADER  X ")
+    end
+
+    test "se escribe solo, o con el mismo literal; otro valor es un diagnóstico" do
+      campo = Campo.nuevo!(nombre: :h, posicion: 1, largo: 10, tipo: :constante, valor: "HEADER")
+      assert Campo.formatear(campo, nil) == {:ok, "HEADER    ", []}
+      assert Campo.formatear(campo, "HEADER") == {:ok, "HEADER    ", []}
+
+      assert {:error, d} = Campo.formatear(campo, "TRAILER")
+      assert d.esperado == "el literal \"HEADER\", o el campo ausente del mapa"
+      assert d.causa_probable =~ "constante del formato"
+
+      ceros =
+        Campo.nuevo!(nombre: :c, posicion: 1, largo: 4, tipo: :constante, valor: "9", relleno: "9")
+
+      assert Campo.formatear(ceros, nil) == {:ok, "9999", []}
+      assert Campo.extraer(ceros, "9999") == {:ok, "9"}
+    end
+
+    test "la definición exige un :valor que quepa" do
+      assert {:error, [d]} = Campo.nuevo(nombre: :t, largo: 2, tipo: :constante)
+      assert d.esperado =~ "un :valor binario no vacío"
+
+      assert {:error, [d]} = Campo.nuevo(nombre: :t, largo: 2, tipo: :constante, valor: "ABC")
+      assert d.esperado == "un :valor de hasta 2 caracteres"
+
+      assert {:error, [d]} = Campo.nuevo(nombre: :t, largo: 2, tipo: :texto, valor: "AB")
+      assert d.esperado == ":valor solo en campos :constante"
+    end
+  end
+
+  describe ":relleno" do
+    test "no lee nada y se escribe con su carácter" do
+      campo = Campo.nuevo!(nombre: :filler, posicion: 1, largo: 5, tipo: :relleno)
+      assert Campo.extraer(campo, "basur") == {:ok, nil}
+      assert Campo.formatear(campo, nil) == {:ok, "     ", []}
+
+      ceros = Campo.nuevo!(nombre: :ceros, posicion: 1, largo: 3, tipo: :relleno, relleno: "0")
+      assert Campo.formatear(ceros, nil) == {:ok, "000", []}
+    end
+
+    test "un valor en el mapa para el relleno es un diagnóstico" do
+      campo = Campo.nuevo!(nombre: :filler, posicion: 1, largo: 5, tipo: :relleno)
+      assert {:error, d} = Campo.formatear(campo, "algo")
+      assert d.esperado == "ningún valor para el campo de relleno, o nil"
+      assert d.causa_probable =~ "saque la clave del mapa"
+    end
+  end
+
   describe "encoding" do
     test "transcodifica latin-1 a UTF-8" do
       assert extraer([nombre: :a, largo: 6], <<74, 79, 83, 201, 32, 32>>, encoding: :latin1) ==

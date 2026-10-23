@@ -220,6 +220,35 @@ defmodule AnchoFijo.DetectorTest do
       assert Enum.any?(reporte.observaciones, &String.contains?(&1, "según el layout"))
     end
 
+    test "los literales del layout se cuentan en la muestra" do
+      header = [
+        campos: [[nombre: :tipo, largo: 2, tipo: :constante, valor: "01"], [nombre: :r, largo: 3]]
+      ]
+
+      muestra = "01abc\n02def\n02ghi\n"
+
+      assert {:ok, reporte} = Detector.detectar(muestra, layout: header)
+
+      assert Enum.any?(
+               reporte.observaciones,
+               &(&1 ==
+                   "el literal \"01\" del campo :tipo (posiciones 1-2) aparece en 1 de 3 líneas; " <>
+                     "si es un código de tipo de registro, el archivo es multiregistro y las demás " <>
+                     "líneas son de otro tipo")
+             )
+
+      assert {:ok, reporte} = Detector.detectar("01abc\n01def\n", layout: header)
+
+      assert "el literal \"01\" del campo :tipo (posiciones 1-2) aparece en las 2 líneas" in reporte.observaciones
+
+      assert {:ok, reporte} = Detector.detectar("09abc\n", layout: header)
+
+      assert Enum.any?(
+               reporte.observaciones,
+               &String.contains?(&1, "no aparece en ninguna de las 1 líneas")
+             )
+    end
+
     test "un layout inválido devuelve sus propios diagnósticos" do
       {:ok, reporte} = Detector.detectar(leer("nomina_correcta.txt"))
 

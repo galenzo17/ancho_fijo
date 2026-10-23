@@ -211,6 +211,92 @@ defmodule AnchoFijo.MultiregistroTest do
     end
   end
 
+  describe "discriminador por campo :constante" do
+    defp layout_con_tipo(valor, posicion \\ 1) do
+      [
+        campos: [
+          [nombre: :tipo, posicion: posicion, largo: 2, tipo: :constante, valor: valor],
+          [nombre: :dato, largo: 3]
+        ]
+      ]
+    end
+
+    test "cada tipo toma su valor del literal, y el discriminador queda resuelto" do
+      multi =
+        Multiregistro.nuevo!(
+          discriminador: [campo: :tipo],
+          registros: [
+            h: [cantidad: :uno, layout: layout_con_tipo("01")],
+            d: [layout: layout_con_tipo("02")]
+          ]
+        )
+
+      assert multi.discriminador == %{campo: :tipo, posicion: 1, largo: 2}
+
+      assert {:ok, [h: %{tipo: "01", dato: "abc"}, d: %{tipo: "02", dato: "def"}], []} =
+               AnchoFijo.parsear(multi, "01abc\n02def\n")
+    end
+
+    test "con posición y largo explícitos, :valor se puede omitir si hay una constante ahí" do
+      multi =
+        Multiregistro.nuevo!(
+          discriminador: [posicion: 1, largo: 2],
+          registros: [
+            h: [layout: layout_con_tipo("01")],
+            d: [valor: "02", layout: [campos: [[nombre: :x, largo: 5]]]]
+          ]
+        )
+
+      assert Enum.map(multi.registros, fn {_, d} -> d.valores end) == [["01"], ["02"]]
+    end
+
+    test "sin :valor y sin constante en esas posiciones es un diagnóstico" do
+      assert {:error, [d]} =
+               Multiregistro.nuevo(
+                 discriminador: [posicion: 1, largo: 2],
+                 registros: [d: [layout: [campos: [[nombre: :x, largo: 5]]]]]
+               )
+
+      assert d.esperado =~ "un :valor para :d, o un campo :constante en las posiciones 1-2"
+    end
+
+    test "el campo tiene que existir, ser constante y estar igual en todos los layouts" do
+      assert {:error, [d]} =
+               Multiregistro.nuevo(
+                 discriminador: [campo: :tipo],
+                 registros: [d: [layout: [campos: [[nombre: :x, largo: 5]]]]]
+               )
+
+      assert d.esperado == "un campo :tipo en el layout de :d"
+
+      assert {:error, [d]} =
+               Multiregistro.nuevo(
+                 discriminador: [campo: :tipo],
+                 registros: [d: [layout: [campos: [[nombre: :tipo, largo: 2]]]]]
+               )
+
+      assert d.esperado == "un campo :tipo de tipo :constante en el layout de :d"
+      assert d.recibido == "un campo :texto"
+
+      assert {:error, [d]} =
+               Multiregistro.nuevo(
+                 discriminador: [campo: :tipo],
+                 registros: [
+                   h: [layout: layout_con_tipo("01")],
+                   d: [layout: layout_con_tipo("02", 4)]
+                 ]
+               )
+
+      assert d.esperado =~ "misma posición y con el mismo largo"
+      assert d.recibido == ":h en 1 con largo 2, :d en 4 con largo 2"
+    end
+
+    test "un discriminador con :campo y :largo a la vez es inválido" do
+      assert {:error, [%Diagnostico{tipo: :layout}]} =
+               Multiregistro.nuevo(discriminador: [campo: :tipo, largo: 2], registros: [])
+    end
+  end
+
   describe "estructura" do
     @lineas [
       "0176543210-320240115SUELDOS ENERO       ",

@@ -65,6 +65,7 @@ defmodule AnchoFijo.Detector do
   alias AnchoFijo.Layout
   alias AnchoFijo.Opciones
   alias AnchoFijo.Telemetria
+  alias AnchoFijo.Tipo.Constante
   alias AnchoFijo.Transcodificacion
 
   @lineas_default 200
@@ -219,7 +220,7 @@ defmodule AnchoFijo.Detector do
     |> Map.merge(analizar_encoding(lineas))
     |> Map.merge(analizar_delimitadores(lineas, opts))
     |> veredicto()
-    |> con_observaciones(opts)
+    |> con_observaciones(lineas, opts)
   end
 
   defp piezas(muestra, true), do: {muestra |> Entrada.dividir() |> Enum.drop(-1), nil}
@@ -368,8 +369,9 @@ defmodule AnchoFijo.Detector do
     Map.put(reporte, :probablemente_ancho_fijo?, ancho_fijo?)
   end
 
-  defp con_observaciones(reporte, opts) do
+  defp con_observaciones(reporte, lineas, opts) do
     reporte = Map.put(reporte, :observaciones, [])
+    layout = Keyword.get(opts, :layout)
 
     observaciones =
       Enum.concat([
@@ -379,10 +381,57 @@ defmodule AnchoFijo.Detector do
         observacion_encoding(reporte),
         observacion_terminador(reporte),
         observacion_delimitador(reporte),
-        observacion_layout(reporte, Keyword.get(opts, :layout))
+        observacion_layout(reporte, layout),
+        observacion_constantes(lineas, layout)
       ])
 
     %{reporte | observaciones: observaciones}
+  end
+
+  # Los literales que el layout declara, contados en la muestra: es la forma
+  # más barata de confirmar que el archivo es del formato que uno cree, y en
+  # un multiregistro, de ver cuántas líneas son de cada tipo. Se compara en
+  # bytes sobre la línea cruda, como lo hace el discriminador.
+  defp observacion_constantes(_lineas, nil), do: []
+  defp observacion_constantes([], _layout), do: []
+
+  defp observacion_constantes(lineas, %Layout{} = layout) do
+    total = length(lineas)
+
+    layout.campos
+    |> Enum.filter(&Campo.constante?/1)
+    |> Enum.map(fn campo ->
+      esperado = Constante.esperado(campo)
+      desde = campo.posicion - 1
+
+      coinciden =
+        Enum.count(lineas, fn {linea, _numero} ->
+          byte_size(linea) >= desde + campo.largo and
+            Constante.coincide?(
+              binary_part(linea, desde, campo.largo),
+              esperado,
+              campo.relleno
+            )
+        end)
+
+      {desde, hasta} = Campo.rango(campo)
+
+      donde =
+        "el literal #{inspect(campo.valor)} del campo #{inspect(campo.nombre)} (posiciones #{desde}-#{hasta})"
+
+      cond do
+        coinciden == total ->
+          "#{donde} aparece en las #{total} líneas"
+
+        coinciden == 0 ->
+          "#{donde} no aparece en ninguna de las #{total} líneas: el archivo no es del formato " <>
+            "declarado, o el literal cambió"
+
+        true ->
+          "#{donde} aparece en #{coinciden} de #{total} líneas; si es un código de tipo de " <>
+            "registro, el archivo es multiregistro y las demás líneas son de otro tipo"
+      end
+    end)
   end
 
   defp observacion_muestra(%{lineas_analizadas: 0}) do

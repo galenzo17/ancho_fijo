@@ -126,7 +126,7 @@ defmodule AnchoFijo.TipoTest do
       assert {:error, [diagnostico]} = Layout.nuevo(campos: [[nombre: :h, largo: 4, tipo: :hora]])
 
       assert diagnostico.esperado ==
-               "un :tipo en [:texto, :entero, :decimal, :fecha, :rut] o un módulo que implemente AnchoFijo.Tipo"
+               "un :tipo en [:texto, :entero, :decimal, :fecha, :rut, :constante, :relleno] o un módulo que implemente AnchoFijo.Tipo"
 
       assert diagnostico.recibido == ":hora"
     end

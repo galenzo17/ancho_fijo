@@ -31,13 +31,18 @@ defmodule AnchoFijo.Multiregistro do
     * `:nombre` — opcional, para los mensajes y la telemetría, como el
       `:nombre` de un `AnchoFijo.Layout`.
     * `:discriminador` — `[posicion: 1, largo: 2]`: dónde dice cada línea
-      qué es, en bytes de la línea cruda.
+      qué es, en bytes de la línea cruda. O `[campo: :tipo]`: el campo
+      `:constante` que cada layout declara con ese nombre, en la misma
+      posición y con el mismo largo en todos; así el literal de cada tipo
+      se escribe una sola vez, en su layout.
     * `:registros` — una keyword list de tipo a definición, en el orden
-      esperado en el archivo. Cada definición tiene `:valor` (lo que trae el
-      discriminador, o una lista de valores si el tipo admite varios),
-      `:layout` (un `AnchoFijo.Layout` o su definición) y `:cantidad`:
-      `:uno` (exactamente uno), `:opcional` (cero o uno), `:varios` (cero o
-      más) o `:al_menos_uno`.
+      esperado en el archivo. Cada definición tiene `:layout` (un
+      `AnchoFijo.Layout` o su definición), `:cantidad`: `:uno` (exactamente
+      uno), `:opcional` (cero o uno), `:varios` (cero o más) o
+      `:al_menos_uno`, y `:valor`: lo que trae el discriminador, o una lista
+      de valores si el tipo admite varios. `:valor` se puede omitir cuando
+      el layout tiene un campo `:constante` justo en las posiciones del
+      discriminador: el literal es el valor.
     * `:orden` — `:estricto` (default): los tipos aparecen en el orden de
       `:registros`. `:libre`: cualquier orden; solo se verifican las
       cantidades. Es para los formatos con lotes que se repiten (NACHA), donde
@@ -98,12 +103,14 @@ defmodule AnchoFijo.Multiregistro do
   registros: la memoria sigue siendo constante.
   """
 
+  alias AnchoFijo.Campo
   alias AnchoFijo.Diagnostico
   alias AnchoFijo.Entrada
   alias AnchoFijo.Layout
   alias AnchoFijo.Opciones
   alias AnchoFijo.Parser
   alias AnchoFijo.Telemetria
+  alias AnchoFijo.Tipo
   alias AnchoFijo.Traza
 
   @cantidades [:uno, :opcional, :varios, :al_menos_uno]
@@ -121,7 +128,11 @@ defmodule AnchoFijo.Multiregistro do
 
   @type t :: %__MODULE__{
           nombre: String.t() | nil,
-          discriminador: %{posicion: pos_integer(), largo: pos_integer()},
+          discriminador: %{
+            optional(:campo) => atom(),
+            posicion: pos_integer(),
+            largo: pos_integer()
+          },
           registros: [{tipo(), definicion()}],
           controles: [control()],
           orden: :estricto | :libre
@@ -146,7 +157,8 @@ defmodule AnchoFijo.Multiregistro do
          :ok <- sin_claves_desconocidas(definicion),
          {:ok, nombre} <- validar_nombre(Map.get(definicion, :nombre)),
          {:ok, discriminador} <- validar_discriminador(Map.get(definicion, :discriminador)),
-         {:ok, registros} <- validar_registros(Map.get(definicion, :registros, []), discriminador),
+         {:ok, registros} <- validar_registros(Map.get(definicion, :registros, [])),
+         {:ok, discriminador, registros} <- resolver_discriminador(discriminador, registros),
          {:ok, controles} <- validar_controles(Map.get(definicion, :controles, []), registros),
          {:ok, orden} <- validar_orden(Map.get(definicion, :orden, :estricto)) do
       {:ok,
@@ -203,35 +215,48 @@ defmodule AnchoFijo.Multiregistro do
   end
 
   defp validar_discriminador(nil),
-    do: {:error, [falla("un :discriminador con :posicion y :largo", nil, nil)]}
+    do: {:error, [falla("un :discriminador con :posicion y :largo, o con :campo", nil, nil)]}
 
   defp validar_discriminador(discriminador) do
+    campo = get(discriminador, :campo)
     posicion = get(discriminador, :posicion, 1)
     largo = get(discriminador, :largo)
 
-    if is_integer(posicion) and posicion > 0 and is_integer(largo) and largo > 0 do
-      {:ok, %{posicion: posicion, largo: largo}}
-    else
-      {:error,
-       [
-         falla(
-           "un :discriminador con :posicion entera 1-based y :largo mayor que cero",
-           inspect(discriminador),
-           nil
-         )
-       ]}
+    cond do
+      por_campo?(campo, largo) ->
+        {:ok, %{campo: campo}}
+
+      por_posicion?(campo, posicion, largo) ->
+        {:ok, %{posicion: posicion, largo: largo}}
+
+      true ->
+        {:error,
+         [
+           falla(
+             "un :discriminador con :posicion entera 1-based y :largo mayor que cero, " <>
+               "o con :campo (el nombre de un campo :constante de cada layout)",
+             inspect(discriminador),
+             nil
+           )
+         ]}
     end
   end
 
-  defp validar_registros([], _discriminador) do
+  defp por_campo?(campo, largo), do: is_atom(campo) and not is_nil(campo) and is_nil(largo)
+
+  defp por_posicion?(campo, posicion, largo) do
+    is_nil(campo) and is_integer(posicion) and posicion > 0 and is_integer(largo) and largo > 0
+  end
+
+  defp validar_registros([]) do
     {:error, [falla("al menos un tipo de registro en :registros", "una lista vacía", nil)]}
   end
 
-  defp validar_registros(registros, discriminador) when is_list(registros) do
+  defp validar_registros(registros) when is_list(registros) do
     {definiciones, diagnosticos} =
       Enum.reduce(registros, {[], []}, fn
         {tipo, definicion}, {definiciones, diagnosticos} when is_atom(tipo) ->
-          case validar_registro(tipo, definicion, discriminador) do
+          case validar_registro(tipo, definicion) do
             {:ok, definicion} -> {[{tipo, definicion} | definiciones], diagnosticos}
             {:error, nuevos} -> {definiciones, diagnosticos ++ nuevos}
           end
@@ -241,52 +266,36 @@ defmodule AnchoFijo.Multiregistro do
            diagnosticos ++ [falla("pares tipo: definición en :registros", inspect(otro), nil)]}
       end)
 
-    definiciones = Enum.reverse(definiciones)
-
-    case diagnosticos ++ valores_repetidos(definiciones) do
-      [] -> {:ok, definiciones}
+    case diagnosticos do
+      [] -> {:ok, Enum.reverse(definiciones)}
       diagnosticos -> {:error, diagnosticos}
     end
   end
 
-  defp validar_registros(otro, _discriminador) do
+  defp validar_registros(otro) do
     {:error, [falla("una keyword list en :registros", inspect(otro), nil)]}
   end
 
-  defp validar_registro(tipo, definicion, discriminador) do
-    valores = definicion |> get(:valor) |> List.wrap()
+  # El layout y la cantidad se validan acá; los valores del discriminador,
+  # en `resolver_discriminador/2`, porque con `[campo: :tipo]` el largo sale
+  # de los layouts y hay que tenerlos construidos primero.
+  defp validar_registro(tipo, definicion) do
     cantidad = get(definicion, :cantidad, :varios)
 
     problemas =
-      Enum.concat([
-        if(
-          valores != [] and
-            Enum.all?(valores, &(is_binary(&1) and byte_size(&1) == discriminador.largo)),
-          do: [],
-          else: [
-            falla(
-              "un :valor binario (o una lista de ellos) de #{discriminador.largo} bytes para " <>
-                "#{inspect(tipo)}, el largo del discriminador",
-              inspect(get(definicion, :valor)),
-              nil
-            )
-          ]
-        ),
-        if(cantidad in @cantidades,
-          do: [],
-          else: [
-            falla(
-              ":cantidad en #{inspect(@cantidades)} para #{inspect(tipo)}",
-              inspect(cantidad),
-              nil
-            )
-          ]
-        )
-      ])
+      if cantidad in @cantidades,
+        do: [],
+        else: [
+          falla(
+            ":cantidad en #{inspect(@cantidades)} para #{inspect(tipo)}",
+            inspect(cantidad),
+            nil
+          )
+        ]
 
     case {problemas, Layout.coercer(get(definicion, :layout))} do
       {[], {:ok, layout}} ->
-        {:ok, %{valores: valores, layout: layout, cantidad: cantidad}}
+        {:ok, %{valores: get(definicion, :valor), layout: layout, cantidad: cantidad}}
 
       {problemas, {:ok, _layout}} ->
         {:error, problemas}
@@ -298,6 +307,127 @@ defmodule AnchoFijo.Multiregistro do
              %Diagnostico{d | campo: d.campo || tipo}
            end)}
     end
+  end
+
+  # Con `[campo: nombre]`, la posición y el largo son los del campo
+  # :constante con ese nombre, que tiene que estar igual en todos los
+  # layouts. Con posición y largo explícitos, cada tipo declara su :valor, o
+  # lo toma del campo :constante que ocupa exactamente esas posiciones.
+  defp resolver_discriminador(%{campo: nombre} = discriminador, registros)
+       when not is_map_key(discriminador, :largo) do
+    {ubicaciones, diagnosticos} =
+      Enum.reduce(registros, {[], []}, fn {tipo, d}, {ubicaciones, diagnosticos} ->
+        case ubicacion_de(tipo, d.layout, nombre) do
+          {:ok, ubicacion} -> {[ubicacion | ubicaciones], diagnosticos}
+          {:error, diagnostico} -> {ubicaciones, diagnosticos ++ [diagnostico]}
+        end
+      end)
+
+    ubicaciones = Enum.reverse(ubicaciones)
+
+    with [] <- diagnosticos,
+         [{_tipo, posicion, largo}] <- Enum.uniq_by(ubicaciones, fn {_, p, l} -> {p, l} end) do
+      resolver_discriminador(%{posicion: posicion, largo: largo, campo: nombre}, registros)
+    else
+      [%Diagnostico{} | _] = diagnosticos ->
+        {:error, diagnosticos}
+
+      distintas ->
+        {:error,
+         [
+           falla(
+             "el campo #{inspect(nombre)} en la misma posición y con el mismo largo en todos los layouts",
+             Enum.map_join(distintas, ", ", fn {tipo, p, l} ->
+               "#{inspect(tipo)} en #{p} con largo #{l}"
+             end),
+             "el discriminador tiene que leerse igual en todas las líneas para saber de qué tipo son"
+           )
+         ]}
+    end
+  end
+
+  defp resolver_discriminador(%{largo: largo} = discriminador, registros) do
+    {definiciones, diagnosticos} =
+      Enum.reduce(registros, {[], []}, fn {tipo, d}, {definiciones, diagnosticos} ->
+        case valores_de(tipo, d, discriminador) do
+          {:ok, valores} -> {[{tipo, %{d | valores: valores}} | definiciones], diagnosticos}
+          {:error, diagnostico} -> {definiciones, diagnosticos ++ [diagnostico]}
+        end
+      end)
+
+    definiciones = Enum.reverse(definiciones)
+
+    case diagnosticos ++ valores_repetidos(definiciones) do
+      [] -> {:ok, Map.put(discriminador, :largo, largo), definiciones}
+      diagnosticos -> {:error, diagnosticos}
+    end
+  end
+
+  defp valores_de(tipo, %{valores: nil, layout: layout}, discriminador) do
+    constante =
+      Enum.find(layout.campos, fn campo ->
+        Campo.constante?(campo) and campo.posicion == discriminador.posicion and
+          campo.largo == discriminador.largo
+      end)
+
+    case constante do
+      %Campo{} = campo ->
+        {:ok, [Tipo.Constante.esperado(campo)]}
+
+      nil ->
+        {:error,
+         falla(
+           "un :valor para #{inspect(tipo)}, o un campo :constante en las posiciones " <>
+             "#{discriminador.posicion}-#{discriminador.posicion + discriminador.largo - 1} de su layout",
+           "ninguno de los dos",
+           "sin valor no hay forma de saber qué líneas son #{inspect(tipo)}"
+         )}
+    end
+  end
+
+  defp valores_de(tipo, %{valores: declarados}, discriminador) do
+    valores = List.wrap(declarados)
+
+    if valores != [] and
+         Enum.all?(valores, &(is_binary(&1) and byte_size(&1) == discriminador.largo)) do
+      {:ok, valores}
+    else
+      {:error,
+       falla(
+         "un :valor binario (o una lista de ellos) de #{discriminador.largo} bytes para " <>
+           "#{inspect(tipo)}, el largo del discriminador",
+         inspect(declarados),
+         nil
+       )}
+    end
+  end
+
+  defp ubicacion_de(tipo, layout, nombre) do
+    case Layout.campo(layout, nombre) do
+      %Campo{} = campo ->
+        if Campo.constante?(campo),
+          do: {:ok, {tipo, campo.posicion, campo.largo}},
+          else: {:error, no_es_constante(tipo, nombre, campo)}
+
+      nil ->
+        {:error, sin_campo(tipo, nombre)}
+    end
+  end
+
+  defp sin_campo(tipo, nombre) do
+    falla(
+      "un campo #{inspect(nombre)} en el layout de #{inspect(tipo)}",
+      "un layout sin ese campo",
+      "el discriminador por :campo exige que cada tipo tenga ese campo :constante"
+    )
+  end
+
+  defp no_es_constante(tipo, nombre, %Campo{tipo: otro}) do
+    falla(
+      "un campo #{inspect(nombre)} de tipo :constante en el layout de #{inspect(tipo)}",
+      "un campo #{inspect(otro)}",
+      "el literal del discriminador se declara con tipo: :constante, valor: \"...\""
+    )
   end
 
   defp valores_repetidos(definiciones) do

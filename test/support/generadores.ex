@@ -23,13 +23,52 @@ defmodule AnchoFijo.Generadores do
         layout: layout,
         campos: especificaciones,
         linea: Enum.map_join(especificaciones, & &1.texto),
-        registro: Map.new(especificaciones, &{&1.definicion[:nombre], &1.esperado})
+        registro:
+          especificaciones
+          |> Enum.reject(&(&1.tipo == :relleno))
+          |> Map.new(&{&1.definicion[:nombre], &1.esperado})
       }
     end
   end
 
   defp campo do
-    one_of([texto(), entero(), decimal(), decimal_con_moneda(), fecha(), rut()])
+    one_of([
+      texto(),
+      entero(),
+      decimal(),
+      decimal_con_moneda(),
+      fecha(),
+      rut(),
+      constante(),
+      relleno()
+    ])
+  end
+
+  # Un literal del formato: va al registro con su valor declarado.
+  defp constante do
+    gen all(
+          largo <- integer(1..8),
+          valor <- string(:alphanumeric, min_length: 1, max_length: largo)
+        ) do
+      %{
+        definicion: [largo: largo, tipo: :constante, valor: valor],
+        tipo: :constante,
+        esperado: valor,
+        texto: String.pad_trailing(valor, largo)
+      }
+    end
+  end
+
+  # Un filler: en la línea, su carácter repetido; en el registro, nada.
+  defp relleno do
+    gen all(largo <- integer(1..8), caracter <- member_of([" ", "0", "*"])) do
+      %{
+        definicion: [largo: largo, tipo: :relleno, relleno: caracter],
+        tipo: :relleno,
+        esperado: nil,
+        texto: String.duplicate(caracter, largo)
+      }
+    end
   end
 
   @doc false

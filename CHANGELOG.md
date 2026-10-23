@@ -34,6 +34,21 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- Tipos `:constante` y `:relleno`: las posiciones cuyo valor lo pone el
+  formato y no el dato. `[tipo: :constante, valor: "01"]` se verifica al
+  leer (un literal distinto es un diagnóstico con `esperado` y `recibido`)
+  y se escribe solo; `[tipo: :relleno]` no se lee ni aparece en el
+  registro, se escribe con su carácter de `:relleno`, y al final de la
+  línea es relleno reponible con `relleno_final: :tolerar`. Un valor en el
+  mapa para un relleno, o un literal distinto para una constante, es un
+  diagnóstico al escribir.
+- `Multiregistro`: `discriminador: [campo: :tipo]` toma la posición, el
+  largo y el valor de cada tipo del campo `:constante` con ese nombre; y
+  con `[posicion:, largo:]`, `:valor` se puede omitir cuando el layout
+  tiene una constante justo ahí.
+- `detectar/2` con `layout:` cuenta en cuántas líneas de la muestra aparece
+  cada literal declarado: la forma más barata de confirmar que un archivo
+  es del formato que uno cree.
 - Eventos de telemetría `[:ancho_fijo, :parsear, ...]` y
   `[:ancho_fijo, :stream, ...]` también con un `Multiregistro`, con las
   mismas medidas; en la metadata, `:layout` es el `:nombre` del

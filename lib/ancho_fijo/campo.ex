@@ -17,8 +17,9 @@ defmodule AnchoFijo.Campo do
     * `:posicion` — entero positivo, 1-based. Si se omite, `AnchoFijo.Layout`
       la calcula encadenando el campo anterior.
     * `:tipo` — `:texto` (default), `:entero`, `:decimal`, `:fecha`, `:rut`,
-      o un módulo que implemente `AnchoFijo.Tipo` para un tipo propio. Las
-      opciones propias de ese tipo quedan en `:opciones`.
+      `:constante`, `:relleno`, o un módulo que implemente `AnchoFijo.Tipo`
+      para un tipo propio. Las opciones propias de ese tipo quedan en
+      `:opciones`.
     * `:opcional` — si es `true`, un campo en blanco (o en ceros, para fechas)
       se lee como `nil` en vez de producir un diagnóstico. Default `false`.
     * `:trim` — `:ambos` (default), `:izquierda`, `:derecha` o `false`. Solo
@@ -35,6 +36,8 @@ defmodule AnchoFijo.Campo do
       Con `:final` el signo va después de los dígitos, `0125000-`, como en los
       formatos heredados de mainframe.
     * `:formato` — obligatorio en `:fecha`: `:aaaammdd` o `:ddmmaaaa`.
+    * `:valor` — obligatorio en `:constante`: el literal que el formato fija
+      en esas posiciones. Ver `AnchoFijo.Tipo.Constante`.
     * `:dv` — en `:rut`: `:validar` (default), `:no_validar` o `:ausente`. Ver
       `AnchoFijo.Rut`.
     * `:sensible` — si es `true`, los diagnósticos del campo muestran la forma
@@ -51,6 +54,8 @@ defmodule AnchoFijo.Campo do
   | `:decimal` | `{unidades, precision}`, p. ej. `{123456, 2}` para `1234.56`; con `:moneda`, un `AnchoFijo.Monto` |
   | `:fecha` | `Date.t()` |
   | `:rut` | `String.t()` canónico, `"12345678-5"`; solo el cuerpo, `"12345678"`, con `dv: :ausente` |
+  | `:constante` | el literal declarado en `:valor`, verificado contra la línea |
+  | `:relleno` | no aparece en el registro; al escribir se emite el carácter de `:relleno` |
 
   Un `:decimal` nunca se convierte a float. Se devuelve como par
   `{unidades_minimas, precision}` —centavos y escala— porque un monto que pasa
@@ -72,12 +77,13 @@ defmodule AnchoFijo.Campo do
     moneda: nil,
     signo: :inicial,
     formato: nil,
-    dv: :validar
+    dv: :validar,
+    valor: nil
   ]
   @trims [:ambos, :izquierda, :derecha, false, true]
 
   @typedoc "Un átomo de los tipos internos o un módulo que implementa `AnchoFijo.Tipo`."
-  @type tipo :: :texto | :entero | :decimal | :fecha | :rut | module()
+  @type tipo :: :texto | :entero | :decimal | :fecha | :rut | :constante | :relleno | module()
   @type valor :: String.t() | integer() | {integer(), non_neg_integer()} | Date.t() | nil
 
   @type t :: %__MODULE__{
@@ -94,6 +100,7 @@ defmodule AnchoFijo.Campo do
           signo: :inicial | :final,
           formato: :aaaammdd | :ddmmaaaa | nil,
           dv: Rut.dv(),
+          valor: String.t() | nil,
           sensible: boolean(),
           modulo: module() | nil,
           opciones: map()
@@ -112,6 +119,7 @@ defmodule AnchoFijo.Campo do
             signo: :inicial,
             formato: nil,
             dv: :validar,
+            valor: nil,
             sensible: false,
             modulo: nil,
             opciones: %{}
@@ -225,6 +233,25 @@ defmodule AnchoFijo.Campo do
   """
   @spec texto?(t()) :: boolean()
   def texto?(%__MODULE__{modulo: modulo}), do: modulo == Tipo.Texto
+
+  @doc """
+  Si el campo es de tipo `:relleno`: no se lee, no aparece en el registro y
+  su relleno se puede reponer al final de la línea como el de un `:texto`.
+
+      iex> AnchoFijo.Campo.relleno?(AnchoFijo.Campo.nuevo!(nombre: :f, largo: 5, tipo: :relleno))
+      true
+  """
+  @spec relleno?(t()) :: boolean()
+  def relleno?(%__MODULE__{modulo: modulo}), do: modulo == Tipo.Relleno
+
+  @doc """
+  Si el campo es de tipo `:constante`: un literal del formato.
+
+      iex> AnchoFijo.Campo.constante?(AnchoFijo.Campo.nuevo!(nombre: :t, largo: 1, tipo: :constante, valor: "H"))
+      true
+  """
+  @spec constante?(t()) :: boolean()
+  def constante?(%__MODULE__{modulo: modulo}), do: modulo == Tipo.Constante
 
   @doc """
   Rango de posiciones que ocupa el campo, 1-based e inclusivo en ambos extremos.
@@ -557,6 +584,9 @@ defmodule AnchoFijo.Campo do
     end
   end
 
+  # Un literal se compara entero: el tipo decide qué relleno final no cuenta.
+  defp limpiar(texto, %__MODULE__{modulo: Tipo.Constante}), do: texto
+
   # En los tipos no textuales el relleno nunca es dato: un monto viene con
   # ceros o espacios a la izquierda según el humor del sistema emisor.
   defp limpiar(texto, _campo), do: String.trim(texto)
@@ -590,6 +620,49 @@ defmodule AnchoFijo.Campo do
          {:ok, codificado} <- codificar(campo, texto, contexto) do
       {:ok, codificado, advertencias}
     end
+  end
+
+  # Un relleno se escribe solo, con su carácter; un valor en el mapa es un
+  # error, porque el relleno no es dato de nadie.
+  defp representar(%__MODULE__{modulo: Tipo.Relleno} = campo, nil, contexto) do
+    texto = String.duplicate(campo.relleno, campo.largo)
+    ancho = medir(texto, contexto)
+
+    if ancho == campo.largo,
+      do: {:ok, texto, []},
+      else:
+        {:error, no_cabe(campo, texto, ancho, "un relleno de #{campo.largo} posiciones", contexto)}
+  end
+
+  defp representar(%__MODULE__{modulo: Tipo.Relleno} = campo, valor, contexto) do
+    {:error,
+     diagnostico(campo, contexto,
+       esperado: "ningún valor para el campo de relleno, o nil",
+       recibido: inspect(valor),
+       causa_probable: "el relleno lo pone el layout, no el registro; saque la clave del mapa"
+     )}
+  end
+
+  # Una constante se escribe sola, o con el mismo literal en el mapa; otro
+  # valor no es un dato distinto, es otro formato.
+  defp representar(%__MODULE__{modulo: Tipo.Constante, valor: valor} = campo, dado, contexto)
+       when is_nil(dado) or dado == valor do
+    ancho = medir(valor, contexto)
+
+    if ancho <= campo.largo,
+      do: {:ok, valor <> String.duplicate(campo.relleno, campo.largo - ancho), []},
+      else:
+        {:error,
+         no_cabe(campo, valor, ancho, "un literal de hasta #{campo.largo} posiciones", contexto)}
+  end
+
+  defp representar(%__MODULE__{modulo: Tipo.Constante, valor: valor} = campo, dado, contexto) do
+    {:error,
+     diagnostico(campo, contexto,
+       esperado: "el literal #{inspect(valor)}, o el campo ausente del mapa",
+       recibido: inspect(dado),
+       causa_probable: "el campo es una constante del formato y no se escribe desde el registro"
+     )}
   end
 
   # nil solo cabe en un campo opcional, y se escribe como blanco.
