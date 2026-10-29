@@ -209,7 +209,7 @@ defmodule AnchoFijo.Parser do
         {:ok, tamano} = :file.position(dispositivo, :eof)
         inicio = leer_en(dispositivo, 0, 3)
         final = leer_en(dispositivo, max(tamano - 2, 0), 2)
-        File.close(dispositivo)
+        _ = File.close(dispositivo)
         advertencias_de_marcas(inicio, opts, final)
 
       {:error, _motivo} ->

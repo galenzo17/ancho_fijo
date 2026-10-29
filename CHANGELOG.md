@@ -163,10 +163,11 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   sin aconsejar `encoding: :latin1`) y el `0x1A` final de DOS
   (`marca_final_dos?`). `parsear/3` y `stream/3` aceptan `bom: :rechazar |
   :ignorar` (default `:rechazar`, y el diagnóstico de largo de la línea 1
-  nombra el BOM; con `:ignorar` se salta y `parsear/3` deja una
-  advertencia). Una última línea que es solo `0x1A` se omite con
-  `omitir_vacias: true` y `parsear/3` lo advierte; sin `omitir_vacias`, el
-  diagnóstico dice qué es. Fixtures con los cuatro casos (#98).
+  nombra el BOM; con `:ignorar` se salta y queda una advertencia). Una última línea que es solo `0x1A` se omite con
+  `omitir_vacias: true` con una advertencia; sin `omitir_vacias`, el
+  diagnóstico dice qué es. En `stream/3` las dos advertencias viajan con el
+  primer elemento (sobre una ruta se miran el principio y el final del
+  archivo sin recorrerlo). Fixtures con los cuatro casos (#98, #126).
 - `AnchoFijo.Campo` guarda el patrón compilado de un campo de fecha u hora
   en `:formato_compilado`, y `AnchoFijo.Layout` precalcula
   `:con_condiciones`: datos derivados, como `:modulo`, que la serialización
