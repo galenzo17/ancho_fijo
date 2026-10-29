@@ -310,7 +310,7 @@ defmodule AnchoFijo.Campo do
   # repetidos. El largo del campo sale de ahí: el de una repetición por
   # `repetir`, o el de la variante más ancha (o el declarado, si es mayor).
   defp construir_anidados(%__MODULE__{modulo: Tipo.Grupo} = campo) do
-    with {:ok, campos} <- construir_internos(campo.campos, campo.nombre),
+    with {:ok, campos} <- construir_internos(campo.campos, ruta_de(campo.nombre)),
          repetir = campo.repetir || 1,
          {:ok, largo} <- largo_anidado(campo, AnchoFijo.Anidados.ancho_de(campos) * repetir, :igual) do
       {:ok, %__MODULE__{campo | campos: campos, repetir: repetir, largo: largo}}
@@ -321,7 +321,7 @@ defmodule AnchoFijo.Campo do
        when is_map(variantes) and map_size(variantes) > 0 do
     construidas =
       Enum.reduce_while(variantes, {:ok, %{}}, fn {valor, definiciones}, {:ok, acumulado} ->
-        case construir_internos(definiciones, "#{campo.nombre}{#{inspect(valor)}}") do
+        case construir_internos(definiciones, "#{ruta_de(campo.nombre)}{#{inspect(valor)}}") do
           {:ok, campos} -> {:cont, {:ok, Map.put(acumulado, valor, campos)}}
           {:error, diagnosticos} -> {:halt, {:error, diagnosticos}}
         end
@@ -356,6 +356,12 @@ defmodule AnchoFijo.Campo do
 
   defp construir_internos(_otro, _ruta), do: {:ok, []}
 
+  # La ruta de un campo anidado en sus diagnósticos. Un nombre que no es
+  # átomo todavía no se reclamó (eso lo hace validar_nombre/1 después), y
+  # no puede romper la construcción.
+  defp ruta_de(nombre) when is_atom(nombre), do: nombre
+  defp ruta_de(otro), do: inspect(otro)
+
   defp posicionar_internos(campos) do
     campos
     |> Enum.map_reduce(1, fn %__MODULE__{} = campo, siguiente ->
@@ -373,7 +379,7 @@ defmodule AnchoFijo.Campo do
       if actual.posicion <= fin(anterior),
         do: [
           falla(
-            "#{ruta}.#{actual.nombre}",
+            "#{ruta}.#{ruta_de(actual.nombre)}",
             "que empezara en la posición #{fin(anterior) + 1} o después",
             actual.posicion,
             "se solapa con el campo #{inspect(anterior.nombre)} del mismo grupo"

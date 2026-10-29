@@ -194,18 +194,25 @@ defmodule AnchoFijo.Serializacion do
   defp sin_nulos(mapa), do: mapa |> Enum.reject(fn {_k, v} -> is_nil(v) end) |> Map.new()
 
   # ------------------------------------------------------------ desde mapa
+  #
+  # Un valor que no se puede convertir (una fecha que no existe, un patrón
+  # que no compila, un decimal que no es número) no levanta: queda como
+  # diagnóstico `:layout` con el campo y la clave, se saca de la definición
+  # y el resto sigue a `nuevo/1`, para que todos los problemas salgan juntos.
 
   @spec layout_desde_mapa(term()) :: {:ok, Layout.t()} | {:error, [Diagnostico.t()]}
   def layout_desde_mapa(mapa) when is_map(mapa) do
     with :ok <- validar_version(mapa) do
-      mapa
-      |> Map.delete("version")
-      |> Map.new(fn {clave, valor} -> clave_layout(clave, valor) end)
-      |> Layout.nuevo()
+      {definicion, invalidos} = layout_mapa_a_definicion(mapa)
+      con_invalidos(Layout.nuevo(definicion), invalidos)
     end
   end
 
   def layout_desde_mapa(otro), do: {:error, [falla("un mapa con la definición del layout", otro)]}
+
+  defp con_invalidos(resultado, []), do: resultado
+  defp con_invalidos({:ok, _construido}, invalidos), do: {:error, invalidos}
+  defp con_invalidos({:error, otros}, invalidos), do: {:error, invalidos ++ otros}
 
   defp validar_version(mapa) do
     case Map.get(mapa, "version", @version) do
@@ -224,64 +231,137 @@ defmodule AnchoFijo.Serializacion do
     end
   end
 
+  # La definición para `Layout.nuevo/1` y los diagnósticos de lo que no se
+  # pudo convertir. También la usa cada tipo de un multiregistro.
+  defp layout_mapa_a_definicion(mapa) when is_map(mapa) do
+    {pares, invalidos} =
+      mapa
+      |> Map.delete("version")
+      |> Enum.map_reduce([], fn {clave, valor}, acumulados ->
+        {par, nuevos} = clave_layout(clave, valor)
+        {par, acumulados ++ nuevos}
+      end)
+
+    {Map.new(pares), invalidos}
+  end
+
+  defp layout_mapa_a_definicion(otro), do: {otro, []}
+
   # Las claves conocidas vuelven a átomo; una desconocida queda como string y
   # `Layout.nuevo/1` la reclama, que es la misma política que con un átomo
   # mal escrito.
-  defp clave_layout("campos", campos) when is_list(campos),
-    do: {:campos, Enum.map(campos, &campo_desde_mapa/1)}
+  defp clave_layout("campos", campos) when is_list(campos) do
+    {convertidos, invalidos} = campos_desde_datos(campos)
+    {{:campos, convertidos}, invalidos}
+  end
 
   defp clave_layout("identidad", %{"campos" => campos}) when is_list(campos),
-    do: {:identidad, [campos: Enum.map(campos, &a_atomo/1)]}
+    do: {{:identidad, [campos: Enum.map(campos, &a_atomo/1)]}, []}
 
   defp clave_layout(clave, valor) do
     case atomo_conocido(clave, @claves_layout) do
-      nil -> {clave, valor}
-      atomo when atomo in @atomicas_layout -> {atomo, a_atomo(valor)}
-      atomo -> {atomo, valor}
+      nil -> {{clave, valor}, []}
+      atomo when atomo in @atomicas_layout -> {{atomo, a_atomo(valor)}, []}
+      atomo -> {{atomo, valor}, []}
     end
   end
 
-  @spec campo_desde_mapa(term()) :: map() | term()
-  def campo_desde_mapa(mapa) when is_map(mapa) do
-    tipo = tipo_desde_dato(Map.get(mapa, "tipo", "texto"))
-    conocidas = Campo.claves() ++ opciones_propias(tipo)
-
-    mapa
-    |> Map.put("tipo", tipo)
-    |> Map.new(fn
-      {"tipo", tipo} ->
-        {:tipo, tipo}
-
-      {"nombre", nombre} ->
-        {:nombre, a_atomo(nombre)}
-
-      {"formato", formato} ->
-        {:formato, formato_desde_dato(formato)}
-
-      {"segun", segun} ->
-        {:segun, a_atomo(segun)}
-
-      {"patron", %{"patron" => fuente} = patron} ->
-        {:patron, Regex.compile!(fuente, Map.get(patron, "opciones", ""))}
-
-      {"rango", [min, max]} ->
-        {:rango, {rango_desde_dato(min, tipo), rango_desde_dato(max, tipo)}}
-
-      {clave, condicion} when clave in ["requerido_si", "prohibido_si"] and is_map(condicion) ->
-        {String.to_atom(clave), condicion_desde_dato(condicion)}
-
-      {"campos", campos} when is_list(campos) ->
-        {:campos, Enum.map(campos, &campo_desde_mapa/1)}
-
-      {"variantes", variantes} when is_map(variantes) ->
-        {:variantes, Map.new(variantes, fn {k, v} -> {k, Enum.map(v, &campo_desde_mapa/1)} end)}
-
-      {clave, valor} ->
-        clave_campo(clave, valor, conocidas)
+  defp campos_desde_datos(campos) do
+    Enum.map_reduce(campos, [], fn campo, acumulados ->
+      {atributos, invalidos} = campo_desde_mapa(campo)
+      {atributos, acumulados ++ invalidos}
     end)
   end
 
-  def campo_desde_mapa(otro), do: otro
+  @spec campo_desde_mapa(term()) :: {map() | term(), [Diagnostico.t()]}
+  def campo_desde_mapa(mapa) when is_map(mapa) do
+    tipo = tipo_desde_dato(Map.get(mapa, "tipo", "texto"))
+    conocidas = Campo.claves() ++ opciones_propias(tipo)
+    nombre = mapa |> Map.get("nombre") |> a_atomo()
+
+    {pares, invalidos} =
+      mapa
+      |> Map.put("tipo", tipo)
+      |> Enum.map_reduce([], fn {clave, valor}, acumulados ->
+        case valor_campo(clave, valor, tipo, conocidas) do
+          {:ok, par} ->
+            {par, acumulados}
+
+          {:ok, par, anidados} ->
+            {par, acumulados ++ anidados}
+
+          {:error, esperado, causa} ->
+            {nil, acumulados ++ [invalido(nombre, clave, esperado, valor, causa)]}
+        end
+      end)
+
+    {pares |> Enum.reject(&is_nil/1) |> Map.new(), invalidos}
+  end
+
+  def campo_desde_mapa(otro), do: {otro, []}
+
+  defp valor_campo("tipo", tipo, _tipo, _conocidas), do: {:ok, {:tipo, tipo}}
+  defp valor_campo("nombre", nombre, _tipo, _conocidas), do: {:ok, {:nombre, a_atomo(nombre)}}
+  defp valor_campo("segun", segun, _tipo, _conocidas), do: {:ok, {:segun, a_atomo(segun)}}
+
+  defp valor_campo("formato", formato, _tipo, _conocidas),
+    do: {:ok, {:formato, formato_desde_dato(formato)}}
+
+  defp valor_campo("patron", %{"patron" => fuente} = patron, _tipo, _conocidas) do
+    opciones = Map.get(patron, "opciones", "")
+
+    with true <- is_binary(fuente) and is_binary(opciones),
+         {:ok, regex} <- Regex.compile(fuente, opciones) do
+      {:ok, {:patron, regex}}
+    else
+      false ->
+        {:error, ~s(un "patron" con la expresión regular y sus "opciones" como texto), nil}
+
+      {:error, {motivo, posicion}} when is_integer(posicion) ->
+        {:error, "una expresión regular que compile",
+         "#{motivo} en la posición #{posicion} del patrón"}
+
+      {:error, {:invalid_option, opcion}} ->
+        {:error, "una expresión regular que compile", "la opción #{inspect(opcion)} no existe"}
+
+      {:error, motivo} ->
+        {:error, "una expresión regular que compile", "Regex.compile/2 dijo #{inspect(motivo)}"}
+    end
+  end
+
+  defp valor_campo("rango", [min, max], tipo, _conocidas) do
+    with {:ok, min} <- rango_desde_dato(min, tipo),
+         {:ok, max} <- rango_desde_dato(max, tipo) do
+      {:ok, {:rango, {min, max}}}
+    end
+  end
+
+  defp valor_campo(clave, condicion, _tipo, _conocidas)
+       when clave in ["requerido_si", "prohibido_si"] and is_map(condicion),
+       do: {:ok, {String.to_atom(clave), condicion_desde_dato(condicion)}}
+
+  defp valor_campo("campos", campos, _tipo, _conocidas) when is_list(campos) do
+    {convertidos, invalidos} = campos_desde_datos(campos)
+    {:ok, {:campos, convertidos}, invalidos}
+  end
+
+  # Un valor que no es una lista de campos queda como vino: `Campo.nuevo/1`
+  # ya lo reclama.
+  defp valor_campo("variantes", variantes, _tipo, _conocidas) when is_map(variantes) do
+    if Enum.all?(variantes, fn {_valor, campos} -> is_list(campos) end) do
+      {pares, invalidos} =
+        Enum.map_reduce(variantes, [], fn {valor, campos}, acumulados ->
+          {convertidos, nuevos} = campos_desde_datos(campos)
+          {{valor, convertidos}, acumulados ++ nuevos}
+        end)
+
+      {:ok, {:variantes, Map.new(pares)}, invalidos}
+    else
+      {:ok, {:variantes, variantes}}
+    end
+  end
+
+  defp valor_campo(clave, valor, _tipo, conocidas), do: {:ok, clave_campo(clave, valor, conocidas)}
 
   defp clave_campo(clave, valor, conocidas) do
     case atomo_conocido(clave, conocidas) do
@@ -311,22 +391,65 @@ defmodule AnchoFijo.Serializacion do
   defp tipo_desde_dato(otro), do: otro
 
   # Los extremos de un rango vuelven al tipo del campo: enteros, tuplas,
-  # fechas y horas ISO, decimales como string.
-  defp rango_desde_dato(nil, _tipo), do: nil
-  defp rango_desde_dato(valor, _tipo) when is_integer(valor), do: valor
-  defp rango_desde_dato([u, p], _tipo) when is_integer(u) and is_integer(p), do: {u, p}
+  # fechas y horas ISO, decimales como string. Lo que no se puede leer es un
+  # `{:error, esperado, causa}`, nunca una excepción: el mapa lo escribió
+  # alguien a mano.
+  @rango_decimal ~s|un entero, [unidades, precision], [unidades, precision, "moneda"] o un decimal como texto ("1234.56")|
 
-  defp rango_desde_dato([u, p, moneda], _tipo) when is_integer(u),
-    do: AnchoFijo.Monto.nuevo(u, p, a_atomo(moneda))
+  defp rango_desde_dato(nil, _tipo), do: {:ok, nil}
 
-  defp rango_desde_dato(valor, :fecha) when is_binary(valor), do: Date.from_iso8601!(valor)
-  defp rango_desde_dato(valor, :hora) when is_binary(valor), do: Time.from_iso8601!(valor)
+  defp rango_desde_dato(valor, :fecha) when is_binary(valor),
+    do: iso(Date.from_iso8601(valor), "una fecha ISO 8601 (AAAA-MM-DD)")
+
+  defp rango_desde_dato(_valor, :fecha),
+    do: {:error, "una fecha ISO 8601 (AAAA-MM-DD) como texto", nil}
+
+  defp rango_desde_dato(valor, :hora) when is_binary(valor),
+    do: iso(Time.from_iso8601(valor), "una hora ISO 8601 (HH:MM:SS)")
+
+  defp rango_desde_dato(_valor, :hora), do: {:error, "una hora ISO 8601 (HH:MM:SS) como texto", nil}
 
   defp rango_desde_dato(valor, :fecha_hora) when is_binary(valor),
-    do: NaiveDateTime.from_iso8601!(valor)
+    do: iso(NaiveDateTime.from_iso8601(valor), "una fecha y hora ISO 8601 (AAAA-MM-DDTHH:MM:SS)")
 
-  defp rango_desde_dato(valor, :decimal) when is_binary(valor), do: Decimal.new(valor)
-  defp rango_desde_dato(valor, _tipo), do: valor
+  defp rango_desde_dato(_valor, :fecha_hora),
+    do: {:error, "una fecha y hora ISO 8601 (AAAA-MM-DDTHH:MM:SS) como texto", nil}
+
+  defp rango_desde_dato(valor, :entero) when is_integer(valor), do: {:ok, valor}
+  defp rango_desde_dato(_valor, :entero), do: {:error, "un entero", nil}
+
+  defp rango_desde_dato(valor, :decimal) when is_integer(valor), do: {:ok, valor}
+
+  defp rango_desde_dato([u, p], :decimal) when is_integer(u) and is_integer(p) and p >= 0,
+    do: {:ok, {u, p}}
+
+  defp rango_desde_dato([u, p, moneda], :decimal)
+       when is_integer(u) and is_integer(p) and p >= 0 and is_binary(moneda),
+       do: {:ok, AnchoFijo.Monto.nuevo(u, p, a_atomo(moneda))}
+
+  defp rango_desde_dato(valor, :decimal) when is_binary(valor), do: decimal_desde_dato(valor)
+  defp rango_desde_dato(_valor, :decimal), do: {:error, @rango_decimal, nil}
+
+  # Un tipo propio decide qué es un rango; el extremo viaja como vino.
+  defp rango_desde_dato(valor, _tipo), do: {:ok, valor}
+
+  defp iso({:ok, valor}, _esperado), do: {:ok, valor}
+
+  defp iso({:error, motivo}, esperado),
+    do: {:error, esperado, "Elixir no la lee: #{inspect(motivo)}"}
+
+  defp decimal_desde_dato(valor) do
+    if Tipo.Decimal.decimal_disponible?() do
+      case Decimal.parse(valor) do
+        {decimal, ""} -> {:ok, decimal}
+        _otro -> {:error, @rango_decimal, nil}
+      end
+    else
+      {:error,
+       "un extremo decimal como [unidades, precision], o la librería Decimal para leerlo como texto",
+       "agregue {:decimal, \"~> 2.0 or ~> 3.0\"} a las dependencias, o escriba el extremo como [unidades, precision]"}
+    end
+  end
 
   defp condicion_desde_dato(condicion) do
     [campo: condicion |> Map.get("campo") |> a_atomo()] ++
@@ -358,41 +481,58 @@ defmodule AnchoFijo.Serializacion do
   defp atomo_conocido(clave, conocidas) when is_atom(clave),
     do: if(clave in conocidas, do: clave, else: nil)
 
+  defp atomo_conocido(_otra, _conocidas), do: nil
+
   # Los nombres de campo y de tipo de registro son del layout, que es
-  # configuración y no datos del archivo: crear el átomo es lo correcto.
-  defp a_atomo(valor) when is_binary(valor), do: String.to_atom(valor)
+  # configuración y no datos del archivo: crear el átomo es lo correcto. Lo
+  # que no puede ser un átomo (bytes que no son UTF-8, más de 255
+  # caracteres) queda como vino, y `nuevo/1` lo reclama.
+  defp a_atomo(valor) when is_binary(valor) and byte_size(valor) <= 255 do
+    if String.valid?(valor), do: String.to_atom(valor), else: valor
+  end
+
   defp a_atomo(valor), do: valor
 
   @spec multiregistro_desde_mapa(term()) :: {:ok, Multiregistro.t()} | {:error, [Diagnostico.t()]}
   def multiregistro_desde_mapa(mapa) when is_map(mapa) do
     with :ok <- validar_version(mapa) do
-      mapa
-      |> Map.delete("version")
-      |> Map.new(fn
-        {"nombre", nombre} ->
-          {:nombre, nombre}
+      {pares, invalidos} =
+        mapa
+        |> Map.delete("version")
+        |> Enum.map_reduce([], fn
+          {"nombre", nombre}, acumulados ->
+            {{:nombre, nombre}, acumulados}
 
-        {"orden", orden} ->
-          {:orden, a_atomo(orden)}
+          {"orden", orden}, acumulados ->
+            {{:orden, a_atomo(orden)}, acumulados}
 
-        {"discriminador", d} ->
-          {:discriminador, discriminador_desde_mapa(d)}
+          {"discriminador", d}, acumulados ->
+            {{:discriminador, discriminador_desde_mapa(d)}, acumulados}
 
-        {"registros", registros} when is_list(registros) ->
-          {:registros, Enum.map(registros, &registro_desde_mapa/1)}
+          {"registros", registros}, acumulados when is_list(registros) ->
+            {convertidos, nuevos} = registros_desde_datos(registros)
+            {{:registros, convertidos}, acumulados ++ nuevos}
 
-        {"controles", controles} when is_list(controles) ->
-          {:controles, Enum.map(controles, &control_desde_mapa/1)}
+          {"controles", controles}, acumulados when is_list(controles) ->
+            {{:controles, Enum.map(controles, &control_desde_mapa/1)}, acumulados}
 
-        {clave, valor} ->
-          {clave, valor}
-      end)
-      |> Multiregistro.nuevo()
+          {clave, valor}, acumulados ->
+            {{clave, valor}, acumulados}
+        end)
+
+      con_invalidos(Multiregistro.nuevo(Map.new(pares)), invalidos)
     end
   end
 
   def multiregistro_desde_mapa(otro),
     do: {:error, [falla("un mapa con la definición del multiregistro", otro)]}
+
+  defp registros_desde_datos(registros) do
+    Enum.map_reduce(registros, [], fn registro, acumulados ->
+      {convertido, invalidos} = registro_desde_mapa(registro)
+      {convertido, acumulados ++ invalidos}
+    end)
+  end
 
   defp discriminador_desde_mapa(%{"por" => por}) when is_binary(por), do: [por: a_atomo(por)]
   defp discriminador_desde_mapa(%{"campo" => campo}), do: [campo: a_atomo(campo)]
@@ -400,28 +540,28 @@ defmodule AnchoFijo.Serializacion do
   defp discriminador_desde_mapa(%{"largo" => l}), do: [largo: l]
   defp discriminador_desde_mapa(otro), do: otro
 
+  # El layout de cada tipo se pasa como definición para que `Multiregistro.nuevo/1`
+  # lo construya y reporte sus diagnósticos con el tipo como campo; lo que no
+  # se pudo convertir sale igual, con el campo o, si no lo hay, el tipo.
   defp registro_desde_mapa(%{"tipo" => tipo} = registro) do
+    {layout, invalidos} = registro |> Map.get("layout") |> layout_mapa_a_definicion()
+
     definicion =
       [
         valor: Map.get(registro, "valor"),
         cantidad: registro |> Map.get("cantidad") |> atomo_en(@cantidades),
         ubicacion: registro |> Map.get("ubicacion") |> atomo_en(@ubicaciones),
-        layout: registro |> Map.get("layout") |> layout_mapa_a_definicion()
+        layout: layout
       ]
       |> Enum.reject(fn {_k, v} -> is_nil(v) end)
 
-    {a_atomo(tipo), definicion}
+    {{a_atomo(tipo), definicion},
+     Enum.map(invalidos, fn %Diagnostico{} = d ->
+       %Diagnostico{d | campo: d.campo || a_atomo(tipo)}
+     end)}
   end
 
-  defp registro_desde_mapa(otro), do: otro
-
-  # El layout de cada tipo se pasa como definición para que `Multiregistro.nuevo/1`
-  # lo construya y reporte sus diagnósticos con el tipo como campo.
-  defp layout_mapa_a_definicion(mapa) when is_map(mapa) do
-    mapa |> Map.delete("version") |> Map.new(fn {clave, valor} -> clave_layout(clave, valor) end)
-  end
-
-  defp layout_mapa_a_definicion(otro), do: otro
+  defp registro_desde_mapa(otro), do: {otro, []}
 
   defp atomo_en(nil, _validos), do: nil
 
@@ -445,6 +585,18 @@ defmodule AnchoFijo.Serializacion do
   end
 
   defp control_desde_mapa(otro), do: otro
+
+  # Un valor del mapa que no se pudo convertir: el campo, la clave como la
+  # escribió quien editó el mapa, y lo recibido.
+  defp invalido(nombre, clave, esperado, recibido, causa) do
+    Diagnostico.nuevo(
+      tipo: :layout,
+      campo: nombre,
+      esperado: ~s("#{clave}": #{esperado}),
+      recibido: inspect(recibido),
+      causa_probable: causa
+    )
+  end
 
   defp falla(esperado, recibido, causa \\ nil) do
     Diagnostico.nuevo(

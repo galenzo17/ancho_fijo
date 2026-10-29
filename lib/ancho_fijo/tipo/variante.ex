@@ -51,6 +51,16 @@ defmodule AnchoFijo.Tipo.Variante do
           )
         ]
 
+      Enum.any?(campo.variantes, fn {_valor, campos} -> not is_list(campos) or campos == [] end) ->
+        [
+          Tipo.falla(
+            campo,
+            "una lista de campos, no vacía, por cada valor de :variantes",
+            campo.variantes,
+            nil
+          )
+        ]
+
       true ->
         []
     end

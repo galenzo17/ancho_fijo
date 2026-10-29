@@ -51,6 +51,182 @@ defmodule AnchoFijo.SerializacionTest do
               ]
             )
 
+  @layout_valido %{
+    "version" => 1,
+    "nombre" => "x",
+    "encoding" => "latin1",
+    "unidad" => "caracteres",
+    "relleno_final" => "tolerar",
+    "largo" => 40,
+    "identidad" => %{"campos" => ["rut"]},
+    "campos" => [
+      %{"nombre" => "rut", "largo" => 10, "tipo" => "rut", "sensible" => true},
+      %{
+        "nombre" => "f",
+        "largo" => 8,
+        "tipo" => "fecha",
+        "formato" => "aaaammdd",
+        "rango" => ["2024-01-01", nil]
+      },
+      %{
+        "nombre" => "m",
+        "largo" => 8,
+        "tipo" => "decimal",
+        "precision" => 2,
+        "rango" => ["0.00", "99.99"],
+        "moneda" => "clp"
+      },
+      %{
+        "nombre" => "t",
+        "largo" => 6,
+        "patron" => %{"patron" => "^[A-Z]+$", "opciones" => "i"},
+        "en" => ["ABC"],
+        "requerido_si" => %{"campo" => "rut"}
+      },
+      %{
+        "nombre" => "g",
+        "tipo" => "grupo",
+        "campos" => [
+          %{
+            "nombre" => "h",
+            "largo" => 4,
+            "tipo" => "hora",
+            "formato" => "hhmm",
+            "rango" => [nil, "23:59:00"]
+          }
+        ]
+      },
+      %{
+        "nombre" => "v",
+        "tipo" => "variante",
+        "segun" => "t",
+        "variantes" => %{"ABC" => [%{"nombre" => "w", "largo" => 4}]}
+      }
+    ]
+  }
+
+  # Basura en cualquier valor del mapa, a cualquier profundidad: la vuelta
+  # sigue siendo {:ok, _} o una lista de diagnósticos, nunca una excepción.
+  defp con_basura(mapa, ruta, basura) when is_map(mapa) do
+    case ruta do
+      [] ->
+        basura
+
+      [clave | resto] when is_map_key(mapa, clave) ->
+        Map.put(mapa, clave, con_basura(Map.fetch!(mapa, clave), resto, basura))
+
+      _ ->
+        mapa
+    end
+  end
+
+  defp con_basura(lista, [indice | resto], basura)
+       when is_list(lista) and is_integer(indice) and indice < length(lista),
+       do: List.update_at(lista, indice, &con_basura(&1, resto, basura))
+
+  defp con_basura(_valor, [], basura), do: basura
+  defp con_basura(valor, _ruta, _basura), do: valor
+
+  defp rutas(mapa, prefijo \\ [])
+
+  defp rutas(mapa, prefijo) when is_map(mapa) and not is_struct(mapa),
+    do: Enum.flat_map(mapa, fn {k, v} -> [prefijo ++ [k] | rutas(v, prefijo ++ [k])] end)
+
+  defp rutas(lista, prefijo) when is_list(lista),
+    do:
+      lista
+      |> Enum.with_index()
+      |> Enum.flat_map(fn {v, i} -> [prefijo ++ [i] | rutas(v, prefijo ++ [i])] end)
+
+  defp rutas(_valor, _prefijo), do: []
+
+  defp basura do
+    one_of([
+      term(),
+      string(:printable),
+      list_of(term(), max_length: 3),
+      map_of(string(:printable), term(), max_length: 3),
+      constant(%{"patron" => "(", "opciones" => "zz"}),
+      constant(["2024-99-99", "25:61:61"]),
+      constant([1, -1, "xxx"]),
+      constant(%{"campos" => "no"})
+    ])
+  end
+
+  @multi_valido %{
+    "version" => 1,
+    "nombre" => "m",
+    "orden" => "estricto",
+    "discriminador" => %{"posicion" => 1, "largo" => 1},
+    "registros" => [
+      %{
+        "tipo" => "h",
+        "valor" => "H",
+        "cantidad" => "uno",
+        "ubicacion" => "primera",
+        "layout" => %{
+          "campos" => [
+            %{"nombre" => "t", "largo" => 1},
+            %{
+              "nombre" => "f",
+              "largo" => 8,
+              "tipo" => "fecha",
+              "formato" => "aaaammdd",
+              "rango" => ["2024-01-01", nil]
+            }
+          ]
+        }
+      },
+      %{
+        "tipo" => "d",
+        "valor" => "D",
+        "cantidad" => "varios",
+        "layout" => %{
+          "campos" => [
+            %{"nombre" => "t", "largo" => 1},
+            %{"nombre" => "n", "largo" => 8, "tipo" => "entero"}
+          ]
+        }
+      },
+      %{
+        "tipo" => "z",
+        "valor" => "Z",
+        "cantidad" => "uno",
+        "ubicacion" => "ultima",
+        "layout" => %{
+          "campos" => [
+            %{"nombre" => "t", "largo" => 1},
+            %{"nombre" => "c", "largo" => 8, "tipo" => "entero"}
+          ]
+        }
+      }
+    ],
+    "controles" => [%{"en" => "z", "campo" => "c", "cuenta" => "d"}]
+  }
+
+  describe "desde_mapa/1 con basura en cualquier clave" do
+    property "Layout.desde_mapa/1 con basura en cualquier clave responde {:ok, _} o diagnósticos, nunca levanta" do
+      check all(ruta <- member_of(rutas(@layout_valido)), valor <- basura()) do
+        case Layout.desde_mapa(con_basura(@layout_valido, ruta, valor)) do
+          {:ok, %Layout{}} ->
+            :ok
+
+          {:error, [%Diagnostico{} | _] = diagnosticos} ->
+            assert Enum.all?(diagnosticos, &match?(%Diagnostico{tipo: :layout}, &1))
+        end
+      end
+    end
+
+    property "Multiregistro.desde_mapa/1 con basura en cualquier clave responde {:ok, _} o diagnósticos, nunca levanta" do
+      check all(ruta <- member_of(rutas(@multi_valido)), valor <- basura()) do
+        case Multiregistro.desde_mapa(con_basura(@multi_valido, ruta, valor)) do
+          {:ok, %Multiregistro{}} -> :ok
+          {:error, [%Diagnostico{} | _]} -> :ok
+        end
+      end
+    end
+  end
+
   describe "a_mapa/1 y desde_mapa/1" do
     test "son inversos para todos los layouts de los fixtures y uno con todas las opciones" do
       for layout <- [
@@ -133,6 +309,199 @@ defmodule AnchoFijo.SerializacionTest do
       assert d.recibido =~ "MiApp.NoExiste"
 
       assert {:error, [%Diagnostico{tipo: :layout}]} = Layout.desde_mapa(42)
+    end
+
+    test "un rango, un patrón o un decimal mal formados son diagnósticos con el campo y la clave, no excepciones" do
+      assert {:error, [d]} =
+               Layout.desde_mapa(%{
+                 "campos" => [
+                   %{
+                     "nombre" => "f",
+                     "largo" => 8,
+                     "tipo" => "fecha",
+                     "formato" => "aaaammdd",
+                     "rango" => ["2024-13-01", nil]
+                   }
+                 ]
+               })
+
+      assert %Diagnostico{tipo: :layout, campo: :f} = d
+      assert d.esperado == ~s|"rango": una fecha ISO 8601 (AAAA-MM-DD)|
+      assert d.recibido == ~s(["2024-13-01", nil])
+      assert d.causa_probable =~ ":invalid_date"
+
+      assert {:error, [d]} =
+               Layout.desde_mapa(%{
+                 "campos" => [
+                   %{
+                     "nombre" => "t",
+                     "largo" => 8,
+                     "patron" => %{"patron" => "([", "opciones" => ""}
+                   }
+                 ]
+               })
+
+      assert %Diagnostico{campo: :t} = d
+      assert d.esperado == ~s("patron": una expresión regular que compile)
+      assert d.causa_probable =~ "missing terminating ]"
+
+      assert {:error, [d]} =
+               Layout.desde_mapa(%{
+                 "campos" => [
+                   %{"nombre" => "t", "largo" => 8, "patron" => %{"patron" => "a", "opciones" => 7}}
+                 ]
+               })
+
+      assert d.esperado =~ ~s("opciones" como texto)
+
+      assert {:error, [d]} =
+               Layout.desde_mapa(%{
+                 "campos" => [
+                   %{
+                     "nombre" => "m",
+                     "largo" => 8,
+                     "tipo" => "decimal",
+                     "precision" => 2,
+                     "rango" => ["abc", nil]
+                   }
+                 ]
+               })
+
+      assert %Diagnostico{campo: :m} = d
+      assert d.esperado =~ ~s("rango": un entero, [unidades, precision])
+
+      assert {:error, [d]} =
+               Layout.desde_mapa(%{
+                 "campos" => [
+                   %{
+                     "nombre" => "h",
+                     "largo" => 6,
+                     "tipo" => "hora",
+                     "formato" => "hhmmss",
+                     "rango" => [nil, "25:00:00"]
+                   }
+                 ]
+               })
+
+      assert d.esperado == ~s|"rango": una hora ISO 8601 (HH:MM:SS)|
+
+      assert {:error, [d]} =
+               Layout.desde_mapa(%{
+                 "campos" => [
+                   %{
+                     "nombre" => "m",
+                     "largo" => 8,
+                     "tipo" => "decimal",
+                     "precision" => 2,
+                     "rango" => [[1, "x", "clp"], nil]
+                   }
+                 ]
+               })
+
+      assert d.esperado =~
+               ~s("rango": un entero, [unidades, precision], [unidades, precision, "moneda"])
+    end
+
+    test "los valores que no se pudieron convertir se acumulan con los diagnósticos de nuevo/1" do
+      assert {:error, diagnosticos} =
+               Layout.desde_mapa(%{
+                 "campos" => [
+                   %{"nombre" => "f", "largo" => 8, "tipo" => "fecha", "rango" => ["ayer", "hoy"]},
+                   %{"nombre" => "g", "largo" => 0, "patron" => %{"patron" => "("}},
+                   %{"nombre" => "m", "largo" => 8, "tipo" => "decimal"}
+                 ]
+               })
+
+      assert Enum.map(diagnosticos, &{&1.campo, &1.esperado}) == [
+               {:f, ~s|"rango": una fecha ISO 8601 (AAAA-MM-DD)|},
+               {:g, ~s("patron": una expresión regular que compile)},
+               {:f,
+                ~s|:formato con un formato con nombre o un patrón de tokens, por ejemplo :aaaammdd o "DD/MM/AAAA"|},
+               {:g, "un :largo entero mayor que cero"},
+               {:m, ":precision declarada para un campo :decimal"}
+             ]
+    end
+
+    test "un rango mal formado dentro de un grupo, una variante o un registro de un multiregistro también es un diagnóstico" do
+      assert {:error, [%Diagnostico{campo: :f}]} =
+               Layout.desde_mapa(%{
+                 "campos" => [
+                   %{
+                     "nombre" => "g",
+                     "tipo" => "grupo",
+                     "campos" => [
+                       %{
+                         "nombre" => "f",
+                         "largo" => 8,
+                         "tipo" => "fecha",
+                         "formato" => "aaaammdd",
+                         "rango" => ["x", nil]
+                       }
+                     ]
+                   }
+                 ]
+               })
+
+      assert {:error, [%Diagnostico{campo: :f}]} =
+               Layout.desde_mapa(%{
+                 "campos" => [
+                   %{"nombre" => "tipo", "largo" => 1},
+                   %{
+                     "nombre" => "v",
+                     "tipo" => "variante",
+                     "segun" => "tipo",
+                     "variantes" => %{
+                       "A" => [
+                         %{
+                           "nombre" => "f",
+                           "largo" => 8,
+                           "tipo" => "fecha",
+                           "formato" => "aaaammdd",
+                           "rango" => ["x", nil]
+                         }
+                       ]
+                     }
+                   }
+                 ]
+               })
+
+      assert {:error, [%Diagnostico{campo: :v}] = [d]} =
+               Layout.desde_mapa(%{
+                 "campos" => [
+                   %{"nombre" => "tipo", "largo" => 1},
+                   %{
+                     "nombre" => "v",
+                     "tipo" => "variante",
+                     "segun" => "tipo",
+                     "variantes" => %{"A" => "no"}
+                   }
+                 ]
+               })
+
+      assert d.esperado == "una lista de campos, no vacía, por cada valor de :variantes"
+
+      assert {:error, [%Diagnostico{tipo: :layout, campo: :f}]} =
+               Multiregistro.desde_mapa(%{
+                 "discriminador" => %{"largo" => 1},
+                 "registros" => [
+                   %{
+                     "tipo" => "d",
+                     "valor" => "D",
+                     "layout" => %{
+                       "campos" => [
+                         %{"nombre" => "t", "largo" => 1},
+                         %{
+                           "nombre" => "f",
+                           "largo" => 8,
+                           "tipo" => "fecha",
+                           "formato" => "aaaammdd",
+                           "rango" => ["2024-02-30", nil]
+                         }
+                       ]
+                     }
+                   }
+                 ]
+               })
     end
 
     test "los mismos diagnósticos que nuevo/1 para una definición inválida" do
