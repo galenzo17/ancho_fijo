@@ -692,25 +692,55 @@ defmodule AnchoFijo.Layout do
   # layout, que es cuando todavía se puede cambiar.
   defp rellenos_anchos(campos, globales) do
     if Map.get(globales, :unidad, :bytes) == :bytes do
-      for campo <- campos,
-          (campo.encoding || Map.get(globales, :encoding, :utf8)) == :utf8,
-          byte_size(campo.relleno) > 1 do
-        Diagnostico.nuevo(
-          tipo: :layout,
-          campo: campo.nombre,
-          posicion: Campo.rango(campo),
-          esperado: "un :relleno de un byte, porque el layout mide en bytes en UTF-8",
-          recibido: inspect(campo.relleno),
-          causa_probable:
-            "#{inspect(campo.relleno)} ocupa #{byte_size(campo.relleno)} bytes: al escribir, " <>
-              "el campo no se puede completar a su largo exacto y es un error; al leer, el " <>
-              "relleno recortado al final de la línea no se repone"
-        )
-      end
+      Enum.flat_map(campos, fn campo ->
+        relleno_ancho(campo, campo.encoding || Map.get(globales, :encoding, :utf8))
+      end)
     else
       []
     end
   end
+
+  defp relleno_ancho(%Campo{relleno: relleno} = campo, :utf8) when byte_size(relleno) > 1 do
+    [
+      Diagnostico.nuevo(
+        tipo: :layout,
+        campo: campo.nombre,
+        posicion: Campo.rango(campo),
+        esperado: "un :relleno de un byte, porque el layout mide en bytes en UTF-8",
+        recibido: inspect(relleno),
+        causa_probable:
+          "#{inspect(relleno)} ocupa #{byte_size(relleno)} bytes: al escribir, " <>
+            "el campo no se puede completar a su largo exacto y es un error; al leer, el " <>
+            "relleno recortado al final de la línea no se repone"
+      )
+    ]
+  end
+
+  # En latin-1 un relleno de un carácter es un byte, salvo que el carácter
+  # no exista en latin-1 (`"€"`): al escribir es un diagnóstico `:encoding` y
+  # al leer no se repone.
+  defp relleno_ancho(%Campo{relleno: relleno} = campo, :latin1) do
+    case :unicode.characters_to_binary(relleno, :utf8, :latin1) do
+      <<_byte>> ->
+        []
+
+      _no_cabe ->
+        [
+          Diagnostico.nuevo(
+            tipo: :layout,
+            campo: campo.nombre,
+            posicion: Campo.rango(campo),
+            esperado: "un :relleno que exista en latin-1, porque el campo se escribe en latin-1",
+            recibido: inspect(relleno),
+            causa_probable:
+              "#{inspect(relleno)} no tiene byte en latin-1: al escribir es un diagnóstico " <>
+                ":encoding, y al leer el relleno recortado al final de la línea no se repone"
+          )
+        ]
+    end
+  end
+
+  defp relleno_ancho(_campo, _encoding), do: []
 
   defp largo_insuficiente(declarado, ocupado, unidad) do
     Diagnostico.nuevo(

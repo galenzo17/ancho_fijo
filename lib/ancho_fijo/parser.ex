@@ -553,7 +553,7 @@ defmodule AnchoFijo.Parser do
   #
   # Un `:texto` que queda entero en blanco sí cuenta: `Campo.extraer/3` lo lee
   # como `""` o `nil`, que es lo mismo que habría dado la línea completa.
-  defp zona_tolerable(%Layout{campos: campos, largo: largo, unidad: unidad}) do
+  defp zona_tolerable(%Layout{campos: campos, largo: largo, unidad: unidad} = layout) do
     inicial = %{unidades: 0, caracter: nil, inicio_siguiente: largo + 1, cerrada: false}
 
     zona =
@@ -561,11 +561,12 @@ defmodule AnchoFijo.Parser do
       |> Enum.reverse()
       |> Enum.reduce_while(inicial, fn campo, zona ->
         zona = sumar_no_declarado(zona, Campo.fin(campo))
+        relleno = relleno_reponible(campo, layout, unidad)
 
         cond do
           not (Campo.texto?(campo) or Campo.relleno?(campo)) -> {:halt, cerrar(zona)}
-          not reponible?(campo.relleno, unidad) -> {:halt, cerrar(zona)}
-          zona.caracter in [nil, campo.relleno] -> {:cont, sumar_campo(zona, campo)}
+          relleno == :error -> {:halt, cerrar(zona)}
+          zona.caracter in [nil, relleno] -> {:cont, sumar_campo(zona, campo, relleno)}
           true -> {:halt, cerrar(zona)}
         end
       end)
@@ -585,22 +586,31 @@ defmodule AnchoFijo.Parser do
     %{zona | unidades: zona.unidades + (zona.inicio_siguiente - fin_del_campo - 1)}
   end
 
-  defp sumar_campo(zona, %Campo{} = campo) do
+  defp sumar_campo(zona, %Campo{} = campo, relleno) do
     %{
       zona
       | unidades: zona.unidades + campo.largo,
-        caracter: campo.relleno,
+        caracter: relleno,
         inicio_siguiente: campo.posicion
     }
   end
 
-  # Con `unidad: :bytes` la línea todavía está en su encoding original y el
-  # faltante se mide en bytes, así que solo un relleno ASCII —un byte, igual en
-  # latin-1 y en UTF-8— se puede reponer con `String.duplicate/2` sin que la
-  # cuenta se desvíe. Con `:caracteres` la línea ya es UTF-8 y cualquier
-  # carácter sirve.
-  defp reponible?(relleno, :bytes), do: byte_size(relleno) == 1
-  defp reponible?(_relleno, :caracteres), do: true
+  # El relleno del campo como hay que pegarlo a la línea, o `:error` si no se
+  # puede reponer. Con `unidad: :bytes` la línea todavía está en su encoding
+  # original y el faltante se mide en bytes: el relleno se transcodifica al
+  # encoding del campo (o del layout) y tiene que quedar en un byte; en
+  # latin-1 cualquier carácter hasta U+00FF lo es, en UTF-8 solo ASCII. Con
+  # `:caracteres` la línea ya es UTF-8 y cualquier carácter sirve.
+  defp relleno_reponible(%Campo{relleno: relleno}, _layout, :caracteres), do: relleno
+
+  defp relleno_reponible(%Campo{relleno: relleno} = campo, %Layout{} = layout, :bytes) do
+    case {campo.encoding || layout.encoding, :unicode.characters_to_binary(relleno, :utf8, :latin1)} do
+      {:latin1, <<byte>>} -> <<byte>>
+      {:latin1, _no_cabe} -> :error
+      {_utf8, _} when byte_size(relleno) == 1 -> relleno
+      {_utf8, _} -> :error
+    end
+  end
 
   defp medida(%Layout{unidad: :caracteres}, linea), do: String.length(linea)
   defp medida(%Layout{unidad: :bytes}, linea), do: byte_size(linea)

@@ -63,6 +63,13 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   un `:entero` es un diagnóstico `:layout` por cada valor, no una regla que
   nunca falla o que falla siempre. `Reglas.comparar/2` levanta
   `ArgumentError` para lo incomparable en vez de contestar `:eq` (#92).
+- Con `encoding: :latin1`, `relleno_final: :tolerar` y un `:relleno` no
+  ASCII (`"·"`), el lector repone al final de la línea lo que el escritor
+  completó: el relleno se transcodifica al encoding del campo o del layout
+  antes de medirlo y de pegarlo. Antes se medía en UTF-8 (dos bytes) y la
+  línea corta era un `:largo_de_linea`. Un relleno que no existe en latin-1
+  (`"€"`) en un campo latin-1 es ahora una advertencia de `Layout.nuevo/1`
+  (#94).
 
 ## [0.4.0] — 2026-10-23
 
