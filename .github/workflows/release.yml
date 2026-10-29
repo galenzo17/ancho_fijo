@@ -2,7 +2,8 @@
 #
 # El tag es la orden de publicar; el workflow solo verifica que la orden sea
 # coherente antes de obedecerla: que el tag diga lo mismo que `@version` en
-# mix.exs y que el CHANGELOG tenga una sección para esa versión. Después corre
+# mix.exs, que el CHANGELOG tenga una sección para esa versión y que la tabla
+# de SECURITY.md nombre la serie. Después corre
 # la suite una vez más en la versión más nueva, arma el paquete y las docs
 # como lo hace el job `paquete` de ci.yml, los verifica, y recién publica.
 #
@@ -24,7 +25,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Verificar que el tag coincide con mix.exs y el CHANGELOG
+      - name: Verificar que el tag coincide con mix.exs, el CHANGELOG y SECURITY.md
         run: |
           tag="${GITHUB_REF_NAME#v}"
           version="$(sed -nE 's/^[[:space:]]*@version "([^"]+)"/\1/p' mix.exs)"
@@ -34,6 +35,11 @@ jobs:
           fi
           if ! grep -qE "^## \[$version\]" CHANGELOG.md; then
             echo "::error file=CHANGELOG.md::No hay una sección ## [$version] en el CHANGELOG"
+            exit 1
+          fi
+          serie="${version%.*}.x"
+          if ! grep -qE "^\| *${serie//./\\.} *\|" SECURITY.md; then
+            echo "::error file=SECURITY.md::La tabla de versiones con soporte no nombra la serie $serie"
             exit 1
           fi
 

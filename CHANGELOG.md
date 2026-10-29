@@ -92,6 +92,9 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Infraestructura
 
+- `SECURITY.md` nombra la 0.4.x como serie con soporte y la 0.3.x solo con
+  seguridad hasta el 2027-04-23; `release.yml` no publica un tag cuya serie
+  no esté en la tabla, y un test de la suite lo verifica antes (#103).
 - CI corre `mix hex.build` y verifica el tarball (menos de 1 MB y sin
   `priv/plts`, `prompts`, `test/`, `bench/` ni `.github/`, con el contenido
   listado en el log), `mix docs --warnings-as-errors` y
