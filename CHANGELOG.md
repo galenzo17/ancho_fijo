@@ -4,6 +4,21 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ## [No publicado]
 
+### Cambiado — rompe compatibilidad
+
+- Sin `desde:`, un binario que parece una ruta (termina en una extensión
+  como `.txt`, o empieza con `/`, `./`, `../`, `~/` o una unidad de
+  Windows) y no existe es un diagnóstico `:entrada`
+  ("la ruta no existe; revise el directorio de trabajo; si quiso pasar el
+  contenido y no una ruta, declare `desde: :contenido`") en `parsear/3`,
+  `parsear!/3`, `stream/3`, `detectar/2`, `huella/2` e `identidad/3`, con
+  `Layout` y con `Multiregistro`. Antes se trataba como el contenido de una
+  línea: el diagnóstico culpaba al largo de la línea, y `huella/2` devolvía
+  la huella del nombre del archivo. Qué tocar: un contenido de una sola
+  línea sin terminador que termina en algo como `.txt` o empieza con `/`
+  ahora necesita `desde: :contenido`; con terminador, o sin eso, nada
+  cambia: `"01/01/1950"` sigue siendo contenido (#93).
+
 ### Corregido
 
 - `AnchoFijo.Json.decodificar/1`, y con él `Layout.desde_json/1`,
