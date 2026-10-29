@@ -128,6 +128,14 @@ defmodule AnchoFijo.Layout do
   @doc """
   Valida y construye un layout.
 
+  `inspect/1` del resultado es una línea con lo que uno quiere ver (el
+  nombre, cuántos campos, el largo, el encoding si no es UTF-8); los campos
+  se ven con `layout.campos`, y `inspect(layout, structs: false)` o
+  `custom_options: [completo: true]` muestran todo.
+
+      iex> AnchoFijo.Layout.nuevo!(nombre: "nómina", encoding: :latin1, campos: [[nombre: :rut, largo: 10, tipo: :rut], [nombre: :monto, largo: 8, tipo: :decimal, precision: 2]])
+      #AnchoFijo.Layout<"nómina", 2 campos, 18 bytes, latin1>
+
   Devuelve `{:ok, layout}` —posiblemente con `:advertencias`— o
   `{:error, diagnosticos}` con todos los problemas encontrados, no solo el
   primero: corregir una definición de 40 campos de a un error por compilación es
@@ -855,5 +863,43 @@ defmodule AnchoFijo.Layout do
 
   defp falla(esperado, recibido, causa) do
     Diagnostico.nuevo(tipo: :layout, esperado: esperado, recibido: recibido, causa_probable: causa)
+  end
+
+  defimpl Inspect do
+    import Inspect.Algebra
+
+    alias AnchoFijo.Layout
+
+    def inspect(%Layout{} = layout, %Inspect.Opts{custom_options: custom} = opts) do
+      if Keyword.get(custom, :completo, false),
+        do: Inspect.Any.inspect(layout, opts),
+        else: resumen(layout)
+    end
+
+    # Una línea: el nombre si lo hay, cuántos campos, el largo en su unidad,
+    # el encoding si no es el default, y lo que un lector de la definición
+    # querría saber antes de abrir el archivo.
+    defp resumen(%Layout{} = layout) do
+      partes =
+        [
+          layout.nombre && Kernel.inspect(layout.nombre),
+          "#{length(layout.campos)} #{plural(length(layout.campos), "campo", "campos")}",
+          "#{layout.largo} #{unidad(layout.unidad)}",
+          layout.encoding != :utf8 && Atom.to_string(layout.encoding),
+          layout.relleno_final == :tolerar && "relleno_final: :tolerar",
+          layout.identidad && "identidad: #{Kernel.inspect(layout.identidad.campos)}",
+          layout.advertencias != [] &&
+            "#{length(layout.advertencias)} #{plural(length(layout.advertencias), "advertencia", "advertencias")}"
+        ]
+        |> Enum.filter(& &1)
+
+      concat(["#AnchoFijo.Layout<", Enum.join(partes, ", "), ">"])
+    end
+
+    defp unidad(:caracteres), do: "caracteres"
+    defp unidad(_bytes), do: "bytes"
+
+    defp plural(1, singular, _plural), do: singular
+    defp plural(_n, _singular, plural), do: plural
   end
 end

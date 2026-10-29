@@ -195,6 +195,13 @@ defmodule AnchoFijo.Multiregistro do
       iex> {:error, [d]} = AnchoFijo.Multiregistro.nuevo(discriminador: [posicion: 1, largo: 2], registros: [])
       iex> AnchoFijo.Diagnostico.mensaje(d)
       "layout: se esperaba al menos un tipo de registro en :registros, llegó una lista vacía"
+
+  `inspect/1` del resultado es una línea con el nombre, cuántos tipos, cómo
+  se discrimina y el orden; `inspect(multi, structs: false)` o
+  `custom_options: [completo: true]` muestran todo.
+
+      iex> AnchoFijo.Multiregistro.nuevo!(nombre: "lote", discriminador: [posicion: 1, largo: 2], orden: :libre, registros: [h: [valor: "01", layout: [campos: [[nombre: :t, largo: 2]]]]])
+      #AnchoFijo.Multiregistro<"lote", 1 tipo, por código en 1-2, orden libre>
   """
   @spec nuevo(keyword() | map()) :: {:ok, t()} | {:error, [Diagnostico.t()]}
   def nuevo(definicion) do
@@ -1631,5 +1638,43 @@ defmodule AnchoFijo.Multiregistro do
         do: {tipo, List.first(lista)},
         else: {tipo, lista}
     end)
+  end
+
+  defimpl Inspect do
+    import Inspect.Algebra
+
+    alias AnchoFijo.Multiregistro
+
+    def inspect(%Multiregistro{} = multi, %Inspect.Opts{custom_options: custom} = opts) do
+      if Keyword.get(custom, :completo, false),
+        do: Inspect.Any.inspect(multi, opts),
+        else: resumen(multi)
+    end
+
+    defp resumen(%Multiregistro{} = multi) do
+      tipos = length(multi.registros)
+
+      partes =
+        [
+          multi.nombre && Kernel.inspect(multi.nombre),
+          "#{tipos} #{if tipos == 1, do: "tipo", else: "tipos"}",
+          discriminador(multi.discriminador),
+          multi.orden == :libre && "orden libre",
+          multi.controles != [] &&
+            "#{length(multi.controles)} #{if length(multi.controles) == 1, do: "control", else: "controles"}"
+        ]
+        |> Enum.filter(& &1)
+
+      concat(["#AnchoFijo.Multiregistro<", Enum.join(partes, ", "), ">"])
+    end
+
+    defp discriminador(%{posicion: posicion, largo: largo}),
+      do: "por código en #{posicion}-#{posicion + largo - 1}"
+
+    defp discriminador(%{campo: campo}), do: "por el campo #{Kernel.inspect(campo)}"
+    defp discriminador(%{por: :largo}), do: "por largo de línea"
+    defp discriminador(%{por: :posicion_en_archivo}), do: "por posición en el archivo"
+    defp discriminador(%{por: :funcion}), do: "por función"
+    defp discriminador(_otro), do: "sin discriminador"
   end
 end

@@ -10,6 +10,14 @@ defmodule AnchoFijo.Campo do
       iex> Campo.rango(campo)
       {11, 22}
 
+  `inspect/1` muestra lo declarado, no las 30 claves del struct: el nombre,
+  las posiciones, el tipo y las opciones que difieren del default; un grupo
+  o una variante, con sus campos adentro. `inspect(campo, structs: false)`
+  o `custom_options: [completo: true]` muestran todo.
+
+      iex> AnchoFijo.Campo.nuevo!(nombre: :monto, posicion: 11, largo: 12, tipo: :decimal, precision: 2)
+      #AnchoFijo.Campo<:monto 11-22 :decimal precision: 2>
+
   ## Opciones
 
     * `:nombre` — átomo, obligatorio. Es la clave del registro parseado.
@@ -1554,5 +1562,106 @@ defmodule AnchoFijo.Campo do
       linea: Map.get(contexto, :linea)
     )
     |> Diagnostico.nuevo()
+  end
+
+  defimpl Inspect do
+    import Inspect.Algebra
+
+    alias AnchoFijo.Campo
+    alias AnchoFijo.Reglas
+    alias AnchoFijo.Tipo
+
+    @ocultas [:nombre, :posicion, :largo, :tipo, :modulo, :opciones, :reglas, :formato_compilado]
+
+    def inspect(%Campo{} = campo, %Inspect.Opts{custom_options: custom} = opts) do
+      if Keyword.get(custom, :completo, false),
+        do: Inspect.Any.inspect(campo, opts),
+        else: resumen(campo, opts)
+    end
+
+    defp resumen(%Campo{} = campo, opts) do
+      concat([
+        "#AnchoFijo.Campo<",
+        Kernel.inspect(campo.nombre),
+        " ",
+        posiciones(campo),
+        " ",
+        Kernel.inspect(campo.tipo),
+        declaradas(campo, opts),
+        ">"
+      ])
+    end
+
+    defp posiciones(%Campo{posicion: nil, largo: largo}), do: "largo #{largo}"
+
+    defp posiciones(%Campo{posicion: posicion, largo: largo}) when is_integer(largo) and largo > 0,
+      do: "#{posicion}-#{posicion + largo - 1}"
+
+    defp posiciones(%Campo{posicion: posicion, largo: largo}),
+      do: "#{posicion} largo #{Kernel.inspect(largo)}"
+
+    # El mismo criterio que la serialización: lo que difiere del default del
+    # struct (y `:sensible`, cuyo default depende del tipo), las reglas que
+    # hay y las opciones propias de un tipo externo.
+    defp declaradas(%Campo{} = campo, opts) do
+      defaults = %Campo{} |> Map.from_struct() |> Map.put(:sensible, campo.modulo == Tipo.Rut)
+
+      propias =
+        campo
+        |> Map.from_struct()
+        |> Map.drop(@ocultas)
+        |> Enum.reject(fn {clave, valor} -> Map.get(defaults, clave) == valor end)
+        |> Enum.sort_by(fn {clave, _valor} -> orden(clave) end)
+
+      reglas =
+        campo.reglas
+        |> Map.from_struct()
+        |> Enum.reject(fn {_clave, valor} -> is_nil(valor) end)
+        |> Enum.sort_by(fn {clave, _valor} -> Enum.find_index(Reglas.claves(), &(&1 == clave)) end)
+
+      externas = Enum.sort(campo.opciones)
+
+      case propias ++ reglas ++ externas do
+        [] ->
+          empty()
+
+        pares ->
+          concat([
+            " ",
+            container_doc("", pares, "", opts, &par/2, separator: ",", break: :flex)
+          ])
+      end
+    end
+
+    defp par({clave, valor}, opts), do: concat([Atom.to_string(clave), ": ", to_doc(valor, opts)])
+
+    # Primero lo que define el campo (opcional, formato, precisión), después
+    # lo cosmético, y los campos internos al final.
+    @orden [
+      :opcional,
+      :formato,
+      :pivote,
+      :precision,
+      :separador,
+      :moneda,
+      :como,
+      :signo,
+      :dv,
+      :valor,
+      :trim,
+      :relleno,
+      :encoding,
+      :sensible,
+      :reparar_doble_codificacion,
+      :generador,
+      :descripcion,
+      :ejemplo,
+      :repetir,
+      :segun,
+      :campos,
+      :variantes
+    ]
+
+    defp orden(clave), do: Enum.find_index(@orden, &(&1 == clave)) || length(@orden)
   end
 end
