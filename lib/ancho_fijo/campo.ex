@@ -1022,7 +1022,7 @@ defmodule AnchoFijo.Campo do
     contexto = contexto |> Map.new() |> con_encoding_del_campo(campo)
 
     resultado =
-      with [] <- Reglas.del_valor(campo, canonico(campo, valor), contexto),
+      with [] <- reglas_del_valor(campo, valor, contexto),
            {:ok, texto, advertencias} <- representar(campo, valor, contexto),
            {:ok, codificado} <- codificar(campo, texto, contexto) do
         {:ok, codificado, advertencias}
@@ -1033,6 +1033,19 @@ defmodule AnchoFijo.Campo do
 
     sensibilizar_escritura(resultado, campo, valor)
   end
+
+  # El valor canónico solo se calcula si hay reglas que lo miren: para un
+  # `:decimal` es llevar el valor a unidades y volver, y la mayoría de los
+  # campos no declara ninguna.
+  defp reglas_del_valor(
+         %__MODULE__{reglas: %Reglas{en: nil, rango: nil, patron: nil}},
+         _valor,
+         _ctx
+       ),
+       do: []
+
+  defp reglas_del_valor(%__MODULE__{} = campo, valor, contexto),
+    do: Reglas.del_valor(campo, canonico(campo, valor), contexto)
 
   @doc false
   # El valor como lo devolvería `leer/3` para ese campo, para que las reglas
@@ -1160,7 +1173,7 @@ defmodule AnchoFijo.Campo do
       campo,
       valor,
       Integer.to_string(abs(valor)),
-      "un entero de hasta #{campo.largo} dígitos",
+      fn -> "un entero de hasta #{campo.largo} dígitos" end,
       contexto
     )
   end
@@ -1235,7 +1248,7 @@ defmodule AnchoFijo.Campo do
           entera <> caracter_separador(separador) <> fraccion
       end
 
-    con_signo(campo, unidades, texto, descripcion_decimal(campo), contexto)
+    con_signo(campo, unidades, texto, fn -> descripcion_decimal(campo) end, contexto)
   end
 
   defp representar(%__MODULE__{modulo: Tipo.Decimal} = campo, {unidades, otra}, contexto)
@@ -1257,7 +1270,7 @@ defmodule AnchoFijo.Campo do
               (modulo == Tipo.FechaHora and is_struct(valor, NaiveDateTime)) do
     case modulo.escribir(valor, campo) do
       {:ok, texto} ->
-        {:ok, String.pad_trailing(texto, campo.largo), []}
+        {:ok, completar_fecha(texto, campo), []}
 
       {:error, causa} ->
         {:error,
@@ -1382,14 +1395,18 @@ defmodule AnchoFijo.Campo do
 
   # El signo ocupa una posición solo en los negativos, del lado que el layout
   # declara; los ceros van a la izquierda de los dígitos, nunca del signo.
+  # Los dígitos son ASCII: se miden en bytes y se completan con ceros sin
+  # pasar por grafemas. La descripción de lo esperado se arma solo si no
+  # cabe, que es cuando se lee.
   defp con_signo(%__MODULE__{} = campo, valor, digitos, esperado, contexto) do
     ancho_signo = if valor < 0, do: 1, else: 0
     disponible = campo.largo - ancho_signo
+    ancho = byte_size(digitos)
 
-    if String.length(digitos) > disponible do
-      {:error, no_cabe(campo, valor, String.length(digitos) + ancho_signo, esperado, contexto)}
+    if ancho > disponible do
+      {:error, no_cabe(campo, valor, ancho + ancho_signo, esperado.(), contexto)}
     else
-      rellenado = String.pad_leading(digitos, disponible, "0")
+      rellenado = :binary.copy("0", disponible - ancho) <> digitos
 
       texto =
         case {valor < 0, campo.signo} do
@@ -1408,6 +1425,18 @@ defmodule AnchoFijo.Campo do
   # un ancho exacto, y escribirlo igual correría todas las columnas que
   # siguen. Es un error del layout que se reporta al escribir (y como
   # advertencia en `Layout.nuevo/1`).
+  # El texto de una fecha mide lo que el patrón; con un patrón ASCII (todos,
+  # salvo que un literal no lo sea) se completa por bytes.
+  defp completar_fecha(texto, %__MODULE__{largo: largo} = campo) do
+    case Tipo.Patron.de(campo) do
+      %{largo: ancho, largo_bytes: ancho} when byte_size(texto) <= largo ->
+        texto <> :binary.copy(" ", largo - byte_size(texto))
+
+      _otro ->
+        String.pad_trailing(texto, largo)
+    end
+  end
+
   defp completar(%__MODULE__{}, valor, 0, _contexto), do: {:ok, valor, []}
 
   defp completar(%__MODULE__{relleno: relleno} = campo, valor, faltan, contexto) do
