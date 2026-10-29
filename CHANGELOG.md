@@ -110,6 +110,14 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- `AnchoFijo.Formatos.cuaderno43/1` y `AnchoFijo.Formatos.Cuaderno43`: el
+  Cuaderno 43 de la AEB (extracto bancario normalizado de España, versión
+  2012), con un layout por tipo de registro (11, 22, 23, 24, 33, 88) con los
+  nombres de la norma, `validar/1` (apuntes, totales y saldo de cada
+  cuenta, cuenta de registros del 88, estructura), `cuentas/1` con la
+  estructura anidada y la identidad en la cabecera de cuenta. El catálogo
+  deja de prometer Previred, que es delimitado, y dice el criterio para el
+  siguiente (#105).
 - `Inspect` para `AnchoFijo.Layout`, `AnchoFijo.Campo` y
   `AnchoFijo.Multiregistro`: una línea con lo declarado
   (`#AnchoFijo.Layout<"nómina", 4 campos, 48 bytes, latin1>`,

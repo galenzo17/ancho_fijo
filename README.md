@@ -571,13 +571,27 @@ citada y su vigencia, empezando por NACHA/ACH (Estados Unidos):
 lotes = AnchoFijo.Formatos.Nacha.lotes(registros)  # cada lote con sus entradas y addendas
 ```
 
+Y el Cuaderno 43 de la AEB, el extracto bancario normalizado de España, que
+ejercita lo que NACHA no: `orden: :libre` con bloques que se repiten por
+cuenta, fechas `AAMMDD` con pivote, conceptos complementarios opcionales y un
+control de saldo (inicial más haber menos debe) que no es ni cuenta ni suma
+simple:
+
+```elixir
+{:ok, registros, []} = AnchoFijo.parsear(AnchoFijo.Formatos.cuaderno43(), "extracto.txt")
+[] = AnchoFijo.Formatos.Cuaderno43.validar(registros)      # apuntes, totales y saldo de cada cuenta, registros del 88
+cuentas = AnchoFijo.Formatos.Cuaderno43.cuentas(registros) # cada cuenta con sus movimientos y sus complementarios
+```
+
 Los formatos cambian por resolución del regulador, y un layout
 desactualizado en silencio es peor que no tenerlo. Por eso cada uno se pide
 con su **vigencia** (`nacha(vigencia: "2021")`), que no cambia cuando el
 catálogo se actualiza; pedir la más nueva es para empezar, fijarla es para
 producción. `AnchoFijo.Formatos.catalogo/0` lista las vigencias con su fuente
-y la fecha en que se consultó. Se agregan de a uno y completos: Previred
-(Chile) es el siguiente.
+y la fecha en que se consultó. Se agregan de a uno y completos, con el mismo
+criterio: público, estable, con fuente citable, y que ejercite partes de la
+librería que los anteriores no ejercitan. Previred (Chile) no entra: su
+archivo vigente es delimitado por punto y coma, no de ancho fijo.
 
 ## Tipos de campo
 

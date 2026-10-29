@@ -590,13 +590,27 @@ and their effective version, starting with NACHA/ACH (United States):
 lotes = AnchoFijo.Formatos.Nacha.lotes(registros)  # each batch with its entries and addenda
 ```
 
+And the AEB's Cuaderno 43, Spain's normalised bank statement, which exercises
+what NACHA does not: `orden: :libre` with blocks repeated per account, `AAMMDD`
+dates with a pivot, optional complementary concept records and a balance
+control (opening plus credits minus debits) that is neither a count nor a plain
+sum:
+
+```elixir
+{:ok, registros, []} = AnchoFijo.parsear(AnchoFijo.Formatos.cuaderno43(), "extracto.txt")
+[] = AnchoFijo.Formatos.Cuaderno43.validar(registros)      # entries, totals and balance per account, record count of the 88
+cuentas = AnchoFijo.Formatos.Cuaderno43.cuentas(registros) # each account with its movements and their complements
+```
+
 Formats change by regulator resolution, and a silently outdated layout is
 worse than none. That is why each one is requested with its **effective
 version** (`nacha(vigencia: "2021")`), which does not change when the catalogue
 is updated; asking for the newest is for getting started, pinning it is for
 production. `AnchoFijo.Formatos.catalogo/0` lists the versions with their
 source and the date they were consulted. They are added one at a time and
-complete: Previred (Chile) is next.
+complete, with the same criterion: public, stable, with a citable source, and
+exercising parts of the library the previous ones do not. Previred (Chile) is
+out: its current file is semicolon-delimited, not fixed width.
 
 ## Field types
 
