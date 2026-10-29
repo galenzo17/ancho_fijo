@@ -143,7 +143,7 @@ defmodule AnchoFijo.LayoutTest do
 
     test "rechaza encoding y unidad desconocidos" do
       {:error, diagnosticos} =
-        Layout.nuevo(campos: [[nombre: :a, largo: 1]], encoding: :cp1252, unidad: :palabras)
+        Layout.nuevo(campos: [[nombre: :a, largo: 1]], encoding: :cp866, unidad: :palabras)
 
       assert length(diagnosticos) == 2
     end

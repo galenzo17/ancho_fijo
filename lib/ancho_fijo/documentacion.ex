@@ -372,6 +372,7 @@ defmodule AnchoFijo.Documentacion do
 
   defp encoding(:utf8), do: "UTF-8"
   defp encoding(:latin1), do: "latin-1"
+  defp encoding(:cp1252), do: "Windows-1252"
 
   defp describir_discriminador(%{campo: campo, posicion: p, largo: l}, idioma),
     do:

@@ -52,7 +52,9 @@ defmodule AnchoFijo.Layout do
 
     * `:campos` — obligatorio. Lista de definiciones de `AnchoFijo.Campo`
       (keyword lists, mapas o structs ya construidos).
-    * `:encoding` — `:utf8` (default) o `:latin1`.
+    * `:encoding` — `:utf8` (default), `:latin1` o `:cp1252` (Windows-1252,
+      lo que exportan Excel y Notepad: latin-1 más el euro, las comillas
+      tipográficas y los guiones largos).
     * `:unidad` — `:bytes` (default) o `:caracteres`. Ver más abajo.
     * `:relleno_final` — `:estricto` (default) o `:tolerar`. Ver más abajo.
     * `:largo` — largo total esperado por línea. Si se omite, se infiere del
@@ -96,7 +98,7 @@ defmodule AnchoFijo.Layout do
     :identidad,
     :decimales_como
   ]
-  @encodings [:utf8, :latin1]
+  @encodings [:utf8, :latin1, :cp1252]
   @unidades [:bytes, :caracteres]
   @rellenos_finales [:estricto, :tolerar]
 
@@ -104,7 +106,7 @@ defmodule AnchoFijo.Layout do
           nombre: String.t() | nil,
           campos: [Campo.t()],
           largo: pos_integer(),
-          encoding: :utf8 | :latin1,
+          encoding: :utf8 | :latin1 | :cp1252,
           unidad: :bytes | :caracteres,
           relleno_final: :estricto | :tolerar,
           advertencias: [Diagnostico.t()],
@@ -721,21 +723,25 @@ defmodule AnchoFijo.Layout do
   # En latin-1 un relleno de un carácter es un byte, salvo que el carácter
   # no exista en latin-1 (`"€"`): al escribir es un diagnóstico `:encoding` y
   # al leer no se repone.
-  defp relleno_ancho(%Campo{relleno: relleno} = campo, :latin1) do
-    case :unicode.characters_to_binary(relleno, :utf8, :latin1) do
-      <<_byte>> ->
+  defp relleno_ancho(%Campo{relleno: relleno} = campo, encoding)
+       when encoding in [:latin1, :cp1252] do
+    case AnchoFijo.Transcodificacion.de_utf8(relleno, encoding) do
+      {:ok, <<_byte>>} ->
         []
 
       _no_cabe ->
+        nombre = if encoding == :latin1, do: "latin-1", else: "Windows-1252"
+
         [
           Diagnostico.nuevo(
             tipo: :layout,
             campo: campo.nombre,
             posicion: Campo.rango(campo),
-            esperado: "un :relleno que exista en latin-1, porque el campo se escribe en latin-1",
+            esperado:
+              "un :relleno que exista en #{nombre}, porque el campo se escribe en #{nombre}",
             recibido: inspect(relleno),
             causa_probable:
-              "#{inspect(relleno)} no tiene byte en latin-1: al escribir es un diagnóstico " <>
+              "#{inspect(relleno)} no tiene byte en #{nombre}: al escribir es un diagnóstico " <>
                 ":encoding, y al leer el relleno recortado al final de la línea no se repone"
           )
         ]

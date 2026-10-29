@@ -788,8 +788,8 @@ defmodule AnchoFijo.CampoTest do
     end
 
     test "un encoding que no existe, o uno por campo con unidad :caracteres, es un layout inválido" do
-      assert {:error, [d]} = Campo.nuevo(nombre: :m, largo: 10, encoding: :cp1252)
-      assert d.esperado == ":encoding :utf8 o :latin1, o ninguno para usar el del layout"
+      assert {:error, [d]} = Campo.nuevo(nombre: :m, largo: 10, encoding: :cp866)
+      assert d.esperado == ":encoding :utf8, :latin1 o :cp1252, o ninguno para usar el del layout"
 
       assert {:error, [d]} =
                AnchoFijo.Layout.nuevo(

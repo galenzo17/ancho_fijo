@@ -188,6 +188,41 @@ defmodule AnchoFijo.DetectorTest do
     end
   end
 
+  describe "Windows-1252" do
+    test "los bytes de 0x80–0x9F delatan cp1252 y el contraste lo dice" do
+      contenido = <<"JOS", 0xC9, " ", 0x93, "X", 0x94, "\n", "ANA SOTO", "\n">>
+      {:ok, reporte} = Detector.detectar(contenido)
+
+      assert reporte.encoding_probable == :cp1252
+
+      assert Enum.any?(
+               reporte.observaciones,
+               &(&1 =~ "el byte 0x93 en la posición 6 de la línea 1" and
+                   &1 =~ "declare encoding: :cp1252")
+             )
+
+      for encoding <- [:utf8, :latin1] do
+        assert [%AnchoFijo.Diagnostico{tipo: :entrada} = d] =
+                 Detector.contrastar(
+                   reporte,
+                   AnchoFijo.Layout.nuevo!(encoding: encoding, campos: [[nombre: :a, largo: 8]])
+                 )
+
+        assert d.causa_probable =~ "declare encoding: :cp1252"
+      end
+
+      assert [] =
+               Detector.contrastar(
+                 reporte,
+                 AnchoFijo.Layout.nuevo!(encoding: :cp1252, campos: [[nombre: :a, largo: 8]])
+               )
+
+      # Un latin-1 sin esos bytes sigue siendo latin-1.
+      {:ok, latin1} = Detector.detectar(<<"JOS", 0xC9, "\n">>)
+      assert latin1.encoding_probable == :latin1
+    end
+  end
+
   describe "marcas del archivo: BOM, UTF-16, EBCDIC y 0x1A" do
     test "un BOM UTF-8 se reporta aparte y los largos se cuentan sin él" do
       {:ok, reporte} = Detector.detectar(ruta("nomina_con_bom.txt"))

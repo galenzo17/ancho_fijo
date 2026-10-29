@@ -91,6 +91,16 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- `encoding: :cp1252` (Windows-1252, lo que exportan Excel y Notepad) en el
+  layout y por campo: latin-1 más los 27 caracteres de 0x80–0x9F (el euro,
+  las comillas tipográficas, los guiones largos). Se lee, se escribe (un
+  carácter que no tiene es un diagnóstico `:encoding` con su posición) y
+  se repone como relleno; los cinco bytes que Windows-1252 no define son un
+  diagnóstico. `detectar/2` lo reconoce (`encoding_probable: :cp1252`) y
+  `contrastar/2` lo reclama frente a un layout UTF-8 o latin-1; los
+  diagnósticos que antes decían "el archivo probablemente es cp1252" ahora
+  dicen qué declarar. `Transcodificacion.de_utf8/2` es el inverso de
+  `a_utf8/2` para los tres encodings (#99).
 - `detectar/2` reconoce las marcas que Windows y los mainframes dejan en el
   archivo: el BOM UTF-8 de Notepad y Excel (clave `:bom`, los largos se
   cuentan sin él), UTF-16 con o sin BOM y EBCDIC (`encoding_probable:

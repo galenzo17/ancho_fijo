@@ -206,9 +206,63 @@ defmodule AnchoFijo.EscrituraEnBytesTest do
     end
   end
 
+  describe "encoding :cp1252" do
+    test "lee y escribe las comillas de Windows, y un carácter que no tiene es un diagnóstico" do
+      layout = Layout.nuevo!(encoding: :cp1252, campos: [[nombre: :a, largo: 8]])
+      archivo = <<"JOS", 0xC9, " ", 0x93, "X", 0x94, "\n">>
+
+      assert {:ok, [%{a: "JOSÉ “X”"}], []} = AnchoFijo.parsear(layout, archivo)
+      assert {:ok, ^archivo, []} = AnchoFijo.escribir(layout, [%{a: "JOSÉ “X”"}])
+
+      assert {:ok, <<0x80, "10 ", 0x97, " 5 \n">>, []} =
+               AnchoFijo.escribir(layout, [%{a: "€10 — 5 "}])
+
+      assert {:error, [%Diagnostico{tipo: :encoding, campo: :a} = d]} =
+               AnchoFijo.escribir(layout, [%{a: "a → b"}])
+
+      assert d.recibido == "\"→\" en la posición 3 del valor"
+      assert d.causa_probable =~ "Windows-1252 no tiene"
+
+      # Un byte sin definir al leer, y el encoding por campo.
+      assert {:error, [%Diagnostico{tipo: :encoding, campo: :a} = d]} =
+               AnchoFijo.parsear(layout, <<"A", 0x81, "BCDEFG\n">>)
+
+      assert d.causa_probable =~ "no está definido en Windows-1252"
+
+      por_campo =
+        Layout.nuevo!(campos: [[nombre: :a, largo: 4, encoding: :cp1252], [nombre: :b, largo: 4]])
+
+      assert {:ok, <<0x93, "ab", 0x94, "añ \n">>, []} =
+               AnchoFijo.escribir(por_campo, [%{a: "“ab”", b: "añ"}])
+    end
+
+    test "un relleno de Windows-1252 se escribe y se repone" do
+      layout =
+        Layout.nuevo!(
+          encoding: :cp1252,
+          relleno_final: :tolerar,
+          campos: [[nombre: :g, largo: 4, relleno: "•"]]
+        )
+
+      assert layout.advertencias == []
+
+      assert {:ok, <<"ab", 0x95, 0x95, "\n">> = linea, []} =
+               AnchoFijo.escribir(layout, [%{g: "ab"}])
+
+      assert {:ok, [%{g: "ab"}], []} = AnchoFijo.parsear(layout, linea)
+
+      assert {:ok, [%{g: "ab"}], [%Diagnostico{tipo: :relleno_completado}]} =
+               AnchoFijo.parsear(layout, "ab\n")
+
+      assert [%Diagnostico{campo: :g}] =
+               Layout.nuevo!(encoding: :cp1252, campos: [[nombre: :g, largo: 4, relleno: "→"]]).advertencias
+    end
+  end
+
   describe "propiedad" do
     @alfabeto ["a", "Z", " ", "ñ", "é", "·", "€", "😀", "ü"]
     @latin1 ["a", "Z", " ", "ñ", "é", "·", "ü"]
+    @cp1252 ["a", "Z", " ", "ñ", "é", "·", "ü", "€", "“", "—"]
 
     defp medir(linea, %Layout{unidad: :caracteres}), do: String.length(linea)
     defp medir(linea, _layout), do: byte_size(linea)
@@ -217,7 +271,8 @@ defmodule AnchoFijo.EscrituraEnBytesTest do
       configuraciones = [
         {[], @alfabeto, [" ", "0", "*"]},
         {[unidad: :caracteres], @alfabeto, [" ", "·", "ü", "€"]},
-        {[encoding: :latin1], @latin1, [" ", "·", "ü", "ñ"]}
+        {[encoding: :latin1], @latin1, [" ", "·", "ü", "ñ"]},
+        {[encoding: :cp1252], @cp1252, [" ", "·", "•", "€"]}
       ]
 
       check all(
@@ -255,8 +310,11 @@ defmodule AnchoFijo.EscrituraEnBytesTest do
       end
     end
 
-    defp relleno_codificado(relleno, %Layout{encoding: :latin1, unidad: :bytes}),
-      do: :unicode.characters_to_binary(relleno, :utf8, :latin1)
+    defp relleno_codificado(relleno, %Layout{encoding: encoding, unidad: :bytes})
+         when encoding in [:latin1, :cp1252] do
+      {:ok, bytes} = AnchoFijo.Transcodificacion.de_utf8(relleno, encoding)
+      bytes
+    end
 
     defp relleno_codificado(relleno, _layout), do: relleno
 
@@ -264,7 +322,8 @@ defmodule AnchoFijo.EscrituraEnBytesTest do
       configuraciones = [
         {[], @alfabeto},
         {[unidad: :caracteres], @alfabeto},
-        {[encoding: :latin1], @latin1}
+        {[encoding: :latin1], @latin1},
+        {[encoding: :cp1252], @cp1252}
       ]
 
       check all(
@@ -277,12 +336,11 @@ defmodule AnchoFijo.EscrituraEnBytesTest do
         assert {:ok, linea, _} = AnchoFijo.escribir(layout, [%{g: texto}], truncar: true)
         assert medir(linea, layout) == largo + 1
 
-        assert String.valid?(
-                 :unicode.characters_to_binary(
-                   linea,
-                   if(layout.encoding == :latin1, do: :latin1, else: :utf8)
+        assert {:ok, _} =
+                 AnchoFijo.Transcodificacion.a_utf8(
+                   String.trim_trailing(linea, "\n"),
+                   layout.encoding
                  )
-               )
 
         assert {:ok, [%{g: leido}], _} = AnchoFijo.parsear(layout, linea)
         assert String.starts_with?(String.trim(texto), leido) or leido == ""

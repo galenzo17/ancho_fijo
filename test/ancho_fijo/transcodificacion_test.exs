@@ -21,6 +21,67 @@ defmodule AnchoFijo.TranscodificacionTest do
     end
   end
 
+  describe "a_utf8/2 y de_utf8/2 con :cp1252" do
+    @cp1252 Transcodificacion.cp1252()
+
+    test "los 27 caracteres de 0x80–0x9F se leen y se escriben, y el resto es latin-1" do
+      assert map_size(@cp1252) == 27
+
+      for {byte, codepoint} <- @cp1252 do
+        assert {:ok, <<^codepoint::utf8>>} = Transcodificacion.a_utf8(<<byte>>, :cp1252)
+        assert {:ok, <<^byte>>} = Transcodificacion.de_utf8(<<codepoint::utf8>>, :cp1252)
+      end
+
+      assert {:ok, "JOSÉ “X”"} =
+               Transcodificacion.a_utf8(<<74, 79, 83, 201, 32, 0x93, 88, 0x94>>, :cp1252)
+
+      assert {:ok, <<0x80, 32, 49, 48, 32, 241>>} = Transcodificacion.de_utf8("€ 10 ñ", :cp1252)
+      assert {:ok, "SOLO ASCII"} = Transcodificacion.a_utf8("SOLO ASCII", :cp1252)
+    end
+
+    test "los cinco bytes sin definir y los controles son un diagnóstico" do
+      for byte <- [0x81, 0x8D, 0x8F, 0x90, 0x9D] do
+        assert {:error, %{motivo: :byte_sin_definir, posicion: 1, byte: ^byte} = detalle} =
+                 Transcodificacion.a_utf8(<<65, byte>>, :cp1252)
+
+        assert Transcodificacion.causa_probable(detalle, :cp1252) =~
+                 "no está definido en Windows-1252"
+      end
+
+      assert {:error, %{motivo: :caracter_de_control, byte: 0}} =
+               Transcodificacion.a_utf8(<<65, 0>>, :cp1252)
+
+      assert {:error, %{motivo: :caracter_de_control, byte: 0x7F}} =
+               Transcodificacion.a_utf8(<<0x7F>>, :cp1252)
+    end
+
+    test "un carácter que Windows-1252 no tiene es el primer error, con su posición" do
+      assert {:error, %{posicion: 3, caracter: "→"}} = Transcodificacion.de_utf8("a → b", :cp1252)
+      assert {:error, %{posicion: 2, caracter: "😀"}} = Transcodificacion.de_utf8("a😀", :latin1)
+
+      assert {:error, %{posicion: 1, caracter: <<0x85::utf8>>}} =
+               Transcodificacion.de_utf8(<<0x85::utf8>>, :cp1252)
+    end
+
+    test "detectar/1 y cp1252?/1 distinguen cp1252 de latin-1" do
+      assert Transcodificacion.detectar(<<74, 79, 83, 201, 32, 0x93>>) == :cp1252
+      assert Transcodificacion.detectar(<<74, 79, 83, 201>>) == :latin1
+      refute Transcodificacion.cp1252?(<<0x81, 0x8D>>)
+    end
+
+    test "el diagnóstico de un layout latin-1 o UTF-8 dice que declare :cp1252" do
+      assert {:error, detalle} = Transcodificacion.a_utf8(<<0x93>>, :latin1)
+      assert Transcodificacion.causa_probable(detalle, :latin1) =~ "declare encoding: :cp1252"
+
+      assert {:error, detalle} = Transcodificacion.a_utf8(<<65, 0x93, 66>>, :utf8)
+      assert Transcodificacion.causa_probable(detalle, :utf8) =~ "declare encoding: :cp1252"
+
+      # Al principio del campo, la explicación probable sigue siendo el corte de un multibyte.
+      assert {:error, detalle} = Transcodificacion.a_utf8(<<0x80, 66>>, :utf8)
+      assert Transcodificacion.causa_probable(detalle, :utf8) =~ "campo anterior"
+    end
+  end
+
   describe "a_utf8/2 con :utf8" do
     test "acepta multibyte válido" do
       assert Transcodificacion.a_utf8("ÑOÑO", :utf8) == {:ok, "ÑOÑO"}

@@ -52,8 +52,8 @@ defmodule AnchoFijo.Escritor do
       con `dv: :ausente`.
     * `nil` en un campo `opcional: true` se escribe como relleno en blanco;
       sin `:opcional`, es un error.
-    * El encoding del layout se respeta: con `encoding: :latin1` el texto
-      sale en latin-1, y un carácter que latin-1 no tiene es un error con el
+    * El encoding del layout se respeta: con `encoding: :latin1` o `:cp1252` el
+      texto sale en ese encoding, y un carácter que no tiene es un error con el
       carácter y su posición. El ancho se mide en la `:unidad` del layout.
 
   ## Opciones
