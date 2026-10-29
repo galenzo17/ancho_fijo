@@ -91,6 +91,17 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- `detectar/2` reconoce las marcas que Windows y los mainframes dejan en el
+  archivo: el BOM UTF-8 de Notepad y Excel (clave `:bom`, los largos se
+  cuentan sin él), UTF-16 con o sin BOM y EBCDIC (`encoding_probable:
+  :utf16 | :ebcdic`, con el `iconv` que lo convierte en la observación y
+  sin aconsejar `encoding: :latin1`) y el `0x1A` final de DOS
+  (`marca_final_dos?`). `parsear/3` y `stream/3` aceptan `bom: :rechazar |
+  :ignorar` (default `:rechazar`, y el diagnóstico de largo de la línea 1
+  nombra el BOM; con `:ignorar` se salta y `parsear/3` deja una
+  advertencia). Una última línea que es solo `0x1A` se omite con
+  `omitir_vacias: true` y `parsear/3` lo advierte; sin `omitir_vacias`, el
+  diagnóstico dice qué es. Fixtures con los cuatro casos (#98).
 - `AnchoFijo.Campo` guarda el patrón compilado de un campo de fecha u hora
   en `:formato_compilado`, y `AnchoFijo.Layout` precalcula
   `:con_condiciones`: datos derivados, como `:modulo`, que la serialización

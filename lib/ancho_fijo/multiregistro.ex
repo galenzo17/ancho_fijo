@@ -704,11 +704,12 @@ defmodule AnchoFijo.Multiregistro do
       {resultado, lineas} =
         case Entrada.leer(entrada, opts) do
           {:ok, contenido} ->
-            contenido
-            |> Parser.numerar(Keyword.get(opts, :traza, false))
-            |> Parser.seleccionar(opts)
-            |> con_ubicacion(multi)
-            |> then(&recorrer(multi, &1, modo))
+            {numeradas, iniciales} = Parser.preparar_numeradas(contenido, opts)
+
+            {resultado, lineas} =
+              numeradas |> con_ubicacion(multi) |> then(&recorrer(multi, &1, modo))
+
+            {Parser.con_iniciales(resultado, iniciales), lineas}
 
           {:error, diagnosticos} ->
             {{:error, diagnosticos}, 0}
@@ -844,6 +845,7 @@ defmodule AnchoFijo.Multiregistro do
       |> Stream.drop(Keyword.get(opts, :saltar, 0))
       |> Stream.map(fn {linea, marca} -> {sin_terminador(linea), marca} end)
       |> descartar_vacias(Keyword.get(opts, :omitir_vacias, true))
+      |> Parser.sin_bom(opts)
       |> con_ubicacion(multi)
 
     Stream.transform(
@@ -919,7 +921,11 @@ defmodule AnchoFijo.Multiregistro do
   defp sin_terminador(linea) when is_binary(linea), do: Entrada.sin_terminador(linea)
   defp sin_terminador(otro), do: otro
 
-  defp descartar_vacias(stream, true), do: Stream.reject(stream, fn {linea, _} -> linea == "" end)
+  # Como en `Parser`: ni las líneas en blanco ni la que es solo 0x1A, la
+  # marca de fin de archivo de DOS.
+  defp descartar_vacias(stream, true),
+    do: Stream.reject(stream, fn {linea, _} -> linea == "" or linea == <<0x1A>> end)
+
   defp descartar_vacias(stream, _false), do: stream
 
   # ------------------------------------------------------------------ estado

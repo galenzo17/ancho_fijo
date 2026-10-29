@@ -188,6 +188,81 @@ defmodule AnchoFijo.DetectorTest do
     end
   end
 
+  describe "marcas del archivo: BOM, UTF-16, EBCDIC y 0x1A" do
+    test "un BOM UTF-8 se reporta aparte y los largos se cuentan sin él" do
+      {:ok, reporte} = Detector.detectar(ruta("nomina_con_bom.txt"))
+
+      assert reporte.bom == :utf8
+      assert reporte.largos == %{48 => 2}
+      assert reporte.encoding_probable == :ascii
+      assert reporte.probablemente_ancho_fijo?
+      assert [primera | _] = reporte.observaciones
+      assert primera =~ "BOM UTF-8 (EF BB BF)"
+      assert primera =~ "bom: :ignorar"
+
+      {:ok, inline} = Detector.detectar("\uFEFF" <> "ABC12345\nDEF67890\n", desde: :contenido)
+      assert inline.largos == %{8 => 2}
+    end
+
+    test "UTF-16 con BOM: no es latin-1, hay que convertirlo" do
+      {:ok, reporte} = Detector.detectar(ruta("nomina_utf16le.txt"))
+
+      assert reporte.bom == :utf16le
+      assert reporte.encoding_probable == :utf16
+      assert reporte.bytes_no_utf8 == []
+      refute reporte.probablemente_ancho_fijo?
+
+      assert Enum.any?(
+               reporte.observaciones,
+               &(&1 =~ "UTF-16 LE" and &1 =~ "iconv -f UTF-16LE -t UTF-8")
+             )
+
+      refute Enum.any?(reporte.observaciones, &(&1 =~ "encoding: :latin1"))
+
+      {:ok, be} =
+        Detector.detectar(
+          <<0xFE, 0xFF>> <> :unicode.characters_to_binary("AB\n", :utf8, {:utf16, :big})
+        )
+
+      assert {be.bom, be.encoding_probable} == {:utf16be, :utf16}
+    end
+
+    test "UTF-16 sin BOM se reconoce por los bytes nulos" do
+      contenido = :unicode.characters_to_binary("ABC12345\nDEF67890\n", :utf8, {:utf16, :little})
+      {:ok, reporte} = Detector.detectar(contenido)
+
+      assert reporte.bom == nil
+      assert reporte.encoding_probable == :utf16
+      assert Enum.any?(reporte.observaciones, &(&1 =~ "UTF-16 sin BOM"))
+    end
+
+    test "EBCDIC: ningún byte ASCII y el espacio 0x40 entre los más frecuentes" do
+      {:ok, reporte} = Detector.detectar(ruta("nomina_ebcdic.txt"))
+
+      assert reporte.encoding_probable == :ebcdic
+      refute reporte.probablemente_ancho_fijo?
+      assert Enum.any?(reporte.observaciones, &(&1 =~ "EBCDIC" and &1 =~ "iconv -f IBM037"))
+
+      # Un latin-1 de verdad no se confunde: tiene bytes ASCII.
+      {:ok, latin1} = Detector.detectar(ruta("nomina_latin1.txt"))
+      assert latin1.encoding_probable == :latin1
+    end
+
+    test "el 0x1A final es la marca de DOS, no una línea de un byte" do
+      {:ok, reporte} = Detector.detectar(ruta("nomina_con_fin_dos.txt"))
+
+      assert reporte.marca_final_dos?
+      assert reporte.largos == %{48 => 2}
+      assert reporte.lineas_analizadas == 2
+      assert reporte.probablemente_ancho_fijo?
+      assert Enum.any?(reporte.observaciones, &(&1 =~ "0x1A" and &1 =~ "fin de archivo de DOS"))
+
+      {:ok, sin_marca} = Detector.detectar(ruta("nomina_correcta.txt"))
+      refute sin_marca.marca_final_dos?
+      assert sin_marca.bom == nil
+    end
+  end
+
   describe "contrastar/2" do
     test "detecta que el layout declara un largo distinto al del archivo" do
       {:ok, reporte} = Detector.detectar(leer("nomina_correcta.txt"))

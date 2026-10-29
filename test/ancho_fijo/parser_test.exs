@@ -597,4 +597,100 @@ defmodule AnchoFijo.ParserTest do
       assert advertencia.causa_probable =~ "se completaron 2 caracteres"
     end
   end
+
+  describe "marcas del archivo: BOM y 0x1A" do
+    @ocho [campos: [[nombre: :a, largo: 8]]]
+    @con_bom "\uFEFF" <> "ABC12345\nDEF67890\n"
+
+    test "un BOM UTF-8 se rechaza por default y el diagnóstico de largo lo nombra" do
+      assert {:error, [%Diagnostico{tipo: :largo_de_linea, linea: 1} = d]} =
+               Parser.parsear(@ocho, @con_bom)
+
+      assert d.recibido == "11"
+      assert d.causa_probable =~ "BOM UTF-8 (EF BB BF)"
+      assert d.causa_probable =~ "bom: :ignorar"
+    end
+
+    test "con bom: :ignorar se salta y queda una advertencia" do
+      assert {:ok, [%{a: "ABC12345"}, %{a: "DEF67890"}], [adv]} =
+               Parser.parsear(@ocho, @con_bom, bom: :ignorar)
+
+      assert %Diagnostico{tipo: :encoding, gravedad: :advertencia, linea: 1, recibido: "EF BB BF"} =
+               adv
+
+      assert Diagnostico.mensaje(adv) =~ "bom: :ignorar"
+
+      # Sin BOM no hay nada que advertir; con saltar: 1 la línea del BOM se saltó por otra razón.
+      assert {:ok, [_, _], []} = Parser.parsear(@ocho, "ABC12345\nDEF67890\n", bom: :ignorar)
+
+      assert {:ok, [%{a: "DEF67890"}], []} =
+               Parser.parsear(@ocho, @con_bom, bom: :ignorar, saltar: 1)
+    end
+
+    test "con traza, la traza de la línea 1 sigue midiendo los bytes del archivo, BOM incluido" do
+      assert {:ok, [r1, r2], [_]} = Parser.parsear(@ocho, @con_bom, bom: :ignorar, traza: true)
+      assert r1.__traza__ == AnchoFijo.Traza.nueva(1, 0, 11)
+      assert r2.__traza__ == AnchoFijo.Traza.nueva(2, 12, 8)
+      assert AnchoFijo.Traza.linea_original(r1.__traza__, @con_bom) == "\uFEFF" <> "ABC12345"
+    end
+
+    test "una última línea que es solo 0x1A se omite con una advertencia" do
+      assert {:ok, [%{a: "ABC12345"}], [adv]} = Parser.parsear(@ocho, "ABC12345\n\x1A")
+      assert %Diagnostico{tipo: :entrada, gravedad: :advertencia, linea: 2, recibido: "0x1A"} = adv
+      assert Diagnostico.mensaje(adv) =~ "fin de archivo de DOS"
+
+      assert {:ok, [_, _], [%Diagnostico{linea: 3}]} =
+               Parser.parsear(@ocho, "ABC12345\r\nDEF67890\r\n\x1A")
+
+      # Sin omitir_vacias, es una línea y el diagnóstico de largo dice qué es.
+      assert {:error, [%Diagnostico{tipo: :largo_de_linea, linea: 2} = d]} =
+               Parser.parsear(@ocho, "ABC12345\n\x1A", omitir_vacias: false)
+
+      assert d.causa_probable =~ "marca de fin de archivo de DOS"
+
+      # Pegada a la última línea es un byte de esa línea: el diagnóstico de encoding lo dice.
+      assert {:error, [%Diagnostico{tipo: :encoding, campo: :a} = d]} =
+               Parser.parsear(@ocho, "ABC1234\x1A")
+
+      assert d.causa_probable =~ "Ctrl-Z"
+    end
+
+    test "stream/3 salta las dos marcas sin advertencias, y las rechaza igual que parsear/3" do
+      assert [{:ok, %{a: "ABC12345"}, []}, {:ok, %{a: "DEF67890"}, []}] =
+               @ocho |> Parser.stream(@con_bom <> "\x1A", bom: :ignorar) |> Enum.to_list()
+
+      assert [{:error, [%Diagnostico{linea: 1} = d]} | _] =
+               @ocho |> Parser.stream(@con_bom) |> Enum.to_list()
+
+      assert d.causa_probable =~ "BOM UTF-8"
+    end
+
+    test "un multiregistro parte igual" do
+      multi =
+        AnchoFijo.Multiregistro.nuevo!(
+          discriminador: [largo: 1],
+          registros: [
+            d: [valor: "D", layout: [campos: [[nombre: :t, largo: 1], [nombre: :x, largo: 3]]]]
+          ]
+        )
+
+      assert {:ok, [d: %{x: "abc"}], [%Diagnostico{linea: 1}, %Diagnostico{linea: 2}]} =
+               AnchoFijo.parsear(multi, "\uFEFFDabc\n\x1A", bom: :ignorar)
+
+      assert [{:ok, {:d, %{x: "abc"}}, []}] =
+               multi |> AnchoFijo.stream("\uFEFFDabc\n\x1A", bom: :ignorar) |> Enum.to_list()
+
+      assert {:error, [%Diagnostico{linea: 1}]} = AnchoFijo.parsear(multi, "\uFEFFDabc\n")
+    end
+
+    test "la huella no cambia: el BOM y la marca son bytes del archivo" do
+      {:ok, con} = AnchoFijo.huella(@con_bom)
+      {:ok, sin} = AnchoFijo.huella("ABC12345\nDEF67890\n")
+      assert con != sin
+    end
+
+    test "bom: acepta solo :rechazar o :ignorar" do
+      assert_raise ArgumentError, ~r/bom/, fn -> Parser.parsear(@ocho, "ABC12345\n", bom: :si) end
+    end
+  end
 end
