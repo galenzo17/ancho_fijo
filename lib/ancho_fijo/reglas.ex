@@ -54,6 +54,7 @@ defmodule AnchoFijo.Reglas do
   def validar(%{} = campo) do
     Enum.concat([
       validar_en(campo),
+      validar_tipo_de_en(campo),
       validar_rango(campo),
       validar_patron(campo),
       validar_condicion(campo, :requerido_si),
@@ -74,10 +75,32 @@ defmodule AnchoFijo.Reglas do
       )
     ]
 
+  # Los valores de `en:` y los extremos de `rango:` tienen que ser del tipo
+  # del campo: un rango de fechas en un `:entero` no puede fallar nunca, y
+  # un catálogo de textos en un `:entero` falla siempre. Un tipo propio no se
+  # valida: la regla es suya.
+  defp validar_tipo_de_en(%{reglas: %{en: lista}, tipo: tipo} = campo) when is_list(lista) do
+    lista
+    |> Enum.reject(&del_tipo?(&1, campo))
+    |> Enum.map(&falla(campo, "en: con valores del tipo del campo, #{describir_tipo(tipo)}", &1))
+  end
+
+  defp validar_tipo_de_en(_campo), do: []
+
   defp validar_rango(%{reglas: %{rango: nil}}), do: []
 
   defp validar_rango(%{reglas: %{rango: {min, max}}, tipo: tipo} = campo) when tipo in @con_rango do
+    ajenos =
+      [min, max]
+      |> Enum.reject(&(is_nil(&1) or del_tipo?(&1, campo)))
+      |> Enum.map(
+        &falla(campo, "un :rango con extremos del tipo del campo, #{describir_tipo(tipo)}", &1)
+      )
+
     cond do
+      ajenos != [] ->
+        ajenos
+
       is_nil(min) and is_nil(max) ->
         [falla(campo, "un :rango con al menos un extremo", campo.reglas.rango)]
 
@@ -106,6 +129,34 @@ defmodule AnchoFijo.Reglas do
         "un campo #{inspect(campo.tipo)}"
       )
     ]
+
+  defp del_tipo?(valor, %{tipo: :entero}), do: is_integer(valor)
+
+  defp del_tipo?(%Monto{moneda: moneda}, %{tipo: :decimal, moneda: del_campo}),
+    do: is_nil(del_campo) or moneda == del_campo
+
+  defp del_tipo?(valor, %{tipo: :decimal}), do: numerico?(valor)
+  defp del_tipo?(valor, %{tipo: :fecha}), do: is_struct(valor, Date)
+  defp del_tipo?(valor, %{tipo: :hora}), do: is_struct(valor, Time)
+  defp del_tipo?(valor, %{tipo: :fecha_hora}), do: is_struct(valor, NaiveDateTime)
+  defp del_tipo?(valor, %{tipo: tipo}) when tipo in [:texto, :rut, :constante], do: is_binary(valor)
+  defp del_tipo?(_valor, _campo), do: true
+
+  defp describir_tipo(:entero), do: "enteros"
+
+  defp describir_tipo(:decimal),
+    do: "enteros, tuplas {unidades, precision}, AnchoFijo.Monto de la moneda del campo o Decimal"
+
+  defp describir_tipo(:fecha), do: "fechas (%Date{})"
+  defp describir_tipo(:hora), do: "horas (%Time{})"
+  defp describir_tipo(:fecha_hora), do: "fechas con hora (%NaiveDateTime{})"
+  defp describir_tipo(_texto), do: "textos"
+
+  defp numerico?(valor) when is_integer(valor), do: true
+  defp numerico?({u, p}) when is_integer(u) and is_integer(p), do: true
+  defp numerico?(%Monto{}), do: true
+  defp numerico?(%{__struct__: Decimal}), do: true
+  defp numerico?(_otro), do: false
 
   defp validar_patron(%{reglas: %{patron: nil}}), do: []
   defp validar_patron(%{reglas: %{patron: %Regex{}}, tipo: :texto}), do: []
@@ -171,7 +222,7 @@ defmodule AnchoFijo.Reglas do
   defp en(%{reglas: %{en: nil}}, _valor, _contexto), do: []
 
   defp en(%{reglas: %{en: lista}} = campo, valor, contexto) when is_list(lista) do
-    if valor in lista,
+    if Enum.any?(lista, &igual?(valor, &1)),
       do: [],
       else: [
         regla(
@@ -197,6 +248,12 @@ defmodule AnchoFijo.Reglas do
         )
       ]
   end
+
+  # Un valor está en el catálogo si es igual a uno de sus elementos; entre
+  # formas numéricas (entero, tupla, Monto, Decimal) la igualdad es la de
+  # `comparar/2`: `{100, 2}` es `Decimal.new("1.00")`.
+  defp igual?(a, b) when a == b, do: true
+  defp igual?(a, b), do: numerico?(a) and numerico?(b) and comparar(a, b) == :eq
 
   defp rango(%{reglas: %{rango: nil}}, _valor, _contexto), do: []
 
@@ -241,8 +298,9 @@ defmodule AnchoFijo.Reglas do
   defp patron(_campo, _valor, _contexto), do: []
 
   # Compara enteros, tuplas {unidades, precision}, Monto, Decimal, fechas,
-  # horas y fechas con hora. Lo incomparable se considera igual: la regla
-  # no sabe qué decir y no inventa un diagnóstico.
+  # horas y fechas con hora. Lo incomparable es un ArgumentError: el layout
+  # verifica al construirse que las reglas sean del tipo del campo, así que
+  # si pasa es un bug, y conviene verlo antes que una regla que nunca falla.
   @doc false
   @spec comparar(term(), term()) :: :lt | :eq | :gt
   def comparar(a, b) when is_integer(a) and is_integer(b), do: orden(a, b)
@@ -254,6 +312,7 @@ defmodule AnchoFijo.Reglas do
 
   def comparar({u, p}, b) when is_integer(u) and is_integer(b), do: comparar({u, p}, {b, 0})
   def comparar(a, {u, p}) when is_integer(a) and is_integer(u), do: comparar({a, 0}, {u, p})
+  def comparar(%Monto{} = a, %Monto{} = b) when a.moneda != b.moneda, do: comparar_ajenos(a, b)
 
   def comparar(%Monto{} = a, %Monto{} = b),
     do: comparar({a.unidades, a.precision}, {b.unidades, b.precision})
@@ -264,15 +323,27 @@ defmodule AnchoFijo.Reglas do
   def comparar(%Time{} = a, %Time{} = b), do: Time.compare(a, b)
   def comparar(%NaiveDateTime{} = a, %NaiveDateTime{} = b), do: NaiveDateTime.compare(a, b)
 
-  def comparar(%{__struct__: Decimal} = a, b), do: Decimal.compare(a, a_decimal(b))
-  def comparar(a, %{__struct__: Decimal} = b), do: Decimal.compare(a_decimal(a), b)
-  def comparar(_a, _b), do: :eq
+  def comparar(%{__struct__: Decimal} = a, b)
+      when is_integer(b) or is_tuple(b) or is_struct(b, Monto) or is_struct(b, Decimal),
+      do: Decimal.compare(a, a_decimal(b))
+
+  def comparar(a, %{__struct__: Decimal} = b)
+      when is_integer(a) or is_tuple(a) or is_struct(a, Monto),
+      do: Decimal.compare(a_decimal(a), b)
+
+  def comparar(a, b), do: comparar_ajenos(a, b)
+
+  @spec comparar_ajenos(term(), term()) :: no_return()
+  defp comparar_ajenos(a, b) do
+    raise ArgumentError,
+          "no se pueden comparar #{inspect(a)} y #{inspect(b)}: una regla rango: o en: " <>
+            "con valores de otro tipo que el campo; AnchoFijo.Layout.nuevo/1 lo reclama al construir el layout"
+  end
 
   defp a_decimal(%{__struct__: Decimal} = d), do: d
   defp a_decimal(n) when is_integer(n), do: Decimal.new(n)
   defp a_decimal({u, p}), do: Decimal.new(if(u < 0, do: -1, else: 1), abs(u), -p)
   defp a_decimal(%Monto{} = m), do: a_decimal({m.unidades, m.precision})
-  defp a_decimal(otro), do: Decimal.new(to_string(otro))
 
   defp orden(a, b) when a < b, do: :lt
   defp orden(a, b) when a > b, do: :gt

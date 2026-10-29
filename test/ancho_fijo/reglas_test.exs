@@ -221,7 +221,230 @@ defmodule AnchoFijo.ReglasTest do
     end
   end
 
+  describe "al escribir, sobre el valor canónico" do
+    @catalogo [
+      campos: [[nombre: :m, largo: 8, tipo: :decimal, precision: 2, en: [{100, 2}, {200, 2}]]]
+    ]
+    @rango [
+      campos: [[nombre: :m, largo: 8, tipo: :decimal, precision: 2, rango: {{0, 2}, {500, 2}}]]
+    ]
+
+    test "un Decimal, un entero o un string en un :decimal pasan por el catálogo como la tupla" do
+      assert {:ok, "00000100\n", []} = AnchoFijo.escribir(@catalogo, [%{m: Decimal.new("1.00")}])
+      assert {:ok, "00000100\n", []} = AnchoFijo.escribir(@catalogo, [%{m: 1}])
+      assert {:ok, "00000200\n", []} = AnchoFijo.escribir(@catalogo, [%{m: "2.00"}])
+      assert {:ok, "00000200\n", []} = AnchoFijo.escribir(@catalogo, [%{m: {200, 2}}])
+
+      assert {:error, [%Diagnostico{tipo: :regla, campo: :m}]} =
+               AnchoFijo.escribir(@catalogo, [%{m: Decimal.new("3.00")}])
+
+      assert {:error, [%Diagnostico{tipo: :regla, campo: :m}]} =
+               AnchoFijo.escribir(@catalogo, [%{m: 3}])
+    end
+
+    test "un string fuera del rango es un diagnóstico :regla, como lo sería al leer" do
+      assert {:error, [%Diagnostico{tipo: :regla, campo: :m} = d]} =
+               AnchoFijo.escribir(@rango, [%{m: "99.00"}])
+
+      assert d.esperado == "un valor entre {0, 2} y {500, 2}"
+      assert {:ok, "00000400\n", []} = AnchoFijo.escribir(@rango, [%{m: "4.00"}])
+      assert {:ok, [%{m: {400, 2}}], []} = AnchoFijo.parsear(@rango, "00000400\n")
+
+      assert {:ok, [%{m: {9900, 2}}], [%Diagnostico{tipo: :regla}]} =
+               AnchoFijo.parsear(@rango, "00009900\n", modo: :tolerante)
+    end
+
+    test "con moneda o como: :decimal el catálogo acepta la forma del campo y las equivalentes" do
+      con_moneda = [
+        campos: [
+          [
+            nombre: :m,
+            largo: 8,
+            tipo: :decimal,
+            precision: 0,
+            moneda: :clp,
+            en: [AnchoFijo.Monto.nuevo(100, 0, :clp)]
+          ]
+        ]
+      ]
+
+      assert {:ok, _, []} = AnchoFijo.escribir(con_moneda, [%{m: 100}])
+
+      assert {:ok, _, []} =
+               AnchoFijo.escribir(con_moneda, [%{m: AnchoFijo.Monto.nuevo(100, 0, :clp)}])
+
+      assert {:error, [%Diagnostico{tipo: :regla}]} = AnchoFijo.escribir(con_moneda, [%{m: 101}])
+
+      como_decimal = [
+        campos: [
+          [nombre: :m, largo: 8, tipo: :decimal, precision: 2, como: :decimal, en: [{100, 2}]]
+        ]
+      ]
+
+      assert {:ok, _, []} = AnchoFijo.escribir(como_decimal, [%{m: Decimal.new("1.00")}])
+      assert {:ok, _, []} = AnchoFijo.escribir(como_decimal, [%{m: {100, 2}}])
+
+      assert {:error, [%Diagnostico{tipo: :regla}]} =
+               AnchoFijo.escribir(como_decimal, [%{m: Decimal.new("1.01")}])
+    end
+
+    test "un :texto se recorta antes del catálogo y del patrón, como al leer" do
+      layout = [campos: [[nombre: :t, largo: 6, en: ["ABC"], patron: ~r/^[A-Z]+$/]]]
+      assert {:ok, "ABC   \n", []} = AnchoFijo.escribir(layout, [%{t: "ABC  "}])
+      assert {:error, [%Diagnostico{tipo: :regla}]} = AnchoFijo.escribir(layout, [%{t: "ABD"}])
+    end
+
+    test "las condiciones cruzadas miran el otro campo como lo devolvería parsear/3" do
+      layout = [
+        campos: [
+          [nombre: :m, largo: 8, tipo: :decimal, precision: 2],
+          [nombre: :g, largo: 4, opcional: true, requerido_si: [campo: :m, en: [{100, 2}]]]
+        ]
+      ]
+
+      assert {:error, [%Diagnostico{tipo: :regla, campo: :g}]} =
+               AnchoFijo.escribir(layout, [%{m: Decimal.new("1.00"), g: nil}])
+
+      assert {:ok, _, []} = AnchoFijo.escribir(layout, [%{m: Decimal.new("2.00"), g: nil}])
+      assert {:ok, _, []} = AnchoFijo.escribir(layout, [%{m: "1.00", g: "x"}])
+    end
+
+    property "las formas equivalentes de un decimal reciben la misma respuesta de las reglas" do
+      layout = [
+        campos: [
+          [
+            nombre: :m,
+            largo: 8,
+            tipo: :decimal,
+            precision: 2,
+            en: Enum.map(1..5, &{&1 * 100, 2}),
+            rango: {{100, 2}, {400, 2}}
+          ]
+        ]
+      ]
+
+      check all(n <- integer(0..6)) do
+        formas = [{n * 100, 2}, n, Decimal.new(n), "#{n}.00", "#{n}"]
+
+        respuestas =
+          Enum.map(formas, fn forma ->
+            case AnchoFijo.escribir(layout, [%{m: forma}]) do
+              {:ok, linea, []} -> {:ok, linea}
+              {:error, [%Diagnostico{tipo: :regla} = d]} -> {:regla, d.esperado}
+            end
+          end)
+
+        assert length(Enum.uniq(respuestas)) == 1, inspect({n, respuestas})
+
+        assert (n in 1..4 and match?([{:ok, _} | _], respuestas)) or
+                 (n not in 1..4 and match?([{:regla, _} | _], respuestas))
+      end
+    end
+
+    property "todo registro que generan los generadores de un layout con reglas se escribe sin diagnósticos" do
+      layout =
+        Layout.nuevo!(
+          campos: [
+            [nombre: :tipo, largo: 2, en: ["01", "02"]],
+            [nombre: :monto, largo: 8, tipo: :decimal, precision: 2, rango: {{0, 2}, {5000, 2}}],
+            [nombre: :cuota, largo: 3, tipo: :entero, en: [1, 2, 3]],
+            [
+              nombre: :fecha,
+              largo: 8,
+              tipo: :fecha,
+              formato: :aaaammdd,
+              rango: {~D[2024-01-01], ~D[2024-12-31]}
+            ],
+            [nombre: :hora, largo: 4, tipo: :hora, formato: :hhmm, rango: {~T[08:00:00], nil}]
+          ]
+        )
+
+      check all(registro <- Generadores.registro(layout)) do
+        assert {:ok, _, []} = AnchoFijo.escribir(layout, [registro])
+      end
+    end
+  end
+
   describe "en el layout" do
+    test "los valores de en: y los extremos de rango: tienen que ser del tipo del campo" do
+      assert {:error, [d]} =
+               Layout.nuevo(
+                 campos: [[nombre: :n, largo: 3, tipo: :entero, rango: {~D[2020-01-01], nil}]]
+               )
+
+      assert %Diagnostico{tipo: :layout, campo: :n} = d
+      assert d.esperado == "un :rango con extremos del tipo del campo, enteros"
+      assert d.recibido == "~D[2020-01-01]"
+
+      assert {:error, [d1, d2]} =
+               Layout.nuevo(campos: [[nombre: :n, largo: 3, tipo: :entero, en: ["001", "002"]]])
+
+      assert d1.esperado == "en: con valores del tipo del campo, enteros"
+      assert d1.recibido == ~s("001")
+      assert d2.recibido == ~s("002")
+
+      assert {:error, [d]} =
+               Layout.nuevo(
+                 campos: [
+                   [
+                     nombre: :f,
+                     largo: 8,
+                     tipo: :fecha,
+                     formato: :aaaammdd,
+                     rango: {"2020-01-01", nil}
+                   ]
+                 ]
+               )
+
+      assert d.esperado == "un :rango con extremos del tipo del campo, fechas (%Date{})"
+
+      assert {:error, [d, _]} = Layout.nuevo(campos: [[nombre: :t, largo: 2, en: [1, 2]]])
+      assert d.esperado == "en: con valores del tipo del campo, textos"
+
+      assert {:error, [d]} =
+               Layout.nuevo(
+                 campos: [
+                   [
+                     nombre: :m,
+                     largo: 8,
+                     tipo: :decimal,
+                     precision: 0,
+                     moneda: :clp,
+                     en: [AnchoFijo.Monto.nuevo(1, 2, :usd)]
+                   ]
+                 ]
+               )
+
+      assert d.esperado =~ "en: con valores del tipo del campo, enteros, tuplas"
+
+      # Las formas numéricas de un :decimal valen todas.
+      assert {:ok, _} =
+               Layout.nuevo(
+                 campos: [
+                   [
+                     nombre: :m,
+                     largo: 8,
+                     tipo: :decimal,
+                     precision: 2,
+                     en: [1, {100, 2}, Decimal.new("1.00")],
+                     rango: {Decimal.new("0.5"), {400, 2}}
+                   ]
+                 ]
+               )
+
+      # Un tipo propio no se valida: la regla es suya.
+      assert {:ok, _} =
+               Layout.nuevo(
+                 campos: [[nombre: :h, largo: 4, tipo: AnchoFijo.TipoHora, en: [~T[08:00:00]]]]
+               )
+    end
+
+    test "comparar/2 no contesta :eq para lo incomparable: es un ArgumentError" do
+      assert_raise ArgumentError, ~r/no se pueden comparar 1 y ~D\[2020-01-01\]/, fn ->
+        AnchoFijo.Reglas.comparar(1, ~D[2020-01-01])
+      end
+    end
+
     test "las reglas mal escritas son diagnósticos de layout" do
       assert {:error, [d]} = Campo.nuevo(nombre: :a, largo: 2, en: [])
       assert d.esperado =~ "en: una lista de valores admitidos, no vacía"

@@ -742,6 +742,13 @@ campos: [
 - `rango: {min, max}` works for `:entero`, `:decimal`, `:fecha`, `:hora` and
   `:fecha_hora`, with `nil` on the open end. It compares the converted value:
   a tuple, a `Monto`, a `Decimal` or a date, no matter how it was written.
+- When writing, rules look at the same value `parsear/3` would return: a
+  `Decimal.new("1.00")`, a `1` or a `"1.00"` in a `:decimal` with
+  `precision: 2` are `{100, 2}` for the catalogue and the range, and a
+  `:texto` is trimmed before the pattern.
+- The values of `en:` and the ends of `rango:` must be of the field's type: a
+  range of dates on an `:entero`, or a catalogue of strings on an `:entero`,
+  is a layout diagnostic, not a rule that never fails or always fails.
 - `patron:` is a regular expression over the trimmed text.
 - `requerido_si:` and `prohibido_si:` look at another field of the same
   record: `[campo: :tipo, en: [...]]` holds when that field is one of those;
