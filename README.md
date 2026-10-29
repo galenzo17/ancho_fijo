@@ -128,6 +128,23 @@ nomina.txt: probablemente de ancho fijo
 `--layout nomina.exs` contrasta con un layout, `--json` imprime el reporte
 para `jq`, y el código de salida sirve para un script de validación previa:
 `0` si parece ancho fijo y concuerda, `1` si no, `2` si no se pudo leer.
+
+Y el comando de todos los días después, el que responde "¿este archivo pasa
+con este layout, y qué tiene?" sin abrir `iex`:
+
+```
+$ mix ancho_fijo.validar nomina.txt --layout nomina.exs
+nomina.txt: 3 errores en 3 líneas: el archivo se rechaza
+  2 registros leídos, 5 líneas
+  línea 2, campo :rut (posiciones 1-10): se esperaban un RUT cuyo dígito verificador cuadre; ...
+  línea 3, campo :monto (posiciones 31-40): se esperaban 10 posiciones con un número; ...
+  línea 5: se esperaban 48 bytes, llegaron 47; posible campo faltante o archivo delimitado
+```
+
+`--modo estricto|tolerante`, `--lineas N`, `--json`, `--idioma es|en`,
+`--usuario` y `--revelar` (los campos sensibles salen redactados por default);
+el archivo se recorre con `stream/3` sin cargarlo entero; `0` si se acepta,
+`1` si se rechaza, `2` si no se pudo leer.
 Ver `mix help ancho_fijo.detectar`.
 
 ## Después se parsea
