@@ -21,6 +21,14 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Corregido
 
+- La heurística de doble codificación (`Transcodificacion.doble_codificacion/1`
+  y la advertencia `:doble_codificacion` de los `:texto`) exige que el texto
+  reinterpretado sea secuencias UTF-8 de dos bytes, que es lo único que
+  produce un texto latino decodificado como latin-1 y vuelto a codificar.
+  Antes, un texto latin-1 legítimo como `"ñ···"` o `"Año·2024"` (una vocal
+  acentuada seguida de puntos medios, cuya reinterpretación es un ideograma
+  válido de cuatro bytes) salía con la advertencia (#114).
+
 - El decodificador JSON de la librería (`Json.decodificar/1`, interno), y
   con él `Layout.desde_json/1`, `Multiregistro.desde_json/1` y las tareas
   Mix que leen un `.json`, devuelve
