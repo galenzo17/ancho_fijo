@@ -135,6 +135,17 @@ defmodule AnchoFijo.Transcodificacion do
     end
   end
 
+  # `String.valid?/1` es un BIF y decide el caso común (la línea es UTF-8
+  # válido) en una fracción de lo que cuesta recorrerla en Elixir; el
+  # recorrido que ubica el byte inválido se hace solo cuando lo hay.
+  def a_utf8(binario, :utf8) when is_binary(binario) do
+    if String.valid?(binario) do
+      validar_controles(binario)
+    else
+      {:error, primer_byte_invalido(binario)}
+    end
+  end
+
   # Un binario ASCII es el mismo en los tres encodings; con algo más, cada
   # byte es un carácter: los de 0x80–0x9F por la tabla, el resto como latin-1.
   defp cp1252_a_utf8(binario) do
@@ -183,17 +194,6 @@ defmodule AnchoFijo.Transcodificacion do
 
   defp caracter_en(texto, indice),
     do: texto |> String.to_charlist() |> Enum.at(indice) |> List.wrap() |> List.to_string()
-
-  # `String.valid?/1` es un BIF y decide el caso común (la línea es UTF-8
-  # válido) en una fracción de lo que cuesta recorrerla en Elixir; el
-  # recorrido que ubica el byte inválido se hace solo cuando lo hay.
-  def a_utf8(binario, :utf8) when is_binary(binario) do
-    if String.valid?(binario) do
-      validar_controles(binario)
-    else
-      {:error, primer_byte_invalido(binario)}
-    end
-  end
 
   @doc """
   Encoding más probable de un binario.
