@@ -21,8 +21,9 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Corregido
 
-- `AnchoFijo.Json.decodificar/1`, y con él `Layout.desde_json/1`,
-  `Multiregistro.desde_json/1` y las tareas Mix que leen un `.json`, devuelve
+- El decodificador JSON de la librería (`Json.decodificar/1`, interno), y
+  con él `Layout.desde_json/1`, `Multiregistro.desde_json/1` y las tareas
+  Mix que leen un `.json`, devuelve
   `{:error, motivo}` ante un escape `\u` que no es hexadecimal, un
   *surrogate* sin su par o un número que no cabe en un float (`1e999`).
   Antes escapaba un `throw` (o un `ArgumentError`) que nadie atrapaba y que
@@ -88,6 +89,16 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   (0.3.1: 2,40) y `stream/3` de 256–273 a 303–315 líneas/ms (0.3.1:
   323–331). Sin cambios de comportamiento; `bench/README.md` tiene la
   tabla (#95).
+
+### Infraestructura
+
+- CI corre `mix hex.build` y verifica el tarball (menos de 1 MB y sin
+  `priv/plts`, `prompts`, `test/`, `bench/` ni `.github/`, con el contenido
+  listado en el log), `mix docs --warnings-as-errors` y
+  `mix compile --warnings-as-errors` en un job `paquete`; `release.yml`
+  corre lo mismo antes de `hex.publish`. Todos los jobs tienen
+  `timeout-minutes`. Las dos cosas que la 0.4.0 descubrió al empujar el
+  tag se ven ahora en el PR (#102).
 
 ### Agregado
 
