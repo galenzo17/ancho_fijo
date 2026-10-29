@@ -33,7 +33,13 @@ defmodule AnchoFijo.Tipo.Patron do
 
   @type parte :: :anio | :anio2 | :mes | :dia | :dia_del_anio | :hora | :minuto | :segundo
   @type pieza :: {:token, parte(), pos_integer()} | {:literal, String.t()}
-  @type t :: %{texto: String.t(), piezas: [pieza()], largo: pos_integer(), partes: [parte()]}
+  @type t :: %{
+          texto: String.t(),
+          piezas: [pieza()],
+          largo: pos_integer(),
+          largo_bytes: pos_integer(),
+          partes: [parte()]
+        }
 
   @doc "Los formatos con nombre, para la documentación y los mensajes."
   @spec nombrados() :: %{atom() => String.t()}
@@ -59,11 +65,32 @@ defmodule AnchoFijo.Tipo.Patron do
     with {:ok, piezas} <- tokenizar(texto, [], false),
          partes = for({:token, parte, _} <- piezas, do: parte),
          :ok <- sin_repetidos(partes) do
-      {:ok, %{texto: texto, piezas: piezas, largo: String.length(texto), partes: partes}}
+      {:ok,
+       %{
+         texto: texto,
+         piezas: piezas,
+         largo: String.length(texto),
+         largo_bytes: byte_size(texto),
+         partes: partes
+       }}
     end
   end
 
   def compilar(_otro), do: {:error, "un formato con nombre o un patrón de tokens"}
+
+  @doc """
+  El patrón ya compilado de un campo: el que `Campo.nuevo/1` guardó en
+  `:formato_compilado`, o el de `:formato` si el campo se armó sin pasar
+  por ahí. Compilar tokeniza y arma un mapa; hacerlo en cada lectura era
+  la mitad del costo de un campo de fecha.
+  """
+  @spec de(map()) :: t()
+  def de(%{formato_compilado: %{piezas: _} = patron}), do: patron
+
+  def de(%{formato: formato}) do
+    {:ok, patron} = compilar(formato)
+    patron
+  end
 
   defp tokenizar("", piezas, _con_hora?), do: {:ok, Enum.reverse(piezas)}
 
@@ -151,7 +178,78 @@ defmodule AnchoFijo.Tipo.Patron do
   el pivote.
   """
   @spec leer(t(), String.t(), pos_integer() | nil) :: {:ok, map()} | {:error, String.t()}
-  def leer(%{piezas: piezas, largo: largo} = patron, texto, pivote) do
+  def leer(%{} = patron, texto, pivote) do
+    case cortar_por_bytes(patron, texto) do
+      {:ok, trozos} ->
+        case convertir(trozos, pivote) do
+          {:ok, partes} -> {:ok, partes}
+          {:error, _causa} -> leer_por_grafemas(patron, texto, pivote)
+        end
+
+      :error ->
+        leer_por_grafemas(patron, texto, pivote)
+    end
+  end
+
+  @doc """
+  `nulo?/2` y `leer/3` en un solo corte: `:nulo` si el texto es la forma de
+  "sin dato", y si no, lo que `leer/3` devuelve.
+  """
+  @spec leer_o_nulo(t(), String.t(), pos_integer() | nil) ::
+          :nulo | {:ok, map()} | {:error, String.t()}
+  def leer_o_nulo(_patron, "", _pivote), do: :nulo
+
+  def leer_o_nulo(%{} = patron, texto, pivote) do
+    case cortar_por_bytes(patron, texto) do
+      {:ok, trozos} -> nulo_o_partes(trozos, patron, texto, pivote)
+      :error -> nulo_o_partes(:error, patron, texto, pivote)
+    end
+  end
+
+  defp nulo_o_partes(:error, patron, texto, pivote) do
+    if nulo?(patron, texto), do: :nulo, else: leer_por_grafemas(patron, texto, pivote)
+  end
+
+  defp nulo_o_partes(trozos, patron, texto, pivote) do
+    if Enum.all?(trozos, fn {_parte, trozo} -> solo_ceros?(trozo) end),
+      do: :nulo,
+      else: con_fallback(convertir(trozos, pivote), patron, texto, pivote)
+  end
+
+  defp con_fallback({:ok, partes}, _patron, _texto, _pivote), do: {:ok, partes}
+
+  defp con_fallback({:error, _}, patron, texto, pivote),
+    do: leer_por_grafemas(patron, texto, pivote)
+
+  # El camino rápido: con un patrón ASCII (todos lo son salvo que un literal
+  # no lo sea) y un texto que mide en bytes lo que el patrón, los tokens se
+  # cortan con `binary_part/3` y no hay que contar grafemas. Si algo no
+  # cuadra, el camino por grafemas decide y redacta el mensaje: los dos dan
+  # exactamente el mismo resultado cuando el texto es válido, y el lento es
+  # el que distingue "mide distinto" de "no es numérico".
+  defp cortar_por_bytes(%{piezas: piezas, largo: largo, largo_bytes: largo}, texto)
+       when byte_size(texto) == largo,
+       do: cortar_bytes(piezas, texto, 0, [])
+
+  defp cortar_por_bytes(_patron, _texto), do: :error
+
+  defp cortar_bytes([], _texto, _desde, trozos), do: {:ok, Enum.reverse(trozos)}
+
+  defp cortar_bytes([{:literal, literal} | piezas], texto, desde, trozos) do
+    largo = byte_size(literal)
+
+    if binary_part(texto, desde, largo) == literal,
+      do: cortar_bytes(piezas, texto, desde + largo, trozos),
+      else: :error
+  end
+
+  defp cortar_bytes([{:token, parte, ancho} | piezas], texto, desde, trozos),
+    do:
+      cortar_bytes(piezas, texto, desde + ancho, [
+        {parte, binary_part(texto, desde, ancho)} | trozos
+      ])
+
+  defp leer_por_grafemas(%{piezas: piezas, largo: largo} = patron, texto, pivote) do
     if String.length(texto) != largo do
       {:error,
        "se esperaban #{largo} posiciones (#{patron.texto}); el campo puede estar corrido " <>

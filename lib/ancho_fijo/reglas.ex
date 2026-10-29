@@ -210,6 +210,7 @@ defmodule AnchoFijo.Reglas do
   # `requerido_si:`.
   @spec del_valor(Campo.t(), term(), Campo.contexto()) :: [Diagnostico.t()]
   def del_valor(_campo, nil, _contexto), do: []
+  def del_valor(%{reglas: %{en: nil, rango: nil, patron: nil}}, _valor, _contexto), do: []
 
   def del_valor(%{} = campo, valor, contexto) do
     Enum.concat([
@@ -357,6 +358,20 @@ defmodule AnchoFijo.Reglas do
   # cumple y su valor es nil; prohibido cuando se cumple y no es nil.
   @spec cruzadas([Campo.t()], map(), Campo.contexto()) :: [Diagnostico.t()]
   def cruzadas(campos, registro, contexto) do
+    if Enum.any?(campos, &condicionado?/1),
+      do: evaluar_cruzadas(campos, registro, contexto),
+      else: []
+  end
+
+  @doc false
+  # Si el campo declara `requerido_si:` o `prohibido_si:`. `Layout.nuevo/1`
+  # lo precalcula para que el parser y el escritor no recorran los campos
+  # por línea cuando ningún campo lo declara.
+  @spec condicionado?(Campo.t()) :: boolean()
+  def condicionado?(%{reglas: %{requerido_si: nil, prohibido_si: nil}}), do: false
+  def condicionado?(_campo), do: true
+
+  defp evaluar_cruzadas(campos, registro, contexto) do
     Enum.flat_map(campos, fn campo ->
       requerido(campo, registro, contexto) ++ prohibido(campo, registro, contexto)
     end)

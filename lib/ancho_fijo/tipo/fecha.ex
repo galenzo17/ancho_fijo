@@ -59,11 +59,12 @@ defmodule AnchoFijo.Tipo.Fecha do
 
   @impl true
   def leer(texto, %Campo{} = campo, contexto) do
-    {:ok, patron} = Patron.compilar(campo.formato)
+    patron = Patron.de(campo)
 
-    if Patron.nulo?(patron, texto),
-      do: vacia(campo, patron, texto, contexto),
-      else: armar(campo, patron, texto, contexto)
+    case Patron.leer_o_nulo(patron, texto, campo.pivote) do
+      :nulo -> vacia(campo, patron, texto, contexto)
+      resultado -> armar(campo, patron, texto, contexto, resultado)
+    end
   end
 
   defp vacia(%Campo{opcional: true}, _patron, _texto, _contexto), do: {:ok, nil}
@@ -78,8 +79,8 @@ defmodule AnchoFijo.Tipo.Fecha do
      )}
   end
 
-  defp armar(%Campo{} = campo, patron, texto, contexto) do
-    with {:ok, partes} <- Patron.leer(patron, texto, campo.pivote),
+  defp armar(%Campo{} = campo, patron, texto, contexto, leido) do
+    with {:ok, partes} <- leido,
          {:ok, fecha} <- a_date(partes) do
       {:ok, fecha}
     else
@@ -146,10 +147,8 @@ defmodule AnchoFijo.Tipo.Fecha do
   end
 
   @impl true
-  def escribir(%Date{} = fecha, %Campo{} = campo) do
-    {:ok, patron} = Patron.compilar(campo.formato)
-    Patron.escribir(patron, partes_de(fecha), campo.pivote)
-  end
+  def escribir(%Date{} = fecha, %Campo{} = campo),
+    do: Patron.escribir(Patron.de(campo), partes_de(fecha), campo.pivote)
 
   def escribir(_otro, _campo), do: {:error, "se esperaba un Date"}
 end

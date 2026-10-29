@@ -123,6 +123,19 @@ defmodule AnchoFijo.Transcodificacion do
     for(<<byte <- binario>>, byte > 127, do: byte) == []
   end
 
+  # Si el binario es ASCII imprimible (más tabulador): cada tramo suyo es
+  # UTF-8 válido y latin-1 válido sin un solo carácter de control, así que
+  # `a_utf8/2` sobre cualquier campo de esa línea devolvería el tramo tal
+  # cual. El parser lo decide una vez por línea en vez de una vez por campo.
+  @doc false
+  @spec ascii_limpio?(binary()) :: boolean()
+  def ascii_limpio?(<<byte, resto::binary>>) when byte >= 32 and byte < 127,
+    do: ascii_limpio?(resto)
+
+  def ascii_limpio?(<<?\t, resto::binary>>), do: ascii_limpio?(resto)
+  def ascii_limpio?(<<>>), do: true
+  def ascii_limpio?(_otro), do: false
+
   @doc """
   `true` si el binario es UTF-8 válido.
 

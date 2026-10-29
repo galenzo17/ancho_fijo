@@ -120,7 +120,8 @@ defmodule AnchoFijo.Layout do
             relleno_final: :estricto,
             advertencias: [],
             identidad: nil,
-            decimales_como: nil
+            decimales_como: nil,
+            con_condiciones: false
 
   @doc """
   Valida y construye un layout.
@@ -158,7 +159,8 @@ defmodule AnchoFijo.Layout do
            campos: campos,
            largo: largo,
            advertencias: advertencias,
-           identidad: identidad
+           identidad: identidad,
+           con_condiciones: Enum.any?(campos, &AnchoFijo.Reglas.condicionado?/1)
          })
        )}
     end
@@ -378,7 +380,7 @@ defmodule AnchoFijo.Layout do
   # se escribió, sin ninguna señal. `:advertencias` se admite porque viene en
   # un `Map.from_struct/1` de otro layout.
   defp validar_claves(atributos) do
-    case Opciones.claves_desconocidas(atributos, [:advertencias | @opciones]) do
+    case Opciones.claves_desconocidas(atributos, [:advertencias, :con_condiciones | @opciones]) do
       [] ->
         :ok
 

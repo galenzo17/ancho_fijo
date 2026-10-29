@@ -89,6 +89,7 @@ defmodule AnchoFijo.Parser do
   alias AnchoFijo.Opciones
   alias AnchoFijo.Reglas
   alias AnchoFijo.Telemetria
+  alias AnchoFijo.Tipo
   alias AnchoFijo.Transcodificacion
   alias AnchoFijo.Traza
 
@@ -665,13 +666,17 @@ defmodule AnchoFijo.Parser do
       "distinto del que se usó para cortar las líneas"
   end
 
-  defp extraer_campo(%Campo{} = campo, linea, contexto, {valores, diagnosticos, advertencias}) do
-    resultado =
-      if Campo.anidado?(campo),
-        do: Anidados.leer(campo, linea, contexto, Map.new(valores)),
-        else: plano(Campo.leer(campo, linea, contexto))
+  # Un :relleno no se lee ni va al registro: nadie se compromete a lo que
+  # hay en esas posiciones. Un grupo o una variante se leen con `Anidados`;
+  # el resto, con `Campo.leer/3`. Un solo despacho por campo: es el bucle
+  # más caliente de la librería.
+  defp extraer_campo(%Campo{modulo: Tipo.Relleno}, _linea, _contexto, acumulado), do: acumulado
 
-    case resultado do
+  defp extraer_campo(%Campo{modulo: modulo} = campo, linea, contexto, acumulado)
+       when modulo in [Tipo.Grupo, Tipo.Variante] do
+    {valores, diagnosticos, advertencias} = acumulado
+
+    case Anidados.leer(campo, linea, contexto, Map.new(valores)) do
       {:ok, valor, nuevas} ->
         {[{campo.nombre, valor} | valores], diagnosticos, Enum.reverse(nuevas, advertencias)}
 
@@ -680,27 +685,47 @@ defmodule AnchoFijo.Parser do
     end
   end
 
-  defp plano({:ok, valor, advertencias}), do: {:ok, valor, advertencias}
-  defp plano({:error, diagnostico}), do: {:error, [diagnostico]}
+  defp extraer_campo(%Campo{} = campo, linea, contexto, {valores, diagnosticos, advertencias}) do
+    case Campo.leer(campo, linea, contexto) do
+      {:ok, valor, []} ->
+        {[{campo.nombre, valor} | valores], diagnosticos, advertencias}
 
-  defp extraer_campos(%Layout{} = layout, linea, numero) do
+      {:ok, valor, nuevas} ->
+        {[{campo.nombre, valor} | valores], diagnosticos, Enum.reverse(nuevas, advertencias)}
+
+      {:error, nuevo} ->
+        {valores, [nuevo | diagnosticos], advertencias}
+    end
+  end
+
+  # Una línea que es ASCII imprimible de punta a punta no necesita que cada
+  # campo valide su tramo: se marca una vez y `Campo.leer/3` lo aprovecha.
+  defp contexto_de_linea(%Layout{unidad: :bytes} = layout, linea, numero) do
     contexto = Layout.contexto(layout, numero)
 
-    # Un :relleno no se lee ni va al registro: nadie se compromete a lo que
-    # hay en esas posiciones.
+    if Transcodificacion.ascii_limpio?(linea),
+      do: Map.put(contexto, :linea_ascii, true),
+      else: contexto
+  end
+
+  defp contexto_de_linea(%Layout{} = layout, _linea, numero), do: Layout.contexto(layout, numero)
+
+  defp cruzadas(%Layout{con_condiciones: false}, _registro, _contexto), do: []
+
+  defp cruzadas(%Layout{campos: campos}, registro, contexto),
+    do: Reglas.cruzadas(campos, registro, contexto)
+
+  defp extraer_campos(%Layout{} = layout, linea, numero) do
+    contexto = contexto_de_linea(layout, linea, numero)
+
     {valores, diagnosticos, advertencias} =
-      Enum.reduce(layout.campos, {[], [], []}, fn campo, acumulado ->
-        if Campo.relleno?(campo),
-          do: acumulado,
-          else: extraer_campo(campo, linea, contexto, acumulado)
-      end)
+      Enum.reduce(layout.campos, {[], [], []}, &extraer_campo(&1, linea, contexto, &2))
 
     case diagnosticos do
       [] ->
         registro = Map.new(valores)
 
-        {:ok, registro,
-         Enum.reverse(advertencias) ++ Reglas.cruzadas(layout.campos, registro, contexto)}
+        {:ok, registro, Enum.reverse(advertencias) ++ cruzadas(layout, registro, contexto)}
 
       diagnosticos ->
         {:error, Enum.reverse(diagnosticos)}

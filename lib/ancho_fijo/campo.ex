@@ -242,7 +242,8 @@ defmodule AnchoFijo.Campo do
             variantes: nil,
             sensible: false,
             modulo: nil,
-            opciones: %{}
+            opciones: %{},
+            formato_compilado: nil
 
   @typedoc """
   Contexto de lectura que aporta el layout: cómo medir, cómo decodificar y en
@@ -300,7 +301,7 @@ defmodule AnchoFijo.Campo do
 
         with {:ok, campo} <- construir_anidados(campo),
              [] <- validar(campo, atributos) do
-          {:ok, campo}
+          {:ok, compilar_formato(campo)}
         else
           {:error, diagnosticos} -> {:error, diagnosticos}
           diagnosticos when is_list(diagnosticos) -> {:error, diagnosticos}
@@ -310,6 +311,20 @@ defmodule AnchoFijo.Campo do
         {:error, validar_sin_tipo(campo) ++ [falla(campo.nombre, esperado, campo.tipo, nil)]}
     end
   end
+
+  # Un campo de fecha, hora o fecha y hora guarda su patrón compilado: la
+  # validación ya probó que compila, y leer o escribir no vuelve a
+  # tokenizar el formato. Es un dato derivado, como `:modulo`; la
+  # serialización no lo emite.
+  defp compilar_formato(%__MODULE__{modulo: modulo} = campo)
+       when modulo in [Tipo.Fecha, Tipo.Hora, Tipo.FechaHora] do
+    case Tipo.Patron.compilar(campo.formato) do
+      {:ok, patron} -> %__MODULE__{campo | formato_compilado: patron}
+      {:error, _} -> campo
+    end
+  end
+
+  defp compilar_formato(campo), do: campo
 
   # Un grupo o una variante construye sus campos internos como un layout
   # chico: posiciones encadenadas desde 1, sin solapamientos ni nombres
@@ -846,7 +861,9 @@ defmodule AnchoFijo.Campo do
 
     conocidas =
       @comunes ++
-        propias ++ Keyword.keys(@de_tipos_internos) ++ [:__struct__, :modulo, :opciones, :reglas]
+        propias ++
+        Keyword.keys(@de_tipos_internos) ++
+        [:__struct__, :modulo, :opciones, :reglas, :formato_compilado]
 
     desconocidas = atributos |> Map.keys() |> Enum.reject(&(&1 in conocidas))
 
@@ -919,6 +936,11 @@ defmodule AnchoFijo.Campo do
   end
 
   defp decodificar(_campo, crudo, :caracteres, _contexto), do: {:ok, crudo}
+
+  # El parser marca `linea_ascii: true` cuando la línea entera es ASCII
+  # imprimible: el tramo es válido en cualquier encoding y no hay nada que
+  # transcodificar ni revisar.
+  defp decodificar(_campo, crudo, :bytes, %{linea_ascii: true}), do: {:ok, crudo}
 
   defp decodificar(%__MODULE__{} = campo, crudo, :bytes, contexto) do
     encoding = Map.get(contexto, :encoding, :utf8)
