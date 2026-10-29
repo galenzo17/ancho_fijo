@@ -398,7 +398,8 @@ defmodule AnchoFijo.SerializacionTest do
                  ]
                })
 
-      assert d.esperado =~ ~s("rango": un entero, [unidades, precision], [unidades, precision, "moneda"])
+      assert d.esperado =~
+               ~s("rango": un entero, [unidades, precision], [unidades, precision, "moneda"])
     end
 
     test "los valores que no se pudieron convertir se acumulan con los diagnósticos de nuevo/1" do
