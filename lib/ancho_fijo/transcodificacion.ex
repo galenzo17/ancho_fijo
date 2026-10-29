@@ -352,6 +352,8 @@ defmodule AnchoFijo.Transcodificacion do
       else: :no
   end
 
+  defp reinterpretar(_no_cabe_en_latin1), do: :no
+
   # Un byte de 0xE0 en adelante inicia una secuencia de tres o cuatro bytes:
   # en texto latino doblemente codificado no aparece nunca.
   defp solo_secuencias_de_dos_bytes?(<<byte, _resto::binary>>) when byte >= 0xE0, do: false
@@ -360,8 +362,6 @@ defmodule AnchoFijo.Transcodificacion do
     do: solo_secuencias_de_dos_bytes?(resto)
 
   defp solo_secuencias_de_dos_bytes?(<<>>), do: true
-
-  defp reinterpretar(_no_cabe_en_latin1), do: :no
 
   @doc """
   Redacta el byte problemático con su posición absoluta en la línea.
