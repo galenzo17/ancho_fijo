@@ -3,7 +3,8 @@
 # El tag es la orden de publicar; el workflow solo verifica que la orden sea
 # coherente antes de obedecerla: que el tag diga lo mismo que `@version` en
 # mix.exs y que el CHANGELOG tenga una sección para esa versión. Después corre
-# la suite una vez más en la versión más nueva y publica paquete y docs.
+# la suite una vez más en la versión más nueva, arma el paquete y las docs
+# como lo hace el job `paquete` de ci.yml, los verifica, y recién publica.
 #
 # La credencial es el secret HEX_API_KEY del repositorio, generada en
 # https://hex.pm/dashboard/keys con permiso `api:write`. No hay otra copia.
@@ -19,6 +20,7 @@ permissions:
 jobs:
   publicar:
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
 
@@ -46,6 +48,15 @@ jobs:
       - run: mix test
         env:
           MIX_ENV: test
+
+      - run: mix compile --warnings-as-errors
+
+      - run: mix docs --warnings-as-errors
+
+      - run: mix hex.build
+
+      - name: Verificar el tarball
+        run: sh .github/scripts/verificar_paquete.sh
 
       - run: mix hex.publish --yes
         env:

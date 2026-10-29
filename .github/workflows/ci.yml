@@ -12,6 +12,13 @@
 #   cuatro veces sería cuatro veces el costo por la misma respuesta. Y el
 #   dialyzer es el paso lento: su PLT se cachea aparte de deps/_build porque
 #   cambia con otra frecuencia (OTP y mix.lock, no cada commit).
+#
+# - `paquete` arma el tarball de Hex y la documentación como lo hará
+#   release.yml, y los verifica: la 0.4.0 descubrió al empujar el tag que el
+#   paquete arrastraba los PLT y que las docs enlazaban módulos ocultos.
+#
+# Todos los jobs tienen `timeout-minutes`: un dialyzer colgado no bloquea el
+# PR durante las seis horas del tope de GitHub.
 name: CI
 
 on:
@@ -30,6 +37,7 @@ jobs:
   pruebas:
     name: Elixir ${{ matrix.elixir }} / OTP ${{ matrix.otp }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -95,6 +103,7 @@ jobs:
   calidad:
     name: Formato, credo y dialyzer
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
 
@@ -155,9 +164,48 @@ jobs:
 
       - run: mix dialyzer --format github
 
+  paquete:
+    name: Paquete de Hex y documentación
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Instalar Erlang y Elixir
+        id: beam
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.20"
+          otp-version: "28"
+
+      - name: Cache de deps y _build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: mix-paquete-${{ steps.beam.outputs.elixir-version }}-${{ steps.beam.outputs.otp-version }}-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            mix-paquete-${{ steps.beam.outputs.elixir-version }}-${{ steps.beam.outputs.otp-version }}-
+
+      - run: mix deps.get
+
+      # En dev, que es el entorno en que release.yml publica.
+      - run: mix compile --warnings-as-errors
+
+      # Una referencia a un módulo oculto o a un archivo que hexdocs no tiene
+      # es un warning de ex_doc; acá es un error.
+      - run: mix docs --warnings-as-errors
+
+      - run: mix hex.build
+
+      - name: Verificar el tarball
+        run: sh .github/scripts/verificar_paquete.sh
+
   prompts:
     name: Registro de prompts
     runs-on: ubuntu-24.04
+    timeout-minutes: 10
     steps:
       # Historia completa: la verificación lee el commit que agregó cada archivo.
       - uses: actions/checkout@v7
@@ -192,6 +240,7 @@ jobs:
   dependencia:
     name: Como dependencia
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     strategy:
       matrix:
         include:
