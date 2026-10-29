@@ -77,6 +77,16 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   menos de 10 ms y ~5 KB (`bench/README.md`). Las trazas son las mismas
   para LF, CRLF y CR, con y sin terminador final (#96).
 
+### Agregado
+
+- La tabla ISO 4217 de `AnchoFijo.Monto` trae ahora todas las monedas con
+  escala distinta de dos (faltaban CLF y UYW, de cuatro decimales, y BIF y
+  UYI, de cero) y las de la región que faltaban (VES, VED, CUP, BZD, SVC,
+  HTG, JMD, TTD, BSD, BBD, XCD, XCG, GYD, SRD, AWG, ANG, COU, MXV, BOV).
+  `moneda: :clf` lee la UF como `#AnchoFijo.Monto<1.234,5678 CLF>` sin
+  declarar precisión. Un test contrasta la tabla con la lista de ISO 4217
+  (#97).
+
 ## [0.4.0] — 2026-10-23
 
 ### Cambiado — rompe compatibilidad

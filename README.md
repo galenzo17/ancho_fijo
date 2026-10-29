@@ -575,7 +575,8 @@ del banco y nadie sabe dónde se perdió el peso.
 
 `:moneda` convierte el `:decimal` en un `AnchoFijo.Monto` con su código ISO
 4217, y la precisión deja de declararse: es la escala de la moneda. CLP no
-tiene decimales, USD tiene dos, KWD tres; `moneda: :clp` con `precision: 2`
+tiene decimales, USD tiene dos, KWD tres, CLF (la UF) cuatro; `moneda: :clp`
+con `precision: 2`
 es un layout inválido, porque leer pesos chilenos divididos por cien es el
 error que nadie nota hasta la conciliación. `Monto.sumar/2` exige la misma
 moneda y devuelve un diagnóstico si no; `total/1`, `formatear/2` y
