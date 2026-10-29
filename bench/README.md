@@ -50,3 +50,21 @@ con su índice; después, mil.
 `parsear/3` tolerante no mejora: el tiempo se va en construir dos millones
 de mapas y en el GC de un heap de más de un gigabyte, no en leer. Es el
 contrato de "todo en memoria"; para archivos grandes existe `stream/3`.
+
+## `traza: true` en estricto (issue #96)
+
+Con `traza: true`, `parsear/3` partía y numeraba todas las líneas antes de
+leer la primera (`Regex.split` con capturas, `chunk_every`, `map_reduce`):
+lo que la issue #6 había arreglado para el camino sin traza se perdía con
+traza. Ahora `Parser.numerar/2` con traza sale del mismo recorrido lazy
+que parte las líneas (`Entrada.dividir_lazy_con_offset/1`), con el offset
+de cada una en el acumulador.
+
+Contenido en memoria de 500.000 líneas de 48 bytes (24 MB) con la primera
+fila mala, modo estricto. AMD Ryzen 7 PRO 8840U, Docker, Elixir 1.20.4 /
+OTP 28. Pico de heap muestreado cada 5 ms en un proceso aparte.
+
+| camino | tiempo antes | tiempo después | pico de heap antes | después |
+| --- | ---: | ---: | ---: | ---: |
+| `parsear/3` estricto con `traza: true` | 700–820 ms | < 10 ms | 210–280 MB | ~5 KB |
+| `parsear/3` estricto sin traza | < 1 ms | < 1 ms | ~5 KB | ~5 KB |

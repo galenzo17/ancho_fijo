@@ -151,9 +151,11 @@ defmodule AnchoFijo.Parser do
 
   defp metadata_de_layout(nil), do: %{layout: nil, encoding: nil, unidad: nil}
 
-  # Sin traza, el camino es el de siempre: partir y numerar. Con traza, cada
-  # línea conserva su terminador para saber dónde empieza la siguiente, y la
-  # tupla lleva la traza en vez del número solo. `parsear_linea/3` recibe el
+  # Sin traza, el camino es el de siempre: partir y numerar. Con traza, la
+  # tupla lleva la traza en vez del número solo: el offset sale del mismo
+  # recorrido lazy que parte las líneas, así que en modo estricto un archivo
+  # con la primera fila mala no se parte entero para mirar una. Cada línea
+  # es un sub-binario del contenido, sin copia. `parsear_linea/3` recibe el
   # número en los dos casos; la traza se pega al registro al final.
   #
   # Es público (sin doc) porque `AnchoFijo.Multiregistro` numera igual: la
@@ -166,14 +168,11 @@ defmodule AnchoFijo.Parser do
 
   def numerar(contenido, true) do
     contenido
-    |> Entrada.dividir_con_terminador()
-    |> Enum.map_reduce({1, 0}, fn cruda, {numero, offset} ->
-      linea = Entrada.sin_terminador(cruda)
-
-      {{linea, Traza.nueva(numero, offset, byte_size(linea))},
-       {numero + 1, offset + byte_size(cruda)}}
+    |> Entrada.dividir_lazy_con_offset()
+    |> Stream.with_index(1)
+    |> Stream.map(fn {{linea, offset}, numero} ->
+      {linea, Traza.nueva(numero, offset, byte_size(linea))}
     end)
-    |> elem(0)
   end
 
   @doc """

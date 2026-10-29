@@ -70,6 +70,12 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   línea corta era un `:largo_de_linea`. Un relleno que no existe en latin-1
   (`"€"`) en un campo latin-1 es ahora una advertencia de `Layout.nuevo/1`
   (#94).
+- `traza: true` ya no hace que `parsear/3` (y `Multiregistro.parsear/3`)
+  parta y numere todas las líneas antes de leer la primera: la traza sale
+  del mismo recorrido lazy que parte las líneas. En modo estricto sobre
+  500.000 líneas con la primera mala, de 700–820 ms y 210–280 MB de heap a
+  menos de 10 ms y ~5 KB (`bench/README.md`). Las trazas son las mismas
+  para LF, CRLF y CR, con y sin terminador final (#96).
 
 ## [0.4.0] — 2026-10-23
 
