@@ -75,27 +75,47 @@ defmodule AnchoFijo.Json do
   defp cadena(<<?\\, ?t, resto::binary>>, acc), do: cadena(resto, [?\t | acc])
 
   defp cadena(<<?\\, ?u, alto::binary-size(4), ?\\, ?u, bajo::binary-size(4), resto::binary>>, acc) do
-    with {a, ""} when a in 0xD800..0xDBFF <- Integer.parse(alto, 16),
-         {b, ""} when b in 0xDC00..0xDFFF <- Integer.parse(bajo, 16) do
+    with {:ok, a} when a in 0xD800..0xDBFF <- hex4(alto),
+         {:ok, b} when b in 0xDC00..0xDFFF <- hex4(bajo) do
       cadena(resto, [<<0x10000 + (a - 0xD800) * 0x400 + (b - 0xDC00)::utf8>> | acc])
     else
-      _ -> cadena(<<?\\, ?u, bajo::binary, resto::binary>>, [codepoint(alto) | acc])
+      _ -> escape_u(alto, <<?\\, ?u, bajo::binary, resto::binary>>, acc)
     end
   end
 
-  defp cadena(<<?\\, ?u, hex::binary-size(4), resto::binary>>, acc),
-    do: cadena(resto, [codepoint(hex) | acc])
-
+  defp cadena(<<?\\, ?u, hex::binary-size(4), resto::binary>>, acc), do: escape_u(hex, resto, acc)
   defp cadena(<<?\\, _::binary>>, _acc), do: {:error, "escape inválido en un string JSON"}
   defp cadena(<<c::utf8, resto::binary>>, acc), do: cadena(resto, [<<c::utf8>> | acc])
   defp cadena(_, _acc), do: {:error, "string JSON sin cerrar o con bytes inválidos"}
 
-  defp codepoint(hex) do
-    case Integer.parse(hex, 16) do
-      {n, ""} when n < 0xD800 or n > 0xDFFF -> <<n::utf8>>
-      _ -> throw({:json, "escape \\u inválido: #{hex}"})
+  # Un `\u` fuera de los surrogates es un punto de código. Uno dentro sin su
+  # par no es un carácter, y cuatro dígitos que no son hexadecimales tampoco:
+  # las dos cosas son un error del JSON, que se devuelve como todos los demás.
+  # `Integer.parse/2` no sirve acá: acepta un signo (`-001`), y `<<-1::utf8>>`
+  # es un ArgumentError.
+  defp escape_u(hex, resto, acc) do
+    case hex4(hex) do
+      {:ok, n} when n < 0xD800 or n > 0xDFFF ->
+        cadena(resto, [<<n::utf8>> | acc])
+
+      {:ok, _surrogate} ->
+        {:error, "escape \\u#{hex} inválido: un surrogate sin su par"}
+
+      :error ->
+        {:error, "escape \\u#{hex} inválido: se esperaban cuatro dígitos hexadecimales"}
     end
   end
+
+  defp hex4(hex) do
+    if hexadecimal?(hex), do: {:ok, String.to_integer(hex, 16)}, else: :error
+  end
+
+  defp hexadecimal?(<<>>), do: true
+
+  defp hexadecimal?(<<c, resto::binary>>) when c in ?0..?9 or c in ?a..?f or c in ?A..?F,
+    do: hexadecimal?(resto)
+
+  defp hexadecimal?(_otro), do: false
 
   defp lista(<<?], resto::binary>>, acumulado), do: {:ok, Enum.reverse(acumulado), resto}
 
@@ -135,7 +155,7 @@ defmodule AnchoFijo.Json do
         resto = binary_part(texto, largo, byte_size(texto) - largo)
 
         if String.contains?(entero, [".", "e", "E"]),
-          do: {:ok, String.to_float(normalizar_float(entero)), resto},
+          do: flotante(entero, resto),
           else: {:ok, String.to_integer(entero), resto}
 
       _ ->
@@ -144,7 +164,15 @@ defmodule AnchoFijo.Json do
     end
   end
 
-  # String.to_float exige un punto: "1e3" se lee como "1.0e3".
+  # String.to_float exige un punto: "1e3" se lee como "1.0e3". Un exponente
+  # que no cabe en un float (`1e999`) es un ArgumentError de la VM y acá un
+  # error del JSON, como cualquier otro.
+  defp flotante(entero, resto) do
+    {:ok, String.to_float(normalizar_float(entero)), resto}
+  rescue
+    ArgumentError -> {:error, "número JSON fuera de rango: #{entero}"}
+  end
+
   defp normalizar_float(texto),
     do: if(String.contains?(texto, "."), do: texto, else: String.replace(texto, ~r/[eE]/, ".0e"))
 
