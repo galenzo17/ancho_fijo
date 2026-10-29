@@ -38,7 +38,7 @@ jobs:
             exit 1
           fi
           serie="${version%.*}.x"
-          if ! grep -qE "^\| *${serie//./\\.} *\|" SECURITY.md; then
+          if ! grep -qF "| $serie " SECURITY.md; then
             echo "::error file=SECURITY.md::La tabla de versiones con soporte no nombra la serie $serie"
             exit 1
           fi
