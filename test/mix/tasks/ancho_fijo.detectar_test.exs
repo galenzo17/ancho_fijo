@@ -127,6 +127,18 @@ defmodule Mix.Tasks.AnchoFijo.DetectarTest do
       assert errores =~ "se esperaba un :largo entero mayor que cero, llegó 0"
     end
 
+    test "un .json con un escape \\u inválido es código 2 con el motivo, no un throw" do
+      layout = Path.join(System.tmp_dir!(), "layout_u_#{System.unique_integer([:positive])}.json")
+      File.write!(layout, ~s({"campos":[{"nombre":"a\\uZZZZ","largo":48}]}))
+      on_exit(fn -> File.rm(layout) end)
+
+      {codigo, "", errores} = correr([ruta("nomina_correcta.txt"), "--layout", layout])
+
+      assert codigo == 2
+      assert errores =~ "no se pudo cargar el layout"
+      assert errores =~ "escape \\uZZZZ inválido: se esperaban cuatro dígitos hexadecimales"
+    end
+
     test "un .exs que no existe es código 2" do
       {2, "", errores} = correr([ruta("nomina_correcta.txt"), "--layout", "/no/existe.exs"])
 

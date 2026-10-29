@@ -1,5 +1,6 @@
 defmodule AnchoFijo.SerializacionTest do
   use ExUnit.Case, async: true
+  use ExUnitProperties
 
   import AnchoFijo.Fixtures
 
@@ -238,6 +239,56 @@ defmodule AnchoFijo.SerializacionTest do
       assert {:error, _} = AnchoFijo.Json.decodificar("{\"a\": }")
       assert {:error, _} = AnchoFijo.Json.decodificar("[1, 2")
       assert {:error, _} = AnchoFijo.Json.decodificar("{} x")
+    end
+
+    test "un escape \\u inválido, un surrogate suelto o un número fuera de rango es un error, no un throw" do
+      assert {:error, motivo} = AnchoFijo.Json.decodificar(~s("\\uZZZZ"))
+      assert motivo == "escape \\uZZZZ inválido: se esperaban cuatro dígitos hexadecimales"
+
+      assert {:error, motivo} = AnchoFijo.Json.decodificar(~s("\\uD800x"))
+      assert motivo == "escape \\uD800 inválido: un surrogate sin su par"
+
+      # Integer.parse/2 acepta un signo; el decodificador no.
+      assert {:error, _} = AnchoFijo.Json.decodificar(~s("\\u-001"))
+      assert {:error, _} = AnchoFijo.Json.decodificar(~s("\\u12"))
+      assert {:error, "número JSON fuera de rango: 1e999"} = AnchoFijo.Json.decodificar("1e999")
+
+      assert {:error, [%Diagnostico{tipo: :entrada} = d]} =
+               Layout.desde_json(~s({"campos":[{"nombre":"a\\uZZZZ","largo":2}]}))
+
+      assert d.recibido =~ "escape \\uZZZZ inválido"
+
+      assert {:error, [%Diagnostico{tipo: :entrada}]} =
+               Multiregistro.desde_json(~s({"registros":[{"tipo":"\\uD83D"}]}))
+    end
+
+    property "decodificar/1 nunca levanta ni lanza: {:ok, _} o {:error, _} para cualquier binario" do
+      con_escapes =
+        gen all(
+              trozos <-
+                list_of(
+                  one_of([
+                    string(:ascii, max_length: 6),
+                    constant("\\"),
+                    constant("\\u"),
+                    string(:alphanumeric, length: 4),
+                    constant(~s(")),
+                    constant("\\ud83d\\ude00"),
+                    constant("1e"),
+                    constant("999999")
+                  ]),
+                  max_length: 8
+                )
+            ) do
+          ~s(") <> Enum.join(trozos) <> ~s(")
+        end
+
+      check all(binario <- one_of([binary(), string(:printable), con_escapes])) do
+        resultado = AnchoFijo.Json.decodificar(binario)
+
+        assert match?({:ok, _}, resultado) or
+                 match?({:error, motivo} when is_binary(motivo), resultado)
+      end
     end
 
     test "el JSON Schema de priv/ es JSON válido y cubre las claves del mapa" do

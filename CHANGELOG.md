@@ -2,6 +2,18 @@
 
 Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
+## [No publicado]
+
+### Corregido
+
+- `AnchoFijo.Json.decodificar/1`, y con él `Layout.desde_json/1`,
+  `Multiregistro.desde_json/1` y las tareas Mix que leen un `.json`, devuelve
+  `{:error, motivo}` ante un escape `\u` que no es hexadecimal, un
+  *surrogate* sin su par o un número que no cabe en un float (`1e999`).
+  Antes escapaba un `throw` (o un `ArgumentError`) que nadie atrapaba y que
+  tumbaba la tarea en vez de terminar con código 2. Una propiedad verifica
+  que el decodificador nunca levanta (#89).
+
 ## [0.4.0] — 2026-10-23
 
 ### Cambiado — rompe compatibilidad
