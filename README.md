@@ -79,6 +79,14 @@ reporte.observaciones
 # ]
 ```
 
+Y las marcas que Windows y los mainframes dejan en el archivo, que no son datos
+y que un diagnóstico de largo culparía de otra cosa: el BOM UTF-8 que dejan
+Notepad y Excel (`reporte.bom == :utf8`; `bom: :ignorar` en `parsear/3` lo
+salta con una advertencia), un archivo UTF-16 o EBCDIC
+(`encoding_probable: :utf16 | :ebcdic`, con el `iconv` que lo convierte en la
+observación), y el `0x1A` final de DOS (`marca_final_dos?`; `parsear/3` lo
+omite con una advertencia). Los largos se cuentan sin ellas.
+
 Y si ya se tiene el layout que el anexo declara, se puede contrastar directo:
 
 ```elixir

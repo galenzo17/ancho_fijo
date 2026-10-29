@@ -228,7 +228,7 @@ defmodule AnchoFijo.SuperficieTest do
     end
 
     test "bytes inválidos en la muestra de detectar/2 son un reporte, no una excepción" do
-      assert {:ok, %{encoding_probable: :latin1}} = AnchoFijo.detectar(<<0xFF, 0xFE, 10>>)
+      assert {:ok, %{encoding_probable: :latin1}} = AnchoFijo.detectar(<<255, 253, 10>>)
     end
 
     test "un reporte que no es tal en contrastar/2 es un error de la llamada" do

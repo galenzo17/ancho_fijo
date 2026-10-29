@@ -76,6 +76,14 @@ defmodule AnchoFijo.Parser do
     * `:traza` — si es `true`, cada registro trae la clave `:__traza__` con
       un `AnchoFijo.Traza`: número de línea, byte donde empieza y largo.
       Default `false`, y apagada no cuesta nada: no se calcula ni se agrega.
+    * `:bom` — qué hacer con un BOM UTF-8 (`EF BB BF`, lo que dejan Notepad
+      y Excel) al principio del archivo: `:rechazar` (default; el diagnóstico
+      de largo de la línea 1 lo nombra) o `:ignorar` (se salta y queda una
+      advertencia). Una última línea que es solo `0x1A`, la marca de fin de
+      archivo de DOS, se omite con `omitir_vacias: true` y queda una
+      advertencia. En `stream/3` las dos marcas se saltan sin advertencia:
+      sus advertencias son por línea. `huella/2` no cambia: el BOM y la
+      marca son bytes del archivo.
 
   Una opción que no existe o un valor de otro tipo es un `ArgumentError`:
   es un error del programa, no del archivo, y no se reporta como diagnóstico.
@@ -119,8 +127,9 @@ defmodule AnchoFijo.Parser do
 
     Telemetria.span(:parsear, metadata, fn ->
       case preparar_parseo(layout, entrada, opts) do
-        {:ok, layout, numeradas} ->
+        {:ok, layout, numeradas, iniciales} ->
           {resultado, lineas} = procesar(numeradas, layout, metadata.modo)
+          resultado = con_iniciales(resultado, iniciales)
           {medidas, extra} = Telemetria.medir_parseo(resultado, lineas)
           {resultado, medidas, Map.merge(extra, metadata_de_layout(layout))}
 
@@ -137,14 +146,111 @@ defmodule AnchoFijo.Parser do
   defp preparar_parseo(layout, entrada, opts) do
     with {:ok, layout} <- Layout.coercer(layout),
          {:ok, contenido} <- Entrada.leer(entrada, opts) do
-      numeradas =
-        contenido
-        |> numerar(Keyword.get(opts, :traza, false))
-        |> seleccionar(opts)
-
-      {:ok, layout, numeradas}
+      {numeradas, iniciales} = preparar_numeradas(contenido, opts)
+      {:ok, layout, numeradas, iniciales}
     end
   end
+
+  # Las líneas numeradas y seleccionadas de un contenido, más las
+  # advertencias de las marcas del archivo que no son registros: el BOM que
+  # se saltó con `bom: :ignorar` y el 0x1A final que `omitir_vacias` omite.
+  # Público (sin doc) porque `AnchoFijo.Multiregistro` parte igual.
+  @doc false
+  @spec preparar_numeradas(binary(), keyword()) :: {Enumerable.t(), [Diagnostico.t()]}
+  def preparar_numeradas(contenido, opts) do
+    numeradas =
+      contenido
+      |> numerar(Keyword.get(opts, :traza, false))
+      |> seleccionar(opts)
+      |> sin_bom(opts)
+
+    {numeradas, advertencias_de_marcas(contenido, opts)}
+  end
+
+  @bom_utf8 <<0xEF, 0xBB, 0xBF>>
+  @marca_dos <<0x1A>>
+
+  # Con `bom: :ignorar`, la primera línea sale sin el BOM; la traza, si la
+  # hay, sigue apuntando al byte 0 y midiendo la línea entera: son los bytes
+  # del archivo. Público (sin doc) para los streams de `Multiregistro`.
+  @doc false
+  @spec sin_bom(Enumerable.t(), keyword()) :: Enumerable.t()
+  def sin_bom(numeradas, opts) do
+    if Keyword.get(opts, :bom, :rechazar) == :ignorar do
+      Stream.transform(numeradas, :primera, fn
+        {@bom_utf8 <> linea, marca}, :primera -> {[{linea, marca}], :resto}
+        par, _estado -> {[par], :resto}
+      end)
+    else
+      numeradas
+    end
+  end
+
+  defp advertencias_de_marcas(contenido, opts) do
+    bom =
+      if Keyword.get(opts, :bom, :rechazar) == :ignorar and Keyword.get(opts, :saltar, 0) == 0 and
+           String.starts_with?(contenido, @bom_utf8),
+         do: [
+           Diagnostico.nuevo(
+             tipo: :encoding,
+             gravedad: :advertencia,
+             linea: 1,
+             esperado: "una primera línea sin BOM",
+             recibido: "EF BB BF",
+             causa_probable:
+               "el archivo empieza con un BOM UTF-8, lo que dejan Notepad y Excel; se saltó " <>
+                 "porque bom: :ignorar"
+           )
+         ],
+         else: []
+
+    marca =
+      if Keyword.get(opts, :omitir_vacias, true) and termina_con_marca_dos?(contenido),
+        do: [
+          Diagnostico.nuevo(
+            tipo: :entrada,
+            gravedad: :advertencia,
+            linea: cantidad_de_lineas(contenido),
+            esperado: "un registro, o el final del archivo",
+            recibido: "0x1A",
+            causa_probable:
+              "la marca de fin de archivo de DOS (Ctrl-Z): no es un registro y se omitió"
+          )
+        ],
+        else: []
+
+    bom ++ marca
+  end
+
+  # Solo cuando la marca es una línea entera: `...\n\x1A` o el archivo es
+  # solo la marca. Pegada a la última línea es un byte de esa línea.
+  defp termina_con_marca_dos?(@marca_dos), do: true
+
+  defp termina_con_marca_dos?(contenido) when byte_size(contenido) >= 2 do
+    binary_part(contenido, byte_size(contenido) - 2, 2) in ["\n\x1A", "\r\x1A"]
+  end
+
+  defp termina_con_marca_dos?(_contenido), do: false
+
+  # Los terminadores se cuentan en C: es solo para el número de línea de la
+  # advertencia, y solo cuando hay marca.
+  defp cantidad_de_lineas(contenido) do
+    crlf = length(:binary.matches(contenido, "\r\n"))
+    lf = length(:binary.matches(contenido, "\n")) - crlf
+    cr = length(:binary.matches(contenido, "\r")) - crlf
+    crlf + lf + cr + 1
+  end
+
+  # Las advertencias de las marcas van antes que las de las líneas; en
+  # estricto con error no hay resultado que anotar.
+  @doc false
+  @spec con_iniciales(resultado(), [Diagnostico.t()]) :: resultado()
+  def con_iniciales(resultado, []), do: resultado
+
+  def con_iniciales({:ok, registros, advertencias}, iniciales),
+    do: {:ok, registros, iniciales ++ advertencias}
+
+  def con_iniciales({:error, _} = error, _iniciales), do: error
 
   defp metadata_de_layout(%Layout{} = layout) do
     %{layout: layout.nombre, encoding: layout.encoding, unidad: layout.unidad}
@@ -357,7 +463,8 @@ defmodule AnchoFijo.Parser do
       {:saltar, &(is_integer(&1) and &1 >= 0), "un entero mayor o igual a cero"},
       {:omitir_vacias, &is_boolean/1, "true o false"},
       {:desde, &(&1 in [:auto, :archivo, :contenido]), ":auto, :archivo o :contenido"},
-      {:traza, &is_boolean/1, "true o false"}
+      {:traza, &is_boolean/1, "true o false"},
+      {:bom, &(&1 in [:rechazar, :ignorar]), ":rechazar o :ignorar"}
     ]
   end
 
@@ -374,6 +481,7 @@ defmodule AnchoFijo.Parser do
     |> Stream.drop(Keyword.get(opts, :saltar, 0))
     |> Stream.map(fn {linea, marca} -> {sin_terminador(linea), marca} end)
     |> descartar_vacias(Keyword.get(opts, :omitir_vacias, true))
+    |> sin_bom(opts)
     |> Stream.map(fn
       {linea, marca} when is_binary(linea) -> parsear_marcada(layout, linea, marca)
       {otro, marca} -> {:error, [no_es_linea(otro, numero_de(marca))]}
@@ -412,8 +520,10 @@ defmodule AnchoFijo.Parser do
 
   defp parsear_marcada(layout, linea, numero), do: parsear_linea(layout, linea, numero)
 
+  # Una línea en blanco no es un registro; tampoco una que es solo 0x1A, la
+  # marca de fin de archivo de DOS.
   defp descartar_vacias(stream, true) do
-    Stream.reject(stream, fn {linea, _marca} -> linea == "" end)
+    Stream.reject(stream, fn {linea, _marca} -> linea == "" or linea == @marca_dos end)
   end
 
   defp descartar_vacias(stream, _false), do: stream
@@ -517,7 +627,7 @@ defmodule AnchoFijo.Parser do
         completar_relleno(layout, linea, encontrado, numero)
 
       true ->
-        {:error, [desajuste_de_largo(layout, encontrado, numero)]}
+        {:error, [desajuste_de_largo(layout, linea, encontrado, numero)]}
     end
   end
 
@@ -615,7 +725,7 @@ defmodule AnchoFijo.Parser do
   defp medida(%Layout{unidad: :caracteres}, linea), do: String.length(linea)
   defp medida(%Layout{unidad: :bytes}, linea), do: byte_size(linea)
 
-  defp desajuste_de_largo(%Layout{} = layout, encontrado, numero) do
+  defp desajuste_de_largo(%Layout{} = layout, linea, encontrado, numero) do
     unidad = Campo.nombre_unidad(layout.unidad)
 
     Diagnostico.nuevo(
@@ -623,7 +733,7 @@ defmodule AnchoFijo.Parser do
       linea: numero,
       esperado: "#{layout.largo} #{unidad}",
       recibido: encontrado,
-      causa_probable: causa_de_largo(encontrado, layout.largo)
+      causa_probable: causa_de_largo(linea, numero, encontrado, layout.largo)
     )
   end
 
@@ -657,11 +767,23 @@ defmodule AnchoFijo.Parser do
     )
   end
 
-  defp causa_de_largo(encontrado, esperado) when encontrado < esperado do
+  # Las marcas del archivo primero: un BOM en la línea 1 o un 0x1A solo al
+  # final explican el largo mejor que "campo faltante".
+  defp causa_de_largo(@bom_utf8 <> _resto, 1, _encontrado, _esperado) do
+    "la línea empieza con un BOM UTF-8 (EF BB BF), 3 bytes que no son del registro y que " <>
+      "dejan Notepad y Excel; pase bom: :ignorar para saltarlo"
+  end
+
+  defp causa_de_largo(@marca_dos, _numero, _encontrado, _esperado) do
+    "la línea es solo 0x1A, la marca de fin de archivo de DOS (Ctrl-Z): no es un registro; " <>
+      "con omitir_vacias: true (el default) se omite"
+  end
+
+  defp causa_de_largo(_linea, _numero, encontrado, esperado) when encontrado < esperado do
     "posible campo faltante o archivo delimitado"
   end
 
-  defp causa_de_largo(_encontrado, _esperado) do
+  defp causa_de_largo(_linea, _numero, _encontrado, _esperado) do
     "posible campo extra, relleno no declarado, o un terminador de línea " <>
       "distinto del que se usó para cortar las líneas"
   end

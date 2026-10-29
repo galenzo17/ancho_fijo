@@ -38,9 +38,16 @@ defmodule AnchoFijo.Detector do
     * `:unidad_probable` — `:bytes` si los largos son consistentes en bytes y
       no en caracteres, `:caracteres` al revés; `nil` cuando da lo mismo o
       no se puede decidir.
-    * `:encoding_probable` — `:ascii`, `:utf8`, `:latin1` o `:mixto`: bytes
+    * `:encoding_probable` — `:ascii`, `:utf8`, `:latin1`, `:mixto` (bytes
       latin-1 y secuencias UTF-8 en el mismo archivo, que es lo que pasa
-      cuando el texto libre viene en UTF-8 y el resto no.
+      cuando el texto libre viene en UTF-8 y el resto no), `:utf16` (el
+      "Unicode" de Notepad y Excel: hay que convertirlo antes) o `:ebcdic`
+      (un archivo de mainframe transferido en binario: ídem).
+    * `:bom` — `:utf8` (`EF BB BF`, lo que dejan Notepad y Excel "CSV
+      UTF-8"), `:utf16le`, `:utf16be` o `nil`. Los largos se cuentan sin él.
+    * `:marca_final_dos?` — si el archivo termina con `0x1A`, la marca de
+      fin de archivo de DOS, que no es un registro. Los largos se cuentan
+      sin ella.
     * `:bytes_no_utf8` — hasta cinco bytes que rompen UTF-8, con línea y posición.
     * `:terminador` — `:crlf`, `:lf`, `:cr`, `:mixto` o `:ninguno`.
     * `:termina_con_terminador?` — `nil` si la muestra está truncada.
@@ -87,7 +94,9 @@ defmodule AnchoFijo.Detector do
           largo_predominante: non_neg_integer() | nil,
           largos_en_caracteres: %{optional(non_neg_integer()) => pos_integer()} | nil,
           unidad_probable: :bytes | :caracteres | nil,
-          encoding_probable: :ascii | :utf8 | :latin1 | :mixto,
+          encoding_probable: :ascii | :utf8 | :latin1 | :mixto | :utf16 | :ebcdic,
+          bom: :utf8 | :utf16le | :utf16be | nil,
+          marca_final_dos?: boolean(),
           bytes_no_utf8: [map()],
           terminador: :crlf | :lf | :cr | :mixto | :ninguno,
           termina_con_terminador?: boolean() | nil,
@@ -219,6 +228,8 @@ defmodule AnchoFijo.Detector do
 
   defp analizar(muestra, truncada?, opts) do
     maximo = Keyword.get(opts, :lineas, @lineas_default)
+    {bom, muestra} = bom(muestra)
+    {muestra, marca_dos?} = marca_final_dos(muestra, truncada?)
     {piezas, termina_con_terminador?} = piezas(muestra, truncada?)
     {lineas, vacias} = clasificar(piezas, maximo)
 
@@ -227,17 +238,35 @@ defmodule AnchoFijo.Detector do
       lineas_vacias: vacias,
       muestra_truncada?: truncada?,
       terminador: terminador(muestra),
-      termina_con_terminador?: termina_con_terminador?
+      termina_con_terminador?: termina_con_terminador?,
+      bom: bom,
+      marca_final_dos?: marca_dos?
     }
 
     base
     |> Map.merge(analizar_largos(lineas))
-    |> Map.merge(analizar_encoding(lineas))
+    |> Map.merge(analizar_encoding(lineas, bom, muestra))
     |> Map.merge(analizar_delimitadores(lineas, opts))
     |> veredicto()
     |> con_observaciones(lineas, opts)
     |> con_multiregistro(lineas, Keyword.get(opts, :layout))
   end
+
+  # Las marcas que Windows y los mainframes dejan en el archivo y que no son
+  # datos: el BOM al principio y el 0x1A (Ctrl-Z, fin de archivo de DOS) al
+  # final. Se sacan antes de contar, y se reportan aparte.
+  defp bom(<<0xEF, 0xBB, 0xBF, resto::binary>>), do: {:utf8, resto}
+  defp bom(<<0xFF, 0xFE, resto::binary>>), do: {:utf16le, resto}
+  defp bom(<<0xFE, 0xFF, resto::binary>>), do: {:utf16be, resto}
+  defp bom(muestra), do: {nil, muestra}
+
+  defp marca_final_dos(muestra, false) when byte_size(muestra) > 0 do
+    if :binary.last(muestra) == 0x1A,
+      do: {binary_part(muestra, 0, byte_size(muestra) - 1), true},
+      else: {muestra, false}
+  end
+
+  defp marca_final_dos(muestra, _truncada_o_vacia), do: {muestra, false}
 
   defp piezas(muestra, true), do: {muestra |> Entrada.dividir() |> Enum.drop(-1), nil}
 
@@ -308,6 +337,56 @@ defmodule AnchoFijo.Detector do
       en_caracteres = Enum.frequencies_by(textos, &String.length/1)
       if en_caracteres == largos_en_bytes, do: nil, else: en_caracteres
     end
+  end
+
+  # UTF-16 y EBCDIC no son encodings que el layout pueda declarar: el
+  # archivo hay que convertirlo. Se reconocen antes de mirar los bytes
+  # inválidos, porque en los dos casos casi todo byte lo sería.
+  defp analizar_encoding(_lineas, bom, _muestra) when bom in [:utf16le, :utf16be],
+    do: %{encoding_probable: :utf16, bytes_no_utf8: []}
+
+  defp analizar_encoding(lineas, _bom, muestra) do
+    cond do
+      utf16_sin_bom?(muestra) -> %{encoding_probable: :utf16, bytes_no_utf8: []}
+      ebcdic?(muestra) -> %{encoding_probable: :ebcdic, bytes_no_utf8: []}
+      true -> analizar_encoding(lineas)
+    end
+  end
+
+  # UTF-16 sin BOM: texto latino en UTF-16 tiene un byte nulo cada dos.
+  defp utf16_sin_bom?(muestra) when byte_size(muestra) >= 4 do
+    length(:binary.matches(muestra, <<0>>)) * 4 >= byte_size(muestra)
+  end
+
+  defp utf16_sin_bom?(_muestra), do: false
+
+  # EBCDIC (cp037, cp500): casi ningún byte donde ASCII pone letras y
+  # dígitos (las letras y los dígitos EBCDIC van de 0x81 a 0xF9; en
+  # 0x30..0x7A solo cae puntuación, y el espacio es 0x40, el `@` de ASCII),
+  # el espacio EBCDIC entre los tres bytes más frecuentes, y no es UTF-8
+  # válido. Un archivo latin-1 de verdad es letras y dígitos ASCII en su
+  # mayor parte.
+  defp ebcdic?(muestra) when byte_size(muestra) >= 8 do
+    not String.valid?(muestra) and
+      letras_y_digitos_ascii(muestra) * 10 < byte_size(muestra) and
+      0x40 in mas_frecuentes(muestra, 3)
+  end
+
+  defp ebcdic?(_muestra), do: false
+
+  defp letras_y_digitos_ascii(muestra) do
+    for <<byte <- muestra>>, byte in ?0..?9 or byte in ?A..?Z or byte in ?a..?z, reduce: 0 do
+      n -> n + 1
+    end
+  end
+
+  defp mas_frecuentes(muestra, cuantos) do
+    muestra
+    |> :binary.bin_to_list()
+    |> Enum.frequencies()
+    |> Enum.sort_by(fn {_byte, veces} -> -veces end)
+    |> Enum.take(cuantos)
+    |> Enum.map(fn {byte, _veces} -> byte end)
   end
 
   defp analizar_encoding([]) do
@@ -407,7 +486,8 @@ defmodule AnchoFijo.Detector do
   defp veredicto(reporte) do
     ancho_fijo? =
       reporte.lineas_analizadas > 0 and reporte.largo_consistente? and
-        is_nil(reporte.delimitador_sugerido)
+        is_nil(reporte.delimitador_sugerido) and
+        reporte.encoding_probable not in [:utf16, :ebcdic]
 
     Map.put(reporte, :probablemente_ancho_fijo?, ancho_fijo?)
   end
@@ -418,6 +498,7 @@ defmodule AnchoFijo.Detector do
 
     observaciones =
       Enum.concat([
+        observacion_marcas(reporte),
         observacion_muestra(reporte),
         observacion_largos(reporte, layout),
         observacion_caracteres(reporte),
@@ -563,7 +644,55 @@ defmodule AnchoFijo.Detector do
     ]
   end
 
+  defp observacion_encoding(%{encoding_probable: :utf16} = reporte) do
+    {nombre, iconv} =
+      case reporte.bom do
+        :utf16le -> {"UTF-16 LE (empieza con el BOM FF FE)", "UTF-16LE"}
+        :utf16be -> {"UTF-16 BE (empieza con el BOM FE FF)", "UTF-16BE"}
+        nil -> {"UTF-16 sin BOM (un byte nulo cada dos)", "UTF-16"}
+      end
+
+    [
+      "el archivo es #{nombre}, el \"Unicode\" de Notepad y de Excel: ningún layout lo lee " <>
+        "así; conviértalo a UTF-8 antes, por ejemplo con iconv -f #{iconv} -t UTF-8"
+    ]
+  end
+
+  defp observacion_encoding(%{encoding_probable: :ebcdic}) do
+    [
+      "parece EBCDIC (cp037 o cp500, un archivo de mainframe transferido en binario): casi " <>
+        "ningún byte es una letra o un dígito ASCII y el espacio EBCDIC (0x40) es de los más " <>
+        "frecuentes; " <>
+        "conviértalo antes, por ejemplo con iconv -f IBM037 -t UTF-8"
+    ]
+  end
+
   defp observacion_encoding(_reporte), do: []
+
+  # Las marcas van primero: explican los largos que siguen.
+  defp observacion_marcas(reporte) do
+    bom =
+      case reporte.bom do
+        :utf8 ->
+          [
+            "el archivo empieza con un BOM UTF-8 (EF BB BF), lo que dejan Notepad y Excel: la " <>
+              "primera línea mide 3 bytes más de lo que parece; bom: :ignorar en parsear/3 lo salta"
+          ]
+
+        _otro ->
+          []
+      end
+
+    marca =
+      if reporte.marca_final_dos?,
+        do: [
+          "el archivo termina con 0x1A, la marca de fin de archivo de DOS (Ctrl-Z): no es un " <>
+            "registro; parsear/3 la omite con omitir_vacias: true (el default) y lo advierte"
+        ],
+        else: []
+
+    bom ++ marca
+  end
 
   defp observacion_terminador(%{terminador: :ninguno}) do
     ["no hay terminadores de línea: el archivo es una sola línea o viene sin saltos"]

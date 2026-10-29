@@ -69,6 +69,14 @@ A fixed-width format that uses `|` as a decorative separator has the delimiter
 in the same column every time, and `detectar/2` does not give that false
 positive.
 
+And the marks Windows and mainframes leave in the file, which are not data and
+which a line-length diagnostic would blame on something else: the UTF-8 BOM
+Notepad and Excel leave (`reporte.bom == :utf8`; `bom: :ignorar` in
+`parsear/3` skips it with a warning), a UTF-16 or EBCDIC file
+(`encoding_probable: :utf16 | :ebcdic`, with the `iconv` that converts it in
+the observation), and the trailing DOS `0x1A` (`marca_final_dos?`;
+`parsear/3` omits it with a warning). Lengths are counted without them.
+
 The other everyday case, the encoding:
 
 ```elixir

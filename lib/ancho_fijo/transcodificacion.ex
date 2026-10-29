@@ -269,6 +269,11 @@ defmodule AnchoFijo.Transcodificacion do
       "el archivo probablemente es cp1252"
   end
 
+  def causa_probable(%{motivo: :caracter_de_control, byte: 0x1A}, _encoding) do
+    "0x1A es la marca de fin de archivo de DOS (Ctrl-Z); si es la última línea del " <>
+      "archivo no es un registro: omitir_vacias: true (el default) la omite"
+  end
+
   def causa_probable(%{motivo: :caracter_de_control, byte: byte}, _encoding) do
     "0x#{hex(byte)} es un carácter de control; puede ser un archivo binario, " <>
       "un terminador de línea inesperado o un campo corrido"

@@ -220,7 +220,8 @@ defmodule AnchoFijo do
 
   @doc """
   Huella SHA-256 del lote, estable entre corridas e insensible al estilo de
-  terminador de línea. Ver `AnchoFijo.Traza.huella/2`.
+  terminador de línea. Ver `AnchoFijo.Traza.huella/2`. Un BOM o la marca
+  `0x1A` final de DOS son bytes del archivo y cambian la huella.
 
       iex> {:ok, "sha256:" <> _hex} = AnchoFijo.huella("001\\n002\\n")
   """
