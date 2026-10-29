@@ -661,12 +661,14 @@ defmodule AnchoFijo.Multiregistro do
   defp tipo_contado(%{cuenta: tipo}), do: tipo
   defp tipo_contado(%{suma: {tipo, _campo}}), do: tipo
 
-  defp tiene_campo?(registros, tipo, campo) do
+  defp tiene_campo?(registros, tipo, campo) when is_atom(tipo) do
     case Keyword.fetch(registros, tipo) do
       {:ok, %{layout: layout}} -> is_atom(campo) and Enum.any?(layout.campos, &(&1.nombre == campo))
       :error -> false
     end
   end
+
+  defp tiene_campo?(_registros, _tipo, _campo), do: false
 
   defp get(definicion, clave, default \\ nil)
 

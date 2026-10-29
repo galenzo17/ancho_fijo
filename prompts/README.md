@@ -190,3 +190,4 @@ Las que la convención tuvo que zanjar y no eran obvias:
 | [0041](0041-escritura-en-bytes.md) | Issue #62: bytes frente a grafemas al escribir | Suite y propiedad de escritura en la unidad del layout, relleno multibyte corregido, diagnósticos con bytes y caracteres |
 | [0042](0042-readme-en.md) | Issue #53: guía en inglés y glosario | `README.en.md` completo, glosario sincronizado por test, decisión sobre el idioma de la API y criterio para una fachada |
 | [0043](0043-json-escapes.md) | Issue #89: un escape `\u` inválido tumbaba el decodificador JSON | `escape_u/3` con `{:error, _}`, floats fuera de rango, propiedad de que `decodificar/1` nunca levanta |
+| [0044](0044-desde-mapa-diagnosticos.md) | Issue #90: `desde_mapa/1` levantaba con fechas, patrones y decimales mal formados | Conversión sin `!` con diagnósticos por campo y clave, extremos de rango según el tipo, propiedades con basura en cualquier clave que destaparon cuatro excepciones más |

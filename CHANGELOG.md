@@ -13,6 +13,18 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   Antes escapaba un `throw` (o un `ArgumentError`) que nadie atrapaba y que
   tumbaba la tarea en vez de terminar con código 2. Una propiedad verifica
   que el decodificador nunca levanta (#89).
+- `Layout.desde_mapa/1` y `Multiregistro.desde_mapa/1` (y `desde_json/1` y
+  las tareas Mix) devuelven diagnósticos `:layout` con el campo y la clave
+  ante un `"rango"` con una fecha, hora o decimal que no se puede leer, un
+  `"patron"` que no compila o con opciones que no son texto, y un extremo
+  decimal como texto en un proyecto sin `Decimal`. Antes levantaban
+  `ArgumentError`, `Regex.CompileError` o `Decimal.Error`. Los extremos de
+  un `"rango"` se exigen del tipo del campo. Dos propiedades con basura en
+  cualquier clave del mapa, a cualquier profundidad, sostienen que nunca
+  levantan, y destaparon otras cuatro excepciones que también se corrigen:
+  un nombre de campo que no es átomo en un grupo o variante, un
+  `:variantes` cuyo valor no es una lista, un control con `:en` que no es
+  átomo y un nombre con bytes que no son UTF-8 (#90).
 
 ## [0.4.0] — 2026-10-23
 
