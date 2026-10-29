@@ -1283,18 +1283,6 @@ defmodule AnchoFijo.Campo do
     end
   end
 
-  # El texto de una fecha mide lo que el patrón; con un patrón ASCII (todos,
-  # salvo que un literal no lo sea) se completa por bytes.
-  defp completar_fecha(texto, %__MODULE__{largo: largo} = campo) do
-    case Tipo.Patron.de(campo) do
-      %{largo: ancho, largo_bytes: ancho} when byte_size(texto) <= largo ->
-        texto <> :binary.copy(" ", largo - byte_size(texto))
-
-      _otro ->
-        String.pad_trailing(texto, largo)
-    end
-  end
-
   defp representar(%__MODULE__{modulo: Tipo.Rut} = campo, valor, contexto) when is_binary(valor) do
     case Rut.normalizar(valor, campo.dv) do
       {:ok, canonico} when byte_size(canonico) <= campo.largo ->
@@ -1437,6 +1425,18 @@ defmodule AnchoFijo.Campo do
   # un ancho exacto, y escribirlo igual correría todas las columnas que
   # siguen. Es un error del layout que se reporta al escribir (y como
   # advertencia en `Layout.nuevo/1`).
+  # El texto de una fecha mide lo que el patrón; con un patrón ASCII (todos,
+  # salvo que un literal no lo sea) se completa por bytes.
+  defp completar_fecha(texto, %__MODULE__{largo: largo} = campo) do
+    case Tipo.Patron.de(campo) do
+      %{largo: ancho, largo_bytes: ancho} when byte_size(texto) <= largo ->
+        texto <> :binary.copy(" ", largo - byte_size(texto))
+
+      _otro ->
+        String.pad_trailing(texto, largo)
+    end
+  end
+
   defp completar(%__MODULE__{}, valor, 0, _contexto), do: {:ok, valor, []}
 
   defp completar(%__MODULE__{relleno: relleno} = campo, valor, faltan, contexto) do
