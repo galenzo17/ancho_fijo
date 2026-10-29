@@ -126,8 +126,12 @@ defmodule AnchoFijo do
   Parsea un archivo completo según un layout.
 
   `entrada` puede ser el contenido, una ruta a un archivo, o cualquiera de los
-  dos desambiguado con `desde: :archivo | :contenido`. El layout puede venir ya
-  construido o como definición en línea.
+  dos desambiguado con `desde: :archivo | :contenido`. Sin `desde:`, un
+  binario es una ruta si existe como archivo o si parece una ruta (termina
+  en una extensión como `.txt`, o empieza con `/`, `./`, `../`, `~/` o una
+  unidad de Windows); una ruta que no existe es un diagnóstico `:entrada`,
+  no el contenido de una línea. El layout puede venir ya construido o como
+  definición en línea.
 
       iex> AnchoFijo.parsear(
       ...>   [campos: [[nombre: :moneda, largo: 3], [nombre: :saldo, largo: 8, tipo: :decimal, precision: 2]]],

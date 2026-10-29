@@ -14,7 +14,7 @@ defmodule AnchoFijo.Entrada do
   def leer(entrada, opts \\ [])
 
   def leer(entrada, opts) when is_binary(entrada) do
-    if ruta?(entrada, opts), do: leer_archivo(entrada), else: {:ok, entrada}
+    if ruta?(entrada, opts), do: leer_archivo(entrada, opts), else: {:ok, entrada}
   end
 
   def leer(entrada, _opts), do: {:error, [no_es_entrada(entrada)]}
@@ -27,7 +27,7 @@ defmodule AnchoFijo.Entrada do
     limite = Keyword.get(opts, :bytes, @muestra_default)
 
     if ruta?(entrada, opts) do
-      leer_muestra_de_archivo(entrada, limite)
+      leer_muestra_de_archivo(entrada, limite, opts)
     else
       {:ok, recortar(entrada, limite), byte_size(entrada) > limite}
     end
@@ -40,7 +40,7 @@ defmodule AnchoFijo.Entrada do
 
   def lineas(entrada, opts) when is_binary(entrada) do
     if ruta?(entrada, opts) do
-      abrir_stream(entrada)
+      abrir_stream(entrada, opts)
     else
       {:ok, dividir(entrada)}
     end
@@ -108,11 +108,11 @@ defmodule AnchoFijo.Entrada do
     linea |> String.trim_trailing("\n") |> String.trim_trailing("\r")
   end
 
-  defp abrir_stream(ruta) do
+  defp abrir_stream(ruta, opts) do
     if File.regular?(ruta) do
       {:ok, File.stream!(ruta)}
     else
-      {:error, [ilegible(ruta, :enoent)]}
+      {:error, [ilegible(ruta, :enoent, opts)]}
     end
   end
 
@@ -141,7 +141,7 @@ defmodule AnchoFijo.Entrada do
     cond do
       not ruta?(entrada, opts) -> {:ok, [entrada]}
       File.regular?(entrada) -> {:ok, stream_de_bloques(entrada)}
-      true -> {:error, [ilegible(entrada, :enoent)]}
+      true -> {:error, [ilegible(entrada, :enoent, opts)]}
     end
   end
 
@@ -188,27 +188,27 @@ defmodule AnchoFijo.Entrada do
     end
   end
 
-  defp leer_archivo(ruta) do
+  defp leer_archivo(ruta, opts) do
     case File.read(ruta) do
       {:ok, contenido} -> {:ok, contenido}
-      {:error, motivo} -> {:error, [ilegible(ruta, motivo)]}
+      {:error, motivo} -> {:error, [ilegible(ruta, motivo, opts)]}
     end
   end
 
-  defp leer_muestra_de_archivo(ruta, limite) do
+  defp leer_muestra_de_archivo(ruta, limite, opts) do
     case File.open(ruta, [:read, :binary]) do
-      {:ok, dispositivo} -> leer_bytes(dispositivo, ruta, limite)
-      {:error, motivo} -> {:error, [ilegible(ruta, motivo)]}
+      {:ok, dispositivo} -> leer_bytes(dispositivo, ruta, limite, opts)
+      {:error, motivo} -> {:error, [ilegible(ruta, motivo, opts)]}
     end
   end
 
-  defp leer_bytes(dispositivo, ruta, limite) do
+  defp leer_bytes(dispositivo, ruta, limite, opts) do
     resultado = IO.binread(dispositivo, limite + 1)
     :ok = File.close(dispositivo)
 
     case resultado do
       :eof -> {:ok, "", false}
-      {:error, motivo} -> {:error, [ilegible(ruta, motivo)]}
+      {:error, motivo} -> {:error, [ilegible(ruta, motivo, opts)]}
       datos -> {:ok, recortar(datos, limite), byte_size(datos) > limite}
     end
   end
@@ -220,7 +220,7 @@ defmodule AnchoFijo.Entrada do
     case Keyword.get(opts, :desde, :auto) do
       :archivo -> true
       :contenido -> false
-      :auto -> plausible_como_ruta?(binario) and regular?(binario)
+      :auto -> plausible_como_ruta?(binario) and (regular?(binario) or parece_ruta?(binario))
     end
   end
 
@@ -230,6 +230,20 @@ defmodule AnchoFijo.Entrada do
   defp plausible_como_ruta?(binario) do
     byte_size(binario) in 1..@limite_ruta and
       not String.contains?(binario, ["\n", "\r", <<0>>])
+  end
+
+  # Un binario que parece una ruta y no existe es una ruta que no existe, no
+  # el contenido de un archivo de una línea: el diagnóstico tiene que decir
+  # "no existe", no "la línea mide 16 bytes". Parece una ruta si termina en
+  # una extensión (una letra y hasta cuatro alfanuméricos: `.txt`, `.dat`;
+  # `"TOTAL 12.50"` no) o empieza como una (`/`, `./`, `../`, `~/`, `C:\`,
+  # `\\`). Un `/` en el medio no alcanza: `"01/01/1950"` es una fecha.
+  @extension ~r/\.[A-Za-z][A-Za-z0-9]{0,4}\z/
+  @prefijos_de_ruta ["/", "./", "../", "~/", "\\\\"]
+
+  defp parece_ruta?(binario) do
+    Regex.match?(@extension, binario) or String.starts_with?(binario, @prefijos_de_ruta) or
+      Regex.match?(~r/\A[A-Za-z]:[\\\/]/, binario)
   end
 
   defp regular?(binario) do
@@ -242,14 +256,24 @@ defmodule AnchoFijo.Entrada do
     Enumerable.impl_for(entrada) != nil
   end
 
-  defp ilegible(ruta, motivo) do
+  defp ilegible(ruta, motivo, opts) do
     Diagnostico.nuevo(
       tipo: :entrada,
       esperado: "un archivo legible en #{inspect(ruta)}",
       recibido: inspect(motivo),
-      causa_probable: descripcion_motivo(motivo)
+      causa_probable: descripcion_motivo(motivo) <> pista_de_desde(motivo, opts)
     )
   end
+
+  # Sin `desde:`, la entrada se tomó por ruta porque lo parecía; si era el
+  # contenido, la opción lo zanja.
+  defp pista_de_desde(:enoent, opts) do
+    if Keyword.get(opts, :desde, :auto) == :auto,
+      do: "; si quiso pasar el contenido y no una ruta, declare desde: :contenido",
+      else: ""
+  end
+
+  defp pista_de_desde(_motivo, _opts), do: ""
 
   defp descripcion_motivo(:enoent), do: "la ruta no existe; revise el directorio de trabajo"
   defp descripcion_motivo(:eacces), do: "el proceso no tiene permisos de lectura sobre el archivo"
