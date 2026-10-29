@@ -29,11 +29,17 @@ defmodule AnchoFijo.Formatos do
   ## Qué formatos hay
 
     * `nacha/1` — NACHA/ACH, Estados Unidos. Ver `AnchoFijo.Formatos.Nacha`.
+    * `cuaderno43/1` — Cuaderno 43 de la AEB, el extracto bancario de
+      España. Ver `AnchoFijo.Formatos.Cuaderno43`.
 
-  Previred (Chile) es el siguiente; se agregan de a uno y completos, no dos
-  a medias.
+  Se agregan de a uno y completos, no dos a medias, con el mismo criterio:
+  público, estable, con fuente citable, y que ejercite partes de la
+  librería que los anteriores no ejercitan. Previred (Chile) no entra: su
+  archivo vigente de 105 campos es delimitado por punto y coma, no de ancho
+  fijo.
   """
 
+  alias AnchoFijo.Formatos.Cuaderno43
   alias AnchoFijo.Formatos.Nacha
   alias AnchoFijo.Multiregistro
 
@@ -42,6 +48,11 @@ defmodule AnchoFijo.Formatos do
       vigencias: ["2021"],
       fuente: Nacha.fuente(),
       consultado: ~D[2026-10-16]
+    },
+    cuaderno43: %{
+      vigencias: ["2012"],
+      fuente: Cuaderno43.fuente(),
+      consultado: ~D[2026-10-29]
     }
   }
 
@@ -68,6 +79,21 @@ defmodule AnchoFijo.Formatos do
   def nacha(opts \\ []) do
     case vigencia(:nacha, Keyword.get(opts, :vigencia)) do
       "2021" -> Nacha.multiregistro()
+    end
+  end
+
+  @doc """
+  El multiregistro del Cuaderno 43 de la AEB. Ver `AnchoFijo.Formatos.Cuaderno43`.
+
+      iex> AnchoFijo.Formatos.cuaderno43().discriminador
+      %{posicion: 1, largo: 2}
+      iex> AnchoFijo.Formatos.cuaderno43(vigencia: "2012") == AnchoFijo.Formatos.cuaderno43()
+      true
+  """
+  @spec cuaderno43(keyword()) :: Multiregistro.t()
+  def cuaderno43(opts \\ []) do
+    case vigencia(:cuaderno43, Keyword.get(opts, :vigencia)) do
+      "2012" -> Cuaderno43.multiregistro()
     end
   end
 
