@@ -74,7 +74,16 @@ defmodule AnchoFijo.Serializacion do
     declaradas =
       campo
       |> Map.from_struct()
-      |> Map.drop([:nombre, :posicion, :largo, :tipo, :modulo, :opciones, :reglas])
+      |> Map.drop([
+        :nombre,
+        :posicion,
+        :largo,
+        :tipo,
+        :modulo,
+        :opciones,
+        :reglas,
+        :formato_compilado
+      ])
       |> Enum.reject(fn {clave, valor} -> Map.get(defaults, clave) == valor end)
       |> Map.new(fn {clave, valor} -> {Atom.to_string(clave), valor_a_dato(valor)} end)
 

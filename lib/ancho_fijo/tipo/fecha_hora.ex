@@ -34,11 +34,12 @@ defmodule AnchoFijo.Tipo.FechaHora do
 
   @impl true
   def leer(texto, %Campo{} = campo, contexto) do
-    {:ok, patron} = Patron.compilar(campo.formato)
+    patron = Patron.de(campo)
 
-    if Patron.nulo?(patron, texto),
-      do: vacia(campo, patron, texto, contexto),
-      else: armar(campo, patron, texto, contexto)
+    case Patron.leer_o_nulo(patron, texto, campo.pivote) do
+      :nulo -> vacia(campo, patron, texto, contexto)
+      resultado -> armar(campo, patron, texto, contexto, resultado)
+    end
   end
 
   defp vacia(%Campo{opcional: true}, _patron, _texto, _contexto), do: {:ok, nil}
@@ -53,8 +54,8 @@ defmodule AnchoFijo.Tipo.FechaHora do
      )}
   end
 
-  defp armar(%Campo{} = campo, patron, texto, contexto) do
-    with {:ok, partes} <- Patron.leer(patron, texto, campo.pivote),
+  defp armar(%Campo{} = campo, patron, texto, contexto, leido) do
+    with {:ok, partes} <- leido,
          {:ok, fecha} <- Fecha.a_date(partes),
          {:ok, hora} <- Hora.a_time(partes) do
       NaiveDateTime.new(fecha, hora)
@@ -71,7 +72,7 @@ defmodule AnchoFijo.Tipo.FechaHora do
 
   @impl true
   def escribir(%NaiveDateTime{} = valor, %Campo{} = campo) do
-    {:ok, patron} = Patron.compilar(campo.formato)
+    patron = Patron.de(campo)
 
     partes =
       Map.merge(

@@ -77,8 +77,24 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   menos de 10 ms y ~5 KB (`bench/README.md`). Las trazas son las mismas
   para LF, CRLF y CR, con y sin terminador final (#96).
 
+- La 0.4.0 leía menos líneas por segundo que la 0.3.1. Se recuperó casi
+  todo: el patrón de `:fecha`, `:hora` y `:fecha_hora` se compila una vez
+  en `Campo.nuevo/1` (antes, en cada lectura y cada escritura), `Patron`
+  corta por bytes con un solo recorrido cuando el texto mide lo que el
+  patrón, las reglas y las condiciones cruzadas no se evalúan cuando el
+  layout no las declara, una línea ASCII se valida una vez y no tramo por
+  tramo, y el terminador se recorta byte a byte. En la misma máquina,
+  `Parser.parsear_linea/3` sobre cuatro campos pasó de 3,08 a 2,53 µs
+  (0.3.1: 2,40) y `stream/3` de 256–273 a 303–315 líneas/ms (0.3.1:
+  323–331). Sin cambios de comportamiento; `bench/README.md` tiene la
+  tabla (#95).
+
 ### Agregado
 
+- `AnchoFijo.Campo` guarda el patrón compilado de un campo de fecha u hora
+  en `:formato_compilado`, y `AnchoFijo.Layout` precalcula
+  `:con_condiciones`: datos derivados, como `:modulo`, que la serialización
+  no emite (#95).
 - La tabla ISO 4217 de `AnchoFijo.Monto` trae ahora todas las monedas con
   escala distinta de dos (faltaban CLF y UYW, de cuatro decimales, y BIF y
   UYI, de cero) y las de la región que faltaban (VES, VED, CUP, BZD, SVC,

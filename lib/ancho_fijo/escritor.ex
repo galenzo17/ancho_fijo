@@ -271,8 +271,7 @@ defmodule AnchoFijo.Escritor do
         end
       end)
 
-    case errores ++
-           Enum.reverse(Reglas.cruzadas(layout.campos, canonico(layout, registro), contexto)) do
+    case errores ++ Enum.reverse(cruzadas(layout, registro, contexto)) do
       [] ->
         relleno_final = String.duplicate(" ", layout.largo + 1 - cursor)
 
@@ -300,6 +299,11 @@ defmodule AnchoFijo.Escritor do
   # Las condiciones cruzadas miran los otros campos como `parsear/3` los
   # devolvería: `[campo: :monto, en: [{100, 2}]]` se cumple con un
   # `Decimal.new("1.00")` en el mapa.
+  defp cruzadas(%Layout{con_condiciones: false}, _registro, _contexto), do: []
+
+  defp cruzadas(%Layout{campos: campos} = layout, registro, contexto),
+    do: Reglas.cruzadas(campos, canonico(layout, registro), contexto)
+
   defp canonico(%Layout{campos: campos}, registro) do
     Enum.reduce(campos, registro, fn campo, acumulado ->
       case Map.fetch(registro, campo.nombre) do

@@ -32,7 +32,7 @@ defmodule AnchoFijo.Tipo.Hora do
 
   @impl true
   def leer(texto, %Campo{} = campo, contexto) do
-    {:ok, patron} = Patron.compilar(campo.formato)
+    patron = Patron.de(campo)
 
     if texto == "",
       do: vacia(campo, patron, texto, contexto),
@@ -93,10 +93,8 @@ defmodule AnchoFijo.Tipo.Hora do
   def partes_de(%Time{} = hora), do: %{hora: hora.hour, minuto: hora.minute, segundo: hora.second}
 
   @impl true
-  def escribir(%Time{} = hora, %Campo{} = campo) do
-    {:ok, patron} = Patron.compilar(campo.formato)
-    Patron.escribir(patron, partes_de(hora), nil)
-  end
+  def escribir(%Time{} = hora, %Campo{} = campo),
+    do: Patron.escribir(Patron.de(campo), partes_de(hora), nil)
 
   def escribir(_otro, _campo), do: {:error, "se esperaba un Time"}
 end

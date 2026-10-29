@@ -68,3 +68,63 @@ OTP 28. Pico de heap muestreado cada 5 ms en un proceso aparte.
 | --- | ---: | ---: | ---: | ---: |
 | `parsear/3` estricto con `traza: true` | 700–820 ms | < 10 ms | 210–280 MB | ~5 KB |
 | `parsear/3` estricto sin traza | < 1 ms | < 1 ms | ~5 KB | ~5 KB |
+
+## La regresión de lectura de la 0.4.0 (issue #95)
+
+La 0.4.0 leía menos líneas por segundo que la 0.3.1. Medido con el mismo
+script sobre 300.000 líneas del layout de nómina de los fixtures (texto 10,
+texto 20, decimal 10, fecha 8), mínimo de tres corridas, `Enum.each` sin
+retener resultados. AMD Ryzen 7 PRO 8840U, Docker, Elixir 1.20.4 / OTP 28
+(la máquina de la issue era más rápida; importan las proporciones).
+
+| camino | 0.3.1 | 0.4.0 | después |
+| --- | ---: | ---: | ---: |
+| `stream/3` (`Enum.count`), líneas/ms | 323–331 | 256–273 | 303–315 |
+| `parsear/3` tolerante | 1,26 s | 1,44 s | 1,24 s |
+| `parsear/3` estricto | 2,24 s | 2,34 s | 2,27 s |
+| `parsear/3` estricto, `traza: true` | 2,44 s | 2,60 s | 2,38 s |
+| `Parser.parsear_linea/3` (la línea completa) | 2,40 µs | 3,08 µs | 2,53 µs |
+| `Campo.leer` texto de 10 | 0,28 µs | 0,38 µs | 0,37 µs |
+| texto de 20 | 0,39 µs | 0,53 µs | 0,53 µs |
+| decimal | 0,39 µs | 0,49 µs | 0,49 µs |
+| fecha | 0,78 µs | 2,23 µs | 0,80 µs |
+| `Tipo.Fecha.leer/3` | 0,42 µs | 1,26 µs | 0,40 µs |
+| `Campo.formatear` fecha | 1,03 µs | 3,33 µs | 1,08 µs |
+| `Escritor.escribir_linea/4` | 2,71 µs | 3,58 µs | 3,58 µs |
+
+(Los valores de 0.4.0 por pieza son los de la primera medición con este
+arnés, ya con el patrón de fecha compilado una vez; con el arnés viejo, que
+retenía los 300.000 resultados, `Campo.leer` fecha daba 5,3 µs.)
+
+## Qué se encontró en la 0.4.0
+
+3. **El patrón de fecha se compilaba en cada lectura.** `Tipo.Fecha.leer/3`
+   (y `escribir/2`, `Hora`, `FechaHora`) llamaba a `Patron.compilar/1` por
+   campo y por línea: tokenizar el formato, armar el mapa, chequear
+   repetidos. Ahora `Campo.nuevo/1` lo compila una vez y lo guarda en
+   `:formato_compilado` (un dato derivado, como `:modulo`; la serialización
+   no lo emite).
+
+4. **`Patron.leer/3` contaba grafemas dos veces.** `String.length/1` para
+   el largo y `String.split_at/2` por token, y `nulo?/2` cortaba el texto
+   otra vez antes de `leer/3`. Ahora, con un patrón ASCII y un texto que
+   mide en bytes lo que el patrón, los tokens se cortan con `binary_part/3`
+   en un solo recorrido que decide "sin dato" y lee a la vez; si algo no
+   cuadra, el camino por grafemas decide y redacta el mismo mensaje de
+   antes.
+
+5. **Costos por campo y por línea que no existían.** `Reglas.del_valor/3`
+   por campo y `Reglas.cruzadas/3` por línea aunque el layout no declarara
+   reglas (ahora `Layout.nuevo/1` precalcula `:con_condiciones`, y un campo
+   sin reglas sale en la primera cláusula); `a_utf8/2` por campo (ahora,
+   si la línea entera es ASCII imprimible, el parser lo decide una vez y
+   `Campo.leer/3` no transcodifica ni revisa cada tramo); dos
+   `String.trim_trailing/2` por línea para quitar el terminador; y dos
+   despachos por campo (`anidado?`, `relleno?`) más una tupla intermedia,
+   ahora un solo despacho por el módulo del campo.
+
+Lo que queda: `escribir/3` sigue un 30 % por encima de la 0.3.1 (los
+diagnósticos sensibles de #91 y el valor canónico de #92 se pagan por campo
+al escribir), y `Campo.leer` de un `:texto` paga `revisar_doble_codificacion/3`
+y las reglas por campo que la 0.3.1 no tenía: un 25 % sobre un campo de
+0,4 µs.

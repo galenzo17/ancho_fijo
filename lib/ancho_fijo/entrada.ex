@@ -111,8 +111,16 @@ defmodule AnchoFijo.Entrada do
   end
 
   @spec sin_terminador(binary()) :: binary()
-  def sin_terminador(linea) do
-    linea |> String.trim_trailing("\n") |> String.trim_trailing("\r")
+  def sin_terminador(linea), do: linea |> recortar_final(?\n) |> recortar_final(?\r)
+
+  # Cada `\n` del final y después cada `\r`, byte a byte: lo mismo que
+  # hacía `String.trim_trailing/2` dos veces, sin buscar patrones.
+  defp recortar_final(binario, byte) do
+    tamano = byte_size(binario)
+
+    if tamano > 0 and :binary.at(binario, tamano - 1) == byte,
+      do: recortar_final(binary_part(binario, 0, tamano - 1), byte),
+      else: binario
   end
 
   defp abrir_stream(ruta, opts) do

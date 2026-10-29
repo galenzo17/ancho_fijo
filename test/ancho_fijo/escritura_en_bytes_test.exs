@@ -241,7 +241,10 @@ defmodule AnchoFijo.EscrituraEnBytesTest do
         texto = String.replace(texto, relleno, "x")
 
         {:ok, linea, _} = AnchoFijo.escribir(layout, [%{a: "ab", g: texto}], truncar: true)
-        assert {:ok, [%{g: leido}], []} = AnchoFijo.parsear(layout, linea)
+
+        # Solo el valor: un texto latin-1 como "ñ···" puede traer la advertencia
+        # de doble codificación, que no es un error de lectura.
+        assert {:ok, [%{g: leido}], _} = AnchoFijo.parsear(layout, linea)
 
         recortada =
           linea
