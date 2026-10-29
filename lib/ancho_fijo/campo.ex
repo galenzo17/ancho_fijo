@@ -977,15 +977,32 @@ defmodule AnchoFijo.Campo do
   def formatear(%__MODULE__{} = campo, valor, contexto \\ %{}) do
     contexto = contexto |> Map.new() |> con_encoding_del_campo(campo)
 
-    with [] <- Reglas.del_valor(campo, valor, contexto),
-         {:ok, texto, advertencias} <- representar(campo, valor, contexto),
-         {:ok, codificado} <- codificar(campo, texto, contexto) do
-      {:ok, codificado, advertencias}
-    else
-      [regla | _] -> {:error, regla}
-      {:error, diagnostico} -> {:error, diagnostico}
-    end
+    resultado =
+      with [] <- Reglas.del_valor(campo, valor, contexto),
+           {:ok, texto, advertencias} <- representar(campo, valor, contexto),
+           {:ok, codificado} <- codificar(campo, texto, contexto) do
+        {:ok, codificado, advertencias}
+      else
+        [regla | _] -> {:error, regla}
+        {:error, diagnostico} -> {:error, diagnostico}
+      end
+
+    sensibilizar_escritura(resultado, campo, valor)
   end
+
+  # Al escribir, el dato es el valor del mapa, en el tipo en que vino, y los
+  # diagnósticos lo llevan en `:recibido` como al leer: un texto que no cabe,
+  # un RUT con el DV malo, un entero donde iba una fecha. Salen marcados con
+  # la forma del valor, también la advertencia de un texto truncado.
+  defp sensibilizar_escritura({:error, diagnostico}, %__MODULE__{sensible: true}, valor),
+    do: {:error, Diagnostico.marcar_sensible(diagnostico, Diagnostico.texto_de(valor))}
+
+  defp sensibilizar_escritura({:ok, texto, advertencias}, %__MODULE__{sensible: true}, valor) do
+    forma = Diagnostico.texto_de(valor)
+    {:ok, texto, Enum.map(advertencias, &Diagnostico.marcar_sensible(&1, forma))}
+  end
+
+  defp sensibilizar_escritura(resultado, _campo, _valor), do: resultado
 
   # Un relleno se escribe solo, con su carácter; un valor en el mapa es un
   # error, porque el relleno no es dato de nadie.
