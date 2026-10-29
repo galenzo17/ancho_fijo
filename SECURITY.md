@@ -38,17 +38,22 @@ esperaba.
 
 ## Versiones con soporte
 
-| Versión | Soporte                                             |
-| ------- | --------------------------------------------------- |
-| 0.3.x   | Correcciones y seguridad                            |
-| < 0.3   | Sin soporte: actualice, el CHANGELOG dice qué cambia |
+| Versión | Soporte                                                          |
+| ------- | ---------------------------------------------------------------- |
+| 0.4.x   | Correcciones y seguridad                                         |
+| 0.3.x   | Solo seguridad, hasta el 2027-04-23 (seis meses después de 0.4.0) |
+| < 0.3   | Sin soporte: actualice, el CHANGELOG dice qué cambia             |
+
+La tabla se actualiza en el mismo PR que sube `@version`: `release.yml` no
+publica un tag cuya serie no esté acá, y un test de la suite lo verifica
+antes.
 
 ## Cómo se publica
 
 Cada versión la publica el workflow `release.yml` cuando se empuja un tag
-`vX.Y.Z`, después de verificar que el tag coincide con `@version` en `mix.exs`
-y que el CHANGELOG tiene una sección para esa versión, y de correr la suite
-una vez más. Nadie publica a mano desde su máquina. El paquete no tiene
+`vX.Y.Z`, después de verificar que el tag coincide con `@version` en `mix.exs`,
+que el CHANGELOG tiene una sección para esa versión y que esta tabla nombra
+la serie, y de correr la suite una vez más. Nadie publica a mano desde su máquina. El paquete no tiene
 dependencias de runtime; `:decimal` y `:telemetry` son opcionales y se
 declaran en el proyecto que las usa.
 
