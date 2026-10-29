@@ -165,6 +165,13 @@ defmodule AnchoFijo.TranscodificacionTest do
       assert Transcodificacion.doble_codificacion("operaciÃ³n") == {:ok, "operación"}
       assert Transcodificacion.doble_codificacion("MUÃ‘OZ") == :no
       assert Transcodificacion.doble_codificacion("JOSÉ MUÑOZ") == :no
+      assert Transcodificacion.doble_codificacion("Ã±andÃº") == {:ok, "ñandú"}
+
+      # Latin-1 legítimo cuya reinterpretación es una secuencia de tres o
+      # cuatro bytes válida: una vocal acentuada seguida de puntos medios.
+      assert Transcodificacion.doble_codificacion("ñ···") == :no
+      assert Transcodificacion.doble_codificacion("é··") == :no
+      assert Transcodificacion.doble_codificacion("Año·2024") == :no
       assert Transcodificacion.doble_codificacion("日本") == :no
       assert Transcodificacion.doble_codificacion("") == :no
     end

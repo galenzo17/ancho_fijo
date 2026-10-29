@@ -322,12 +322,19 @@ defmodule AnchoFijo.Transcodificacion do
 
   La prueba es exacta y no una lista de pares sospechosos: el texto,
   reinterpretado como bytes latin-1, tiene que ser UTF-8 válido con al
-  menos un carácter multibyte. `"JOSÉ"` no lo es (0xC9 seguido de nada que
-  lo continúe) y queda como está.
+  menos un carácter multibyte, **y todos de dos bytes**. Un texto latino
+  (español, portugués, francés) doblemente codificado es siempre `Ã` o `Â`
+  seguido de un carácter de continuación, es decir secuencias de dos bytes;
+  una secuencia de tres o cuatro (`ñ···`, que reinterpretado es `F1 B7 B7
+  B7`, un ideograma válido) es texto latin-1 legítimo con mala suerte, no
+  doble codificación. `"JOSÉ"` tampoco lo es (0xC9 seguido de nada que lo
+  continúe) y queda como está.
 
       iex> AnchoFijo.Transcodificacion.doble_codificacion("operaciÃ³n")
       {:ok, "operación"}
       iex> AnchoFijo.Transcodificacion.doble_codificacion("JOSÉ")
+      :no
+      iex> AnchoFijo.Transcodificacion.doble_codificacion("ñ···")
       :no
       iex> AnchoFijo.Transcodificacion.doble_codificacion("ASCII")
       :no
@@ -340,8 +347,19 @@ defmodule AnchoFijo.Transcodificacion do
   end
 
   defp reinterpretar(bytes) when is_binary(bytes) do
-    if String.valid?(bytes) and multibyte_utf8?(bytes), do: {:ok, bytes}, else: :no
+    if String.valid?(bytes) and multibyte_utf8?(bytes) and solo_secuencias_de_dos_bytes?(bytes),
+      do: {:ok, bytes},
+      else: :no
   end
+
+  # Un byte de 0xE0 en adelante inicia una secuencia de tres o cuatro bytes:
+  # en texto latino doblemente codificado no aparece nunca.
+  defp solo_secuencias_de_dos_bytes?(<<byte, _resto::binary>>) when byte >= 0xE0, do: false
+
+  defp solo_secuencias_de_dos_bytes?(<<_byte, resto::binary>>),
+    do: solo_secuencias_de_dos_bytes?(resto)
+
+  defp solo_secuencias_de_dos_bytes?(<<>>), do: true
 
   defp reinterpretar(_no_cabe_en_latin1), do: :no
 
