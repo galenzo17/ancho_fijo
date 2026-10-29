@@ -1231,7 +1231,9 @@ suite on Elixir 1.14 / OTP 25 through 1.20 / OTP 28, semantic versioning with
 breaking changes under `### Cambiado — rompe compatibilidad` in the CHANGELOG
 while the version is `0.x`, the latest series is maintained plus six months of
 security fixes for the previous one, and releases are published only from CI
-by tag.
+by tag. How to work on it (the docker recipe for the whole matrix, what CI
+demands, what a PR carries, how a version is published) is in
+[CONTRIBUTING.md](https://github.com/galenzo17/ancho_fijo/blob/main/CONTRIBUTING.md).
 
 ## Glossary
 

@@ -20,6 +20,16 @@ defmodule AnchoFijo.SeguridadTest do
     assert fila =~ "Correcciones y seguridad"
   end
 
+  test "CONTRIBUTING.md existe, los README y SECURITY.md lo enlazan, y el paquete de Hex no lo lleva" do
+    assert File.exists?("CONTRIBUTING.md")
+
+    for archivo <- ["README.md", "README.en.md", "SECURITY.md"] do
+      assert File.read!(archivo) =~ "CONTRIBUTING.md", "#{archivo} no enlaza a CONTRIBUTING.md"
+    end
+
+    refute "CONTRIBUTING.md" in Mix.Project.config()[:package][:files]
+  end
+
   test "la serie anterior queda solo con seguridad y una fecha, y las más viejas sin soporte" do
     contenido = File.read!("SECURITY.md")
     assert contenido =~ ~r/\| 0\.3\.x +\| Solo seguridad, hasta el \d{4}-\d{2}-\d{2}/
