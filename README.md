@@ -1267,6 +1267,9 @@ Lo que un equipo necesita saber antes de depender de esto, en un lugar.
 también el dueño del paquete en Hex. Los PRs piden su revisión por
 [`CODEOWNERS`](https://github.com/galenzo17/ancho_fijo/blob/main/.github/CODEOWNERS). Cada cambio tiene su prompt en
 [`prompts/`](prompts/README.md), con el pedido, el resultado y las decisiones.
+Cómo correr la suite en toda la matriz con docker, qué exige CI, qué lleva un
+PR y cómo se publica una versión está en
+[CONTRIBUTING.md](https://github.com/galenzo17/ancho_fijo/blob/main/CONTRIBUTING.md).
 
 **Cómo reportar un problema de seguridad.** Por el reporte privado de GitHub,
 como dice [SECURITY.md](SECURITY.md): acuse en 3 días hábiles, plan en 14,
