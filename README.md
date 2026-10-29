@@ -721,6 +721,14 @@ campos: [
   `:fecha_hora`, con `nil` en el extremo abierto. Se compara sobre el valor
   ya convertido: una tupla, un `Monto`, un `Decimal` o una fecha, da igual
   cómo venga escrito.
+- Al escribir, las reglas miran el mismo valor que devolvería `parsear/3`:
+  un `Decimal.new("1.00")`, un `1` o un `"1.00"` en un `:decimal` con
+  `precision: 2` son `{100, 2}` para el catálogo y el rango, y un `:texto`
+  se recorta antes del patrón.
+- Los valores de `en:` y los extremos de `rango:` tienen que ser del tipo
+  del campo: un rango de fechas en un `:entero` o un catálogo de textos en
+  un `:entero` es un diagnóstico del layout, no una regla que nunca falla o
+  que falla siempre.
 - `patron:` es una expresión regular sobre el texto recortado.
 - `requerido_si:` y `prohibido_si:` miran otro campo del mismo registro:
   `[campo: :tipo, en: [...]]` se cumple cuando ese campo vale alguno de esos;

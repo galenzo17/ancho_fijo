@@ -35,6 +35,19 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   variante. Un decimal sensible fuera de rango levantaba
   `Protocol.UndefinedError` al describir la tupla; ya no. La matriz de
   `sensibles_test.exs` recorre también la escritura (#91).
+- Al escribir, las reglas `en:`, `rango:`, `patron:`, `requerido_si:` y
+  `prohibido_si:` miran el valor canónico del campo, el que devolvería
+  `parsear/3`: un `Decimal.new("1.00")`, un `1` o un `"1.00"` en un
+  `:decimal` con `precision: 2` son `{100, 2}` para el catálogo y el rango,
+  y un `:texto` se recorta antes del patrón. Antes un `Decimal` válido no
+  pasaba el catálogo y un string fuera de rango se escribía igual. El
+  catálogo compara las formas numéricas entre sí (`{100, 2}` es
+  `Decimal.new("1.00")`) (#92).
+- Los valores de `en:` y los extremos de `rango:` tienen que ser del tipo
+  del campo: un rango de fechas en un `:entero` o un catálogo de textos en
+  un `:entero` es un diagnóstico `:layout` por cada valor, no una regla que
+  nunca falla o que falla siempre. `Reglas.comparar/2` levanta
+  `ArgumentError` para lo incomparable en vez de contestar `:eq` (#92).
 
 ## [0.4.0] — 2026-10-23
 

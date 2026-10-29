@@ -271,7 +271,8 @@ defmodule AnchoFijo.Escritor do
         end
       end)
 
-    case errores ++ Enum.reverse(Reglas.cruzadas(layout.campos, registro, contexto)) do
+    case errores ++
+           Enum.reverse(Reglas.cruzadas(layout.campos, canonico(layout, registro), contexto)) do
       [] ->
         relleno_final = String.duplicate(" ", layout.largo + 1 - cursor)
 
@@ -294,6 +295,18 @@ defmodule AnchoFijo.Escritor do
          causa_probable: "cada registro a escribir es un mapa como los que devuelve parsear/3"
        )
      ]}
+  end
+
+  # Las condiciones cruzadas miran los otros campos como `parsear/3` los
+  # devolvería: `[campo: :monto, en: [{100, 2}]]` se cumple con un
+  # `Decimal.new("1.00")` en el mapa.
+  defp canonico(%Layout{campos: campos}, registro) do
+    Enum.reduce(campos, registro, fn campo, acumulado ->
+      case Map.fetch(registro, campo.nombre) do
+        {:ok, valor} -> Map.put(acumulado, campo.nombre, Campo.canonico(campo, valor))
+        :error -> acumulado
+      end
+    end)
   end
 
   # Un grupo o una variante se escriben campo por campo, con el registro a

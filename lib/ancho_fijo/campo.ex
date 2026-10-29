@@ -69,9 +69,15 @@ defmodule AnchoFijo.Campo do
       `:fecha_hora`, `patron: ~r/.../` en `:texto` sobre el valor ya
       recortado, y `requerido_si: [campo: :tipo, en: ["02"]]` o
       `prohibido_si: [campo: :otro]` (sin `en:`, la condición es que el otro
-      campo tenga valor). Cada falla es un diagnóstico `:regla`; en modo
-      tolerante el registro se entrega igual y el diagnóstico se acumula,
-      en estricto la línea se rechaza.
+      campo tenga valor). Las reglas miran el valor canónico del campo, el
+      que `leer/3` devuelve: al escribir, un `%Decimal{}`, un entero o un
+      string en un `:decimal` se llevan a la tupla, el `Monto` o el
+      `Decimal` del campo, y un `:texto` se recorta. Los valores de `en:` y
+      los extremos de `rango:` tienen que ser del tipo del campo (entre las
+      formas numéricas de un `:decimal`, `{100, 2}` y `Decimal.new("1.00")`
+      son el mismo valor); el layout lo verifica. Cada falla es un
+      diagnóstico `:regla`; en modo tolerante el registro se entrega igual y
+      el diagnóstico se acumula, en estricto la línea se rechaza.
     * `:generador` — un generador de `StreamData` propio para
       `AnchoFijo.Test.Generadores`, para los campos con reglas que no se
       pueden deducir (un `:patron`, un `:en` con función).
@@ -978,7 +984,7 @@ defmodule AnchoFijo.Campo do
     contexto = contexto |> Map.new() |> con_encoding_del_campo(campo)
 
     resultado =
-      with [] <- Reglas.del_valor(campo, valor, contexto),
+      with [] <- Reglas.del_valor(campo, canonico(campo, valor), contexto),
            {:ok, texto, advertencias} <- representar(campo, valor, contexto),
            {:ok, codificado} <- codificar(campo, texto, contexto) do
         {:ok, codificado, advertencias}
@@ -989,6 +995,33 @@ defmodule AnchoFijo.Campo do
 
     sensibilizar_escritura(resultado, campo, valor)
   end
+
+  @doc false
+  # El valor como lo devolvería `leer/3` para ese campo, para que las reglas
+  # miren lo mismo al leer y al escribir: un `%Decimal{}`, un entero o un
+  # string de un `:decimal` son la tupla, el `Monto` o el `Decimal` del
+  # campo; un `:texto` se recorta como al leer. Lo que no se puede llevar
+  # queda como vino, y `representar/3` lo reclama después.
+  @spec canonico(t(), term()) :: term()
+  def canonico(%__MODULE__{modulo: Tipo.Decimal} = campo, valor)
+      when is_struct(valor, Decimal) or is_integer(valor) or is_binary(valor) do
+    case Tipo.Decimal.a_unidades(valor, campo) do
+      {:ok, unidades} -> Tipo.Decimal.valor(unidades, campo)
+      {:error, _causa} -> valor
+    end
+  end
+
+  def canonico(
+        %__MODULE__{modulo: Tipo.Decimal, precision: precision} = campo,
+        {unidades, precision}
+      )
+      when is_integer(unidades),
+      do: Tipo.Decimal.valor(unidades, campo)
+
+  def canonico(%__MODULE__{modulo: Tipo.Texto} = campo, valor) when is_binary(valor),
+    do: limpiar(valor, campo)
+
+  def canonico(_campo, valor), do: valor
 
   # Al escribir, el dato es el valor del mapa, en el tipo en que vino, y los
   # diagnósticos lo llevan en `:recibido` como al leer: un texto que no cabe,

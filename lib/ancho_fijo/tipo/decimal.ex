@@ -155,12 +155,18 @@ defmodule AnchoFijo.Tipo.Decimal do
     end
   end
 
-  defp valor(unidades, %Campo{como: :decimal, precision: precision}),
+  # El valor del campo a partir de las unidades mínimas: la tupla, el
+  # `%Decimal{}` con `como: :decimal` o el `Monto` con moneda. Es lo que
+  # `leer/3` devuelve y lo que `Campo.canonico/2` lleva a las reglas al
+  # escribir.
+  @doc false
+  @spec valor(integer(), Campo.t()) :: Campo.valor()
+  def valor(unidades, %Campo{como: :decimal, precision: precision}),
     do: Decimal.new(if(unidades < 0, do: -1, else: 1), abs(unidades), -precision)
 
-  defp valor(unidades, %Campo{moneda: nil, precision: precision}), do: {unidades, precision}
+  def valor(unidades, %Campo{moneda: nil, precision: precision}), do: {unidades, precision}
 
-  defp valor(unidades, %Campo{moneda: moneda, precision: precision}),
+  def valor(unidades, %Campo{moneda: moneda, precision: precision}),
     do: Monto.nuevo(unidades, precision, moneda)
 
   @doc """
