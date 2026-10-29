@@ -38,7 +38,8 @@ defmodule AnchoFijo.Detector do
     * `:unidad_probable` — `:bytes` si los largos son consistentes en bytes y
       no en caracteres, `:caracteres` al revés; `nil` cuando da lo mismo o
       no se puede decidir.
-    * `:encoding_probable` — `:ascii`, `:utf8`, `:latin1`, `:mixto` (bytes
+    * `:encoding_probable` — `:ascii`, `:utf8`, `:latin1`, `:cp1252` (bytes de
+      0x80–0x9F que son comillas, guiones o el euro en Windows-1252), `:mixto` (bytes
       latin-1 y secuencias UTF-8 en el mismo archivo, que es lo que pasa
       cuando el texto libre viene en UTF-8 y el resto no), `:utf16` (el
       "Unicode" de Notepad y Excel: hay que convertirlo antes) o `:ebcdic`
@@ -94,7 +95,7 @@ defmodule AnchoFijo.Detector do
           largo_predominante: non_neg_integer() | nil,
           largos_en_caracteres: %{optional(non_neg_integer()) => pos_integer()} | nil,
           unidad_probable: :bytes | :caracteres | nil,
-          encoding_probable: :ascii | :utf8 | :latin1 | :mixto | :utf16 | :ebcdic,
+          encoding_probable: :ascii | :utf8 | :latin1 | :cp1252 | :mixto | :utf16 | :ebcdic,
           bom: :utf8 | :utf16le | :utf16be | nil,
           marca_final_dos?: boolean(),
           bytes_no_utf8: [map()],
@@ -399,7 +400,24 @@ defmodule AnchoFijo.Detector do
       |> Enum.flat_map(&byte_invalido/1)
       |> Enum.take(@maximo_bytes_reportados)
 
-    %{encoding_probable: encoding_probable(lineas, invalidos), bytes_no_utf8: invalidos}
+    case encoding_probable(lineas, invalidos) do
+      :cp1252 ->
+        %{encoding_probable: :cp1252, bytes_no_utf8: invalidos, byte_cp1252: byte_cp1252(lineas)}
+
+      encoding ->
+        %{encoding_probable: encoding, bytes_no_utf8: invalidos}
+    end
+  end
+
+  defp byte_cp1252(lineas) do
+    patron = Transcodificacion.cp1252() |> Map.keys() |> Enum.map(&<<&1>>)
+
+    Enum.find_value(lineas, fn {linea, numero} ->
+      case :binary.match(linea, patron) do
+        {posicion, 1} -> {numero, posicion + 1, :binary.at(linea, posicion)}
+        :nomatch -> nil
+      end
+    end)
   end
 
   defp byte_invalido({linea, numero}) do
@@ -412,9 +430,16 @@ defmodule AnchoFijo.Detector do
   # Bytes que no son UTF-8 y, en el mismo archivo, secuencias UTF-8 válidas:
   # no es latin-1, es una mezcla por campo.
   defp encoding_probable(lineas, [_alguno | _resto]) do
-    if Enum.any?(lineas, fn {linea, _numero} -> Transcodificacion.multibyte_utf8?(linea) end),
-      do: :mixto,
-      else: :latin1
+    cond do
+      Enum.any?(lineas, fn {linea, _numero} -> Transcodificacion.multibyte_utf8?(linea) end) ->
+        :mixto
+
+      Enum.any?(lineas, fn {linea, _numero} -> Transcodificacion.cp1252?(linea) end) ->
+        :cp1252
+
+      true ->
+        :latin1
+    end
   end
 
   defp encoding_probable(lineas, []) do
@@ -636,6 +661,17 @@ defmodule AnchoFijo.Detector do
     ]
   end
 
+  defp observacion_encoding(%{encoding_probable: :cp1252} = reporte) do
+    {linea, posicion, byte} = primer_byte_cp1252(reporte)
+
+    [
+      "hay bytes de 0x80–0x9F que en latin-1 son controles y en Windows-1252 son comillas, " <>
+        "guiones o el euro (el byte 0x#{Integer.to_string(byte, 16)} en la posición #{posicion} " <>
+        "de la línea #{linea}): el archivo es cp1252, lo que exportan Excel y Notepad; " <>
+        "declare encoding: :cp1252 en el layout"
+    ]
+  end
+
   defp observacion_encoding(%{encoding_probable: :latin1, bytes_no_utf8: [primero | _resto]}) do
     [
       "hay bytes que no son UTF-8 válido pero sí caracteres latin-1 " <>
@@ -668,6 +704,10 @@ defmodule AnchoFijo.Detector do
   end
 
   defp observacion_encoding(_reporte), do: []
+
+  # El primer byte de Windows-1252 de la muestra, para nombrarlo: se guarda
+  # en el reporte al analizar el encoding, con línea y posición 1-based.
+  defp primer_byte_cp1252(%{byte_cp1252: {linea, posicion, byte}}), do: {linea, posicion, byte}
 
   # Las marcas van primero: explican los largos que siguen.
   defp observacion_marcas(reporte) do
@@ -868,6 +908,20 @@ defmodule AnchoFijo.Detector do
         esperado: "bytes UTF-8 válidos, porque el layout declara encoding: :utf8",
         recibido: "#{length(reporte.bytes_no_utf8)} bytes que no lo son",
         causa_probable: "el archivo parece latin-1; declare encoding: :latin1 en el layout"
+      )
+    ]
+  end
+
+  defp contrastar_encoding(%{encoding_probable: :cp1252}, %Layout{encoding: encoding})
+       when encoding in [:utf8, :latin1] do
+    [
+      Diagnostico.nuevo(
+        tipo: :entrada,
+        esperado: "un archivo #{encoding}, porque el layout declara encoding: #{inspect(encoding)}",
+        recibido: "bytes de 0x80–0x9F que son comillas, guiones o el euro en Windows-1252",
+        causa_probable:
+          "el archivo es cp1252, lo que exportan Excel y Notepad; declare encoding: :cp1252 " <>
+            "en el layout"
       )
     ]
   end

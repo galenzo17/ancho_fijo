@@ -1120,17 +1120,22 @@ being an error is an assumption nobody reviewed.
 assumed to get there. An error, instead, leaves no record: there is no value
 to deliver.
 
-**Control characters are rejected in both encodings.** The 0x80–0x9F range is
-control in latin-1 but carries quotes and dashes in Windows-1252. Finding it
-is the most reliable signal that the file is cp1252 and not latin-1, and the
-diagnostic says so instead of returning silent garbage. The cost is that a
-file with a legitimate control byte, which does not exist in banking fixed
-width but could, would need another strategy.
+**Control characters are rejected in all three encodings.** The 0x80–0x9F range
+is control in latin-1 but carries quotes and dashes in Windows-1252. Finding it
+under a latin-1 layout is the most reliable sign that the file is cp1252, and
+the diagnostic says so (and says what to declare) instead of returning silent
+garbage. In cp1252 the five bytes Windows does not define (0x81, 0x8D, 0x8F,
+0x90, 0x9D) are the diagnostic. The cost is that a file with a legitimate
+control byte, which does not exist in banking fixed width but could, would need
+another strategy.
 
-**No cp1252 or other encodings.** Only `:utf8` and `:latin1`. Adding a
-transcoding table for every codepage in the world is how a small package stops
-being finished. The diagnostic points at the problem and the prior conversion
-is one line of `iconv`.
+**Three encodings and nothing else: `:utf8`, `:latin1` and `:cp1252`.**
+Windows-1252 is not "one more codepage": it is latin-1 plus 27 characters (the
+euro, typographic quotes, long dashes), it is what Excel and Notepad export
+across the region, and it is the file this README opens with. Adding a
+transcoding table for every other codepage in the world is how a small package
+stops being finished: for UTF-16, EBCDIC or anything else, `detectar/2` names it
+and the prior conversion is one line of `iconv`.
 
 **Two ways to fail, and only two.** A problem with the data is an
 `AnchoFijo.Diagnostico`, as a value or inside `AnchoFijo.Error`. A problem with

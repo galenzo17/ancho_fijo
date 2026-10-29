@@ -26,7 +26,7 @@ defmodule AnchoFijo.Campo do
       aplica a `:texto`; los tipos numéricos y de fecha siempre recortan
       espacios porque el relleno no es parte del dato.
     * `:relleno` — carácter de relleno a recortar en `:texto`. Default `" "`.
-    * `:encoding` — `:utf8` o `:latin1` para este campo, por encima del
+    * `:encoding` — `:utf8`, `:latin1` o `:cp1252` para este campo, por encima del
       `:encoding` del layout. Para los archivos que mezclan: offsets en bytes
       y latin-1 en todo, salvo el campo de texto libre que viene en UTF-8.
       Solo con `unidad: :bytes`; con `:caracteres` la línea se decodifica
@@ -190,7 +190,7 @@ defmodule AnchoFijo.Campo do
           opcional: boolean(),
           trim: :ambos | :izquierda | :derecha | false,
           relleno: String.t(),
-          encoding: :utf8 | :latin1 | nil,
+          encoding: :utf8 | :latin1 | :cp1252 | nil,
           descripcion: String.t() | nil,
           ejemplo: String.t() | nil,
           reglas: Reglas.t(),
@@ -251,7 +251,7 @@ defmodule AnchoFijo.Campo do
   """
   @type contexto :: %{
           optional(:unidad) => :bytes | :caracteres,
-          optional(:encoding) => :utf8 | :latin1,
+          optional(:encoding) => :utf8 | :latin1 | :cp1252,
           optional(:linea) => pos_integer() | nil,
           optional(:truncar) => boolean()
         }
@@ -757,11 +757,19 @@ defmodule AnchoFijo.Campo do
     end
   end
 
-  defp validar_encoding(%__MODULE__{encoding: encoding}) when encoding in [nil, :utf8, :latin1],
-    do: []
+  defp validar_encoding(%__MODULE__{encoding: encoding})
+       when encoding in [nil, :utf8, :latin1, :cp1252],
+       do: []
 
   defp validar_encoding(%__MODULE__{nombre: nombre, encoding: encoding}) do
-    [falla(nombre, ":encoding :utf8 o :latin1, o ninguno para usar el del layout", encoding, nil)]
+    [
+      falla(
+        nombre,
+        ":encoding :utf8, :latin1 o :cp1252, o ninguno para usar el del layout",
+        encoding,
+        nil
+      )
+    ]
   end
 
   defp validar_nombre(%__MODULE__{nombre: :__traza__}) do
@@ -1427,7 +1435,7 @@ defmodule AnchoFijo.Campo do
   defp describir_ancho(valor, contexto) when is_binary(valor) do
     bytes =
       case Map.get(contexto, :encoding, :utf8) do
-        :latin1 -> String.length(valor)
+        un_byte when un_byte in [:latin1, :cp1252] -> String.length(valor)
         _utf8 -> byte_size(valor)
       end
 
@@ -1460,7 +1468,7 @@ defmodule AnchoFijo.Campo do
 
   defp medir(texto, contexto) do
     case Map.get(contexto, :encoding, :utf8) do
-      :latin1 -> String.length(texto)
+      un_byte when un_byte in [:latin1, :cp1252] -> String.length(texto)
       _utf8 -> byte_size(texto)
     end
   end
@@ -1469,7 +1477,7 @@ defmodule AnchoFijo.Campo do
 
   defp recortar(texto, largo, contexto) do
     case Map.get(contexto, :encoding, :utf8) do
-      :latin1 -> String.slice(texto, 0, largo)
+      un_byte when un_byte in [:latin1, :cp1252] -> String.slice(texto, 0, largo)
       _utf8 -> recortar_bytes(texto, largo)
     end
   end
@@ -1488,29 +1496,32 @@ defmodule AnchoFijo.Campo do
     recortado <> String.duplicate(" ", largo - byte_size(recortado))
   end
 
-  # Latin-1 cubre los puntos de código hasta 255; el primero que se pasa se
-  # reporta con su posición, que es lo que hace falta para corregir el dato.
-  defp codificar(%__MODULE__{} = campo, texto, %{encoding: :latin1} = contexto) do
-    case Enum.find_index(String.to_charlist(texto), &(&1 > 255)) do
-      nil ->
-        {:ok, :unicode.characters_to_binary(texto, :utf8, :latin1)}
+  # Latin-1 cubre los puntos de código hasta 255 y Windows-1252 esos más 27;
+  # el primero que no cabe se reporta con su posición, que es lo que hace
+  # falta para corregir el dato.
+  defp codificar(%__MODULE__{} = campo, texto, %{encoding: encoding} = contexto)
+       when encoding in [:latin1, :cp1252] do
+    case Transcodificacion.de_utf8(texto, encoding) do
+      {:ok, bytes} ->
+        {:ok, bytes}
 
-      indice ->
-        caracter =
-          texto |> String.to_charlist() |> Enum.at(indice) |> List.wrap() |> List.to_string()
-
+      {:error, %{posicion: posicion, caracter: caracter}} ->
         {:error,
          diagnostico(campo, contexto,
            tipo: :encoding,
-           esperado: "caracteres representables en latin1",
-           recibido: "#{inspect(caracter)} en la posición #{indice + 1} del valor",
+           esperado: "caracteres representables en #{encoding}",
+           recibido: "#{inspect(caracter)} en la posición #{posicion} del valor",
            causa_probable:
-             "el layout declara encoding: :latin1 y el valor trae un carácter que latin-1 no tiene"
+             "el layout declara encoding: #{inspect(encoding)} y el valor trae un carácter " <>
+               "que #{nombre_encoding(encoding)} no tiene"
          )}
     end
   end
 
   defp codificar(%__MODULE__{}, texto, _contexto), do: {:ok, texto}
+
+  defp nombre_encoding(:latin1), do: "latin-1"
+  defp nombre_encoding(:cp1252), do: "Windows-1252"
 
   defp no_cabe(%__MODULE__{} = campo, valor, ancho, esperado, contexto) do
     diagnostico(campo, contexto,

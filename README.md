@@ -1100,17 +1100,22 @@ revisó.
 se asumió para llegar a él. Un error, en cambio, no deja registro: no hay valor
 que entregar.
 
-**Se rechazan los caracteres de control en ambos encodings.** El rango
+**Se rechazan los caracteres de control en los tres encodings.** El rango
 0x80–0x9F es control en latin-1 pero trae comillas y guiones en Windows-1252.
-Encontrarlo es la señal más confiable de que el archivo es cp1252 y no latin-1,
-y el diagnóstico lo dice en vez de devolver basura silenciosa. El costo es que un
-archivo con un byte de control legítimo —no existe en ancho fijo bancario, pero
-podría existir— necesitaría otra estrategia.
+Encontrarlo en un layout latin-1 es la señal más confiable de que el archivo es
+cp1252, y el diagnóstico lo dice (y dice qué declarar) en vez de devolver basura
+silenciosa. En cp1252 los cinco bytes que Windows no define (0x81, 0x8D, 0x8F,
+0x90, 0x9D) son el diagnóstico. El costo es que un archivo con un byte de
+control legítimo —no existe en ancho fijo bancario, pero podría existir—
+necesitaría otra estrategia.
 
-**No hay soporte de cp1252 ni de otros encodings.** Solo `:utf8` y `:latin1`.
-Agregar una tabla de transcodificación por cada codepage del mundo es cómo un
-paquete chico deja de estar terminado. El diagnóstico apunta al problema y la
-conversión previa es una línea de `iconv`.
+**Tres encodings y nada más: `:utf8`, `:latin1` y `:cp1252`.** Windows-1252 no
+es "un codepage más": es latin-1 más 27 caracteres (el euro, las comillas
+tipográficas, los guiones largos), es lo que exportan Excel y Notepad en toda
+la región, y es el archivo con el que empieza este README. Agregar una tabla de
+transcodificación por cada otro codepage del mundo es cómo un paquete chico
+deja de estar terminado: para UTF-16, EBCDIC o cualquier otro, `detectar/2` lo
+nombra y la conversión previa es una línea de `iconv`.
 
 **Dos formas de fallar, y solo dos.** Un problema con los datos es un
 `AnchoFijo.Diagnostico`, como valor o dentro de `AnchoFijo.Error`. Un problema

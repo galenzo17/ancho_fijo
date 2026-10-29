@@ -714,11 +714,15 @@ defmodule AnchoFijo.Parser do
   defp relleno_reponible(%Campo{relleno: relleno}, _layout, :caracteres), do: relleno
 
   defp relleno_reponible(%Campo{relleno: relleno} = campo, %Layout{} = layout, :bytes) do
-    case {campo.encoding || layout.encoding, :unicode.characters_to_binary(relleno, :utf8, :latin1)} do
-      {:latin1, <<byte>>} -> <<byte>>
-      {:latin1, _no_cabe} -> :error
-      {_utf8, _} when byte_size(relleno) == 1 -> relleno
-      {_utf8, _} -> :error
+    case campo.encoding || layout.encoding do
+      :utf8 ->
+        if byte_size(relleno) == 1, do: relleno, else: :error
+
+      encoding ->
+        case Transcodificacion.de_utf8(relleno, encoding) do
+          {:ok, <<byte>>} -> <<byte>>
+          _no_cabe -> :error
+        end
     end
   end
 
