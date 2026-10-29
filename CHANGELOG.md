@@ -91,6 +91,13 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- `Inspect` para `AnchoFijo.Layout`, `AnchoFijo.Campo` y
+  `AnchoFijo.Multiregistro`: una línea con lo declarado
+  (`#AnchoFijo.Layout<"nómina", 4 campos, 48 bytes, latin1>`,
+  `#AnchoFijo.Campo<:monto 11-20 :decimal precision: 2>`,
+  `#AnchoFijo.Multiregistro<"NACHA", 3 tipos, por código en 1-2>`) en vez
+  de 30 claves por campo. `inspect(x, structs: false)` y
+  `custom_options: [completo: true]` muestran todo; nada más cambia (#101).
 - `mix ancho_fijo.validar RUTA --layout LAYOUT.exs|.json`: corre el parser
   sobre un archivo real y reporta los diagnósticos como los vería quien tiene
   que corregirlo: el resumen como encabezado, un diagnóstico por línea,
