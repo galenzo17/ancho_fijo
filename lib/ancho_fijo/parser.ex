@@ -81,9 +81,10 @@ defmodule AnchoFijo.Parser do
       de largo de la línea 1 lo nombra) o `:ignorar` (se salta y queda una
       advertencia). Una última línea que es solo `0x1A`, la marca de fin de
       archivo de DOS, se omite con `omitir_vacias: true` y queda una
-      advertencia. En `stream/3` las dos marcas se saltan sin advertencia:
-      sus advertencias son por línea. `huella/2` no cambia: el BOM y la
-      marca son bytes del archivo.
+      advertencia. En `stream/3` las dos advertencias viajan con el primer
+      elemento (sobre una ruta, la del `0x1A` sin número de línea: se mira
+      el último byte del archivo, no se cuenta). `huella/2` no cambia: el
+      BOM y la marca son bytes del archivo.
 
   Una opción que no existe o un valor de otro tipo es un `ArgumentError`:
   es un error del programa, no del archivo, y no se reporta como diagnóstico.
@@ -186,7 +187,66 @@ defmodule AnchoFijo.Parser do
     end
   end
 
-  defp advertencias_de_marcas(contenido, opts) do
+  # Las mismas advertencias para `stream/3`, que no tiene el contenido
+  # entero: con un binario, las de `parsear/3`; con una ruta, se miran los
+  # tres primeros bytes y los dos últimos del archivo (`pread`, sin
+  # recorrerlo), y la advertencia del 0x1A va sin número de línea; con un
+  # enumerable del llamador no hay archivo que mirar. Público (sin doc)
+  # para `Multiregistro.stream/3`.
+  @doc false
+  @spec advertencias_de_marcas_de_entrada(term(), keyword()) :: [Diagnostico.t()]
+  def advertencias_de_marcas_de_entrada(entrada, opts) when is_binary(entrada) do
+    if Entrada.es_ruta?(entrada, opts),
+      do: advertencias_de_marcas_de_archivo(entrada, opts),
+      else: advertencias_de_marcas(entrada, opts)
+  end
+
+  def advertencias_de_marcas_de_entrada(_entrada, _opts), do: []
+
+  defp advertencias_de_marcas_de_archivo(ruta, opts) do
+    case File.open(ruta, [:read, :binary, :raw]) do
+      {:ok, dispositivo} ->
+        {:ok, tamano} = :file.position(dispositivo, :eof)
+        inicio = leer_en(dispositivo, 0, 3)
+        final = leer_en(dispositivo, max(tamano - 2, 0), 2)
+        _ = File.close(dispositivo)
+        advertencias_de_marcas(inicio, opts, final)
+
+      {:error, _motivo} ->
+        []
+    end
+  end
+
+  defp leer_en(dispositivo, desde, cuantos) do
+    case :file.pread(dispositivo, desde, cuantos) do
+      {:ok, datos} -> datos
+      _eof_o_error -> ""
+    end
+  end
+
+  # Pega las advertencias de las marcas al primer elemento del stream: la
+  # línea 1 es donde `parsear/3` las nombra, y sin marcas no cuesta nada.
+  @doc false
+  @spec con_iniciales_en_stream(Enumerable.t(), [Diagnostico.t()]) :: Enumerable.t()
+  def con_iniciales_en_stream(resultados, []), do: resultados
+
+  def con_iniciales_en_stream(resultados, iniciales) do
+    Stream.transform(resultados, :primero, fn
+      {:ok, registro, advertencias}, :primero ->
+        {[{:ok, registro, iniciales ++ advertencias}], :resto}
+
+      {:error, diagnosticos}, :primero ->
+        {[{:error, iniciales ++ diagnosticos}], :resto}
+
+      resultado, :resto ->
+        {[resultado], :resto}
+    end)
+  end
+
+  # `final` son los últimos bytes del archivo cuando el contenido entero no
+  # está (stream sobre una ruta): el número de línea de la marca no se
+  # conoce y queda en nil.
+  defp advertencias_de_marcas(contenido, opts, final \\ nil) do
     bom =
       if Keyword.get(opts, :bom, :rechazar) == :ignorar and Keyword.get(opts, :saltar, 0) == 0 and
            String.starts_with?(contenido, @bom_utf8),
@@ -204,13 +264,19 @@ defmodule AnchoFijo.Parser do
          ],
          else: []
 
+    {cola, linea_de_la_marca} =
+      case final do
+        nil -> {contenido, fn -> cantidad_de_lineas(contenido) end}
+        bytes -> {bytes, fn -> nil end}
+      end
+
     marca =
-      if Keyword.get(opts, :omitir_vacias, true) and termina_con_marca_dos?(contenido),
+      if Keyword.get(opts, :omitir_vacias, true) and termina_con_marca_dos?(cola),
         do: [
           Diagnostico.nuevo(
             tipo: :entrada,
             gravedad: :advertencia,
-            linea: cantidad_de_lineas(contenido),
+            linea: linea_de_la_marca.(),
             esperado: "un registro, o el final del archivo",
             recibido: "0x1A",
             causa_probable:
@@ -387,8 +453,13 @@ defmodule AnchoFijo.Parser do
 
     resultados =
       case fuente(entrada, opts) do
-        {:ok, lineas} -> encadenar(lineas, layout, opts)
-        {:error, diagnosticos} -> [{:error, diagnosticos}]
+        {:ok, lineas} ->
+          lineas
+          |> encadenar(layout, opts)
+          |> con_iniciales_en_stream(advertencias_de_marcas_de_entrada(entrada, opts))
+
+        {:error, diagnosticos} ->
+          [{:error, diagnosticos}]
       end
 
     metadata = Map.put(metadata_de_layout(layout), :desde, Entrada.origen(entrada, opts))
