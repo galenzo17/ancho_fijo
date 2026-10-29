@@ -99,6 +99,67 @@ defmodule AnchoFijo.TrazaTest do
       do: {:ok, Map.put(registro, :__traza__, traza), []}
   end
 
+  describe "numerar/2 con traza" do
+    # La versión materializada que existía antes, como referencia: cada
+    # línea con su terminador, numerada y con el offset acumulado.
+    defp numerar_materializado(contenido) do
+      ~r/\r\n|\n|\r/
+      |> Regex.split(contenido, include_captures: true)
+      |> Enum.chunk_every(2)
+      |> Enum.map(&IO.iodata_to_binary/1)
+      |> Enum.map_reduce({1, 0}, fn cruda, {numero, offset} ->
+        linea = cruda |> String.trim_trailing("\n") |> String.trim_trailing("\r")
+
+        {{linea, Traza.nueva(numero, offset, byte_size(linea))},
+         {numero + 1, offset + byte_size(cruda)}}
+      end)
+      |> elem(0)
+    end
+
+    test "es un enumerable lazy, no una lista, y da las mismas trazas que la versión materializada" do
+      for contenido <- [
+            "001\n002\n003\n",
+            "001\r\n002\r\n003\r\n",
+            "001\r002\r003\r",
+            "001\n002\n003",
+            "001\r\n002\n003\r",
+            "",
+            "\n",
+            "\n\n001",
+            "001\r\n\r\n"
+          ] do
+        numeradas = AnchoFijo.Parser.numerar(contenido, true)
+        refute is_list(numeradas), inspect(contenido)
+        assert Enum.to_list(numeradas) == numerar_materializado(contenido), inspect(contenido)
+      end
+    end
+
+    test "en estricto con la primera línea mala no parte el resto del contenido" do
+      # 100.000 líneas: si se partieran todas antes de leer la primera, el
+      # trabajo (en reducciones del proceso) sería del orden del de leerlas
+      # todas; lazy, es el de una.
+      buena = "001\n"
+      contenido = "ABC\n" <> String.duplicate(buena, 100_000)
+
+      reducciones = fn fun ->
+        {:reductions, antes} = :erlang.process_info(self(), :reductions)
+        fun.()
+        {:reductions, despues} = :erlang.process_info(self(), :reductions)
+        despues - antes
+      end
+
+      temprano =
+        reducciones.(fn -> {:error, [_]} = AnchoFijo.parsear(@layout, contenido, traza: true) end)
+
+      completo =
+        reducciones.(fn ->
+          {:ok, _, [_]} = AnchoFijo.parsear(@layout, contenido, traza: true, modo: :tolerante)
+        end)
+
+      assert temprano * 100 < completo, "temprano: #{temprano}, completo: #{completo}"
+    end
+  end
+
   describe "sin traza" do
     test "la forma de retorno no cambia y no hay clave reservada" do
       {:ok, [registro], []} = AnchoFijo.parsear(@layout, "001\n")

@@ -76,7 +76,14 @@ defmodule AnchoFijo.Entrada do
   # de líneas para mirar mil es lo que lo hacía ocupar cuatro veces el
   # archivo. Cada pieza es un sub-binario del original, sin copia.
   @spec dividir_lazy(binary()) :: Enumerable.t()
-  def dividir_lazy(binario) do
+  def dividir_lazy(binario), do: binario |> dividir_lazy_con_offset() |> Stream.map(&elem(&1, 0))
+
+  # Las mismas piezas, cada una con el offset en bytes donde empieza: es lo
+  # que una traza necesita, y sale del mismo recorrido sin partir nada de
+  # más. La pieza final después del último terminador es `""`, como en
+  # `dividir/1`.
+  @spec dividir_lazy_con_offset(binary()) :: Enumerable.t()
+  def dividir_lazy_con_offset(binario) do
     patron = :binary.compile_pattern(["\r\n", "\n", "\r"])
     tamano = byte_size(binario)
 
@@ -86,8 +93,8 @@ defmodule AnchoFijo.Entrada do
 
       desde ->
         case :binary.match(binario, patron, scope: {desde, tamano - desde}) do
-          {hasta, largo} -> {binary_part(binario, desde, hasta - desde), hasta + largo}
-          :nomatch -> {binary_part(binario, desde, tamano - desde), nil}
+          {hasta, largo} -> {{binary_part(binario, desde, hasta - desde), desde}, hasta + largo}
+          :nomatch -> {{binary_part(binario, desde, tamano - desde), desde}, nil}
         end
     end)
   end
