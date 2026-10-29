@@ -655,9 +655,33 @@ defmodule AnchoFijo.ParserTest do
       assert d.causa_probable =~ "Ctrl-Z"
     end
 
-    test "stream/3 salta las dos marcas sin advertencias, y las rechaza igual que parsear/3" do
-      assert [{:ok, %{a: "ABC12345"}, []}, {:ok, %{a: "DEF67890"}, []}] =
+    test "stream/3 salta las dos marcas y advierte en el primer elemento; las rechaza igual que parsear/3" do
+      assert [{:ok, %{a: "ABC12345"}, [bom, marca]}, {:ok, %{a: "DEF67890"}, []}] =
                @ocho |> Parser.stream(@con_bom <> "\x1A", bom: :ignorar) |> Enum.to_list()
+
+      assert %Diagnostico{tipo: :encoding, gravedad: :advertencia, linea: 1} = bom
+
+      assert %Diagnostico{tipo: :entrada, gravedad: :advertencia, linea: 3, recibido: "0x1A"} =
+               marca
+
+      # Sobre una ruta se miran el principio y el final del archivo: la marca va sin línea.
+      archivo = Path.join(System.tmp_dir!(), "marcas_#{System.unique_integer([:positive])}.txt")
+      File.write!(archivo, @con_bom <> "\x1A")
+      on_exit(fn -> File.rm(archivo) end)
+
+      assert [
+               {:ok, %{a: "ABC12345"},
+                [%Diagnostico{linea: 1}, %Diagnostico{linea: nil, recibido: "0x1A"}]},
+               {:ok, _, []}
+             ] =
+               @ocho |> Parser.stream(archivo, bom: :ignorar) |> Enum.to_list()
+
+      # Sin marcas nada cambia, y con un enumerable no hay archivo que mirar.
+      assert [{:ok, _, []}, {:ok, _, []}] =
+               @ocho |> Parser.stream("ABC12345\nDEF67890\n", bom: :ignorar) |> Enum.to_list()
+
+      assert [{:ok, _, []}] =
+               @ocho |> Parser.stream(["ABC12345\n"], bom: :ignorar) |> Enum.to_list()
 
       assert [{:error, [%Diagnostico{linea: 1} = d]} | _] =
                @ocho |> Parser.stream(@con_bom) |> Enum.to_list()
@@ -677,7 +701,7 @@ defmodule AnchoFijo.ParserTest do
       assert {:ok, [d: %{x: "abc"}], [%Diagnostico{linea: 1}, %Diagnostico{linea: 2}]} =
                AnchoFijo.parsear(multi, "\uFEFFDabc\n\x1A", bom: :ignorar)
 
-      assert [{:ok, {:d, %{x: "abc"}}, []}] =
+      assert [{:ok, {:d, %{x: "abc"}}, [%Diagnostico{linea: 1}, %Diagnostico{linea: 2}]}] =
                multi |> AnchoFijo.stream("\uFEFFDabc\n\x1A", bom: :ignorar) |> Enum.to_list()
 
       assert {:error, [%Diagnostico{linea: 1}]} = AnchoFijo.parsear(multi, "\uFEFFDabc\n")

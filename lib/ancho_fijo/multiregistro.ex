@@ -836,8 +836,13 @@ defmodule AnchoFijo.Multiregistro do
     metadata = Map.put(metadata_de(multi), :desde, Entrada.origen(entrada, opts))
 
     case Parser.fuente(entrada, opts) do
-      {:ok, lineas} -> encadenar(multi, lineas, opts, metadata)
-      {:error, diagnosticos} -> Telemetria.instrumentar_stream([{:error, diagnosticos}], metadata)
+      {:ok, lineas} ->
+        multi
+        |> encadenar(lineas, opts, metadata)
+        |> Parser.con_iniciales_en_stream(Parser.advertencias_de_marcas_de_entrada(entrada, opts))
+
+      {:error, diagnosticos} ->
+        Telemetria.instrumentar_stream([{:error, diagnosticos}], metadata)
     end
   end
 
