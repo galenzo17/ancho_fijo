@@ -59,4 +59,6 @@ declaran en el proyecto que las usa.
 
 Las dependencias de desarrollo y de CI se revisan con `mix hex.audit`
 (paquetes retirados) y `mix deps.audit` (avisos de seguridad conocidos) en
-cada corrida de CI, y Dependabot abre PRs cuando hay una versión nueva.
+cada corrida de CI, y Dependabot abre PRs cuando hay una versión nueva. El
+flujo completo de una versión está en
+[CONTRIBUTING.md](https://github.com/galenzo17/ancho_fijo/blob/main/CONTRIBUTING.md).

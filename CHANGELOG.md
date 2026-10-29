@@ -92,6 +92,11 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Infraestructura
 
+- `CONTRIBUTING.md`: cómo correr la suite en toda la matriz con docker sin
+  instalar Elixir, el flujo de prompts en dos commits y por qué se mergea
+  con merge commit, qué exige CI y en qué orden correrlo, qué lleva un PR y
+  cómo se publica una versión. Enlazado desde los README y `SECURITY.md`;
+  no viaja en el paquete (#104).
 - `SECURITY.md` nombra la 0.4.x como serie con soporte y la 0.3.x solo con
   seguridad hasta el 2027-04-23; `release.yml` no publica un tag cuya serie
   no esté en la tabla, y un test de la suite lo verifica antes (#103).
