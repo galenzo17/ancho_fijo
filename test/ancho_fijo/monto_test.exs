@@ -170,9 +170,57 @@ defmodule AnchoFijo.MontoTest do
     end
   end
 
+  describe "la tabla ISO 4217" do
+    # Lista uno de ISO 4217 (exponente de la unidad menor), consultada el
+    # 2026-10-29: todas las monedas en circulación cuya escala no es dos.
+    # Las de escala "N.A." (metales, XDR, XTS, XXX) no son montos.
+    @iso_sin_dos %{
+      0 => ~w(BIF CLP DJF GNF ISK JPY KMF KRW PYG RWF UGX UYI VND VUV XAF XOF XPF),
+      3 => ~w(BHD IQD JOD KWD LYD OMR TND),
+      4 => ~w(CLF UYW)
+    }
+
+    test "toda moneda con escala distinta de dos está en la tabla con esa escala" do
+      for {escala, codigos} <- @iso_sin_dos, codigo <- codigos do
+        moneda = codigo |> String.downcase() |> String.to_atom()
+        assert Monto.escala(moneda) == {:ok, escala}, "#{codigo} debería tener escala #{escala}"
+      end
+    end
+
+    test "ninguna moneda de la tabla contradice la lista" do
+      sin_dos =
+        @iso_sin_dos
+        |> Enum.flat_map(fn {escala, codigos} -> Enum.map(codigos, &{&1, escala}) end)
+        |> Map.new()
+
+      for {moneda, escala} <- Monto.monedas() do
+        assert escala == Map.get(sin_dos, Monto.codigo(moneda), 2),
+               "#{Monto.codigo(moneda)} tiene escala #{escala} en la tabla"
+      end
+    end
+
+    test "las monedas de la región están" do
+      for codigo <-
+            ~w(ARS BOB BRL CLP CLF COP COU CRC CUP DOP GTQ HNL HTG JMD MXN MXV NIO PAB PEN PYG SVC TTD UYU UYI UYW VES VED BZD BSD BBD XCD GYD SRD AWG ANG) do
+        assert {:ok, _} = Monto.escala(codigo |> String.downcase() |> String.to_atom()), codigo
+      end
+    end
+
+    test "moneda: :clf lee un Monto de cuatro decimales sin advertencias" do
+      layout = Layout.nuevo!(campos: [[nombre: :uf, largo: 12, tipo: :decimal, moneda: :clf]])
+      assert layout.advertencias == []
+      assert {:ok, [%{uf: uf}], []} = AnchoFijo.parsear(layout, "000012345678\n")
+      assert uf == Monto.nuevo(12_345_678, :clf)
+      assert inspect(uf) == "#AnchoFijo.Monto<1.234,5678 CLF>"
+      assert {:ok, "000012345678\n", []} = AnchoFijo.escribir(layout, [%{uf: uf}])
+    end
+  end
+
   describe "formatear/2 y a_decimal/1" do
     test "formatea con la escala de la moneda" do
       assert Monto.formatear(Monto.nuevo(0, :clp)) == "0 CLP"
+      assert Monto.formatear(Monto.nuevo(12_345_678, :clf)) == "1.234,5678 CLF"
+      assert Monto.formatear(Monto.nuevo(-5, :uyw)) == "-0,0005 UYW"
       assert Monto.formatear(Monto.nuevo(-5, :usd)) == "-0,05 USD"
       assert Monto.formatear(Monto.nuevo(1_000_000, :jpy)) == "1.000.000 JPY"
       assert Monto.formatear(Monto.nuevo(1_234_567, :kwd)) == "1.234,567 KWD"

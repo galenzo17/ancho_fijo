@@ -594,7 +594,8 @@ bank's accounting and nobody knows where the cent was lost.
 
 `:moneda` turns the `:decimal` into an `AnchoFijo.Monto` with its ISO 4217
 code, and the precision is no longer declared: it is the currency's scale. CLP
-has no decimals, USD has two, KWD three; `moneda: :clp` with `precision: 2` is
+has no decimals, USD has two, KWD three, CLF (the Chilean UF) four;
+`moneda: :clp` with `precision: 2` is
 an invalid layout, because reading Chilean pesos divided by a hundred is the
 error nobody notices until reconciliation. `Monto.sumar/2` (add) demands the
 same currency and returns a diagnostic otherwise; `total/1`, `formatear/2`

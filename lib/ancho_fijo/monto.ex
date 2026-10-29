@@ -39,6 +39,11 @@ defmodule AnchoFijo.Monto do
   está en la tabla, la escala no se puede validar. Si la moneda falta y el
   layout declara `:precision`, el layout se construye con una advertencia;
   sin `:precision`, es un error. Ver `monedas/0`.
+
+      iex> layout = AnchoFijo.Layout.nuevo!(campos: [[nombre: :uf, largo: 12, tipo: :decimal, moneda: :clf]])
+      iex> {:ok, [%{uf: uf}], []} = AnchoFijo.parsear(layout, "000012345678\\n")
+      iex> uf
+      #AnchoFijo.Monto<1.234,5678 CLF>
   """
 
   alias AnchoFijo.Diagnostico
@@ -49,35 +54,75 @@ defmodule AnchoFijo.Monto do
   @enforce_keys [:unidades, :precision, :moneda]
   defstruct [:unidades, :precision, :moneda]
 
-  # Escala ISO 4217: cantidad de decimales de la unidad. Dos es el default
-  # del mundo; se listan completas las que no lo son y las que alguien va a
-  # usar con esta librería.
+  # Escala ISO 4217: cantidad de decimales de la unidad menor. Dos es el
+  # default del mundo; se listan completas las que no lo son (la lista uno de
+  # ISO 4217, consultada el 2026-10-29; `monto_test.exs` la contrasta) y las
+  # de la región y de reserva, que son las que alguien va a usar con esta
+  # librería.
   @escalas %{
     # Sin decimales
+    bif: 0,
     clp: 0,
+    djf: 0,
+    gnf: 0,
+    isk: 0,
     jpy: 0,
+    kmf: 0,
     krw: 0,
     pyg: 0,
-    vnd: 0,
-    isk: 0,
-    ugx: 0,
     rwf: 0,
-    xof: 0,
-    xaf: 0,
-    xpf: 0,
-    gnf: 0,
-    djf: 0,
-    kmf: 0,
+    ugx: 0,
+    uyi: 0,
+    vnd: 0,
     vuv: 0,
+    xaf: 0,
+    xof: 0,
+    xpf: 0,
     # Tres decimales
     bhd: 3,
-    kwd: 3,
-    omr: 3,
-    jod: 3,
-    tnd: 3,
     iqd: 3,
+    jod: 3,
+    kwd: 3,
     lyd: 3,
-    # Dos decimales: la región y las de reserva
+    omr: 3,
+    tnd: 3,
+    # Cuatro decimales: las unidades de cuenta indexadas de Chile y Uruguay
+    clf: 4,
+    uyw: 4,
+    # Dos decimales: la región
+    ars: 2,
+    awg: 2,
+    ang: 2,
+    bbd: 2,
+    bob: 2,
+    bov: 2,
+    brl: 2,
+    bsd: 2,
+    bzd: 2,
+    cop: 2,
+    cou: 2,
+    crc: 2,
+    cup: 2,
+    dop: 2,
+    gtq: 2,
+    gyd: 2,
+    hnl: 2,
+    htg: 2,
+    jmd: 2,
+    mxn: 2,
+    mxv: 2,
+    nio: 2,
+    pab: 2,
+    pen: 2,
+    srd: 2,
+    svc: 2,
+    ttd: 2,
+    uyu: 2,
+    ved: 2,
+    ves: 2,
+    xcd: 2,
+    xcg: 2,
+    # Dos decimales: las de reserva y las que llegan en los archivos
     usd: 2,
     eur: 2,
     gbp: 2,
@@ -87,19 +132,6 @@ defmodule AnchoFijo.Monto do
     nzd: 2,
     cny: 2,
     inr: 2,
-    brl: 2,
-    ars: 2,
-    mxn: 2,
-    cop: 2,
-    pen: 2,
-    uyu: 2,
-    bob: 2,
-    gtq: 2,
-    hnl: 2,
-    nio: 2,
-    crc: 2,
-    pab: 2,
-    dop: 2,
     sek: 2,
     nok: 2,
     dkk: 2,
@@ -127,6 +159,8 @@ defmodule AnchoFijo.Monto do
   @doc """
   La escala ISO 4217 de una moneda, o `:error` si no está en la tabla.
 
+      iex> AnchoFijo.Monto.escala(:clf)
+      {:ok, 4}
       iex> AnchoFijo.Monto.escala(:usd)
       {:ok, 2}
       iex> AnchoFijo.Monto.escala(:xyz)
