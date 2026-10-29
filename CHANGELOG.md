@@ -91,6 +91,13 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
 
 ### Agregado
 
+- `mix ancho_fijo.validar RUTA --layout LAYOUT.exs|.json`: corre el parser
+  sobre un archivo real y reporta los diagnósticos como los vería quien tiene
+  que corregirlo: el resumen como encabezado, un diagnóstico por línea,
+  `--modo estricto|tolerante`, `--lineas N`, `--json` (con `a_mapa/2`),
+  `--idioma es|en`, `--usuario` y `--revelar`. Recorre el archivo con
+  `stream/3`; códigos de salida `0` (se acepta), `1` (se rechaza) y `2` (no
+  se pudo leer el archivo, el layout o las opciones) (#100).
 - `encoding: :cp1252` (Windows-1252, lo que exportan Excel y Notepad) en el
   layout y por campo: latin-1 más los 27 caracteres de 0x80–0x9F (el euro,
   las comillas tipográficas, los guiones largos). Se lee, se escribe (un

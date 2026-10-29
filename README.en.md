@@ -143,6 +143,23 @@ for `jq`, and the exit code serves a pre-validation script: `0` if it looks
 fixed width and agrees, `1` if not, `2` if the file could not be read. See
 `mix help ancho_fijo.detectar`.
 
+And the everyday command that comes after, the one that answers "does this
+file pass with this layout, and what is in it?" without opening `iex`:
+
+```
+$ mix ancho_fijo.validar nomina.txt --layout nomina.exs
+nomina.txt: 3 errores en 3 líneas: el archivo se rechaza
+  2 registros leídos, 5 líneas
+  línea 2, campo :rut (posiciones 1-10): se esperaban un RUT cuyo dígito verificador cuadre; ...
+  línea 3, campo :monto (posiciones 31-40): se esperaban 10 posiciones con un número; ...
+  línea 5: se esperaban 48 bytes, llegaron 47; posible campo faltante o archivo delimitado
+```
+
+`--modo estricto|tolerante`, `--lineas N`, `--json`, `--idioma es|en`,
+`--usuario` and `--revelar` (sensitive fields come out redacted by default);
+the file is walked with `stream/3` without loading it whole; `0` if accepted,
+`1` if rejected, `2` if it could not be read.
+
 ## Then, parse
 
 The layout is data: a list of fields with name, length, type and cleanup
