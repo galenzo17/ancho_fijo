@@ -78,6 +78,12 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   menos de 10 ms y ~5 KB (`bench/README.md`). Las trazas son las mismas
   para LF, CRLF y CR, con y sin terminador final (#96).
 
+- El escritor pagaba por campo lo que no usaba: el valor canónico de las
+  reglas se calculaba aunque el campo no tuviera ninguna, los dígitos se
+  medían por grafemas y la descripción de lo esperado se armaba en cada
+  llamada. `Escritor.escribir_linea/4` sobre cuatro campos pasó de 3,58 a
+  1,91 µs (0.3.1: 2,71) y `escribir/3` de 300.000 registros de 5,2 s a
+  3,2 s (`bench/README.md`). Sin cambios de comportamiento (#125).
 - La 0.4.0 leía menos líneas por segundo que la 0.3.1. Se recuperó casi
   todo: el patrón de `:fecha`, `:hora` y `:fecha_hora` se compila una vez
   en `Campo.nuevo/1` (antes, en cada lectura y cada escritura), `Patron`

@@ -89,8 +89,11 @@ retener resultados. AMD Ryzen 7 PRO 8840U, Docker, Elixir 1.20.4 / OTP 28
 | decimal | 0,39 µs | 0,49 µs | 0,49 µs |
 | fecha | 0,78 µs | 2,23 µs | 0,80 µs |
 | `Tipo.Fecha.leer/3` | 0,42 µs | 1,26 µs | 0,40 µs |
-| `Campo.formatear` fecha | 1,03 µs | 3,33 µs | 1,08 µs |
-| `Escritor.escribir_linea/4` | 2,71 µs | 3,58 µs | 3,58 µs |
+| `Campo.formatear` fecha | 1,03 µs | 3,33 µs | 0,65 µs |
+| `Campo.formatear` texto de 20 | — | 0,43 µs | 0,27 µs |
+| `Campo.formatear` decimal | — | 0,91 µs | 0,26 µs |
+| `Escritor.escribir_linea/4` | 2,71 µs | 3,58 µs | 1,91 µs |
+| `escribir/3` de 300.000 registros | 4,75 s | 5,2–5,7 s | 3,2 s |
 
 (Los valores de 0.4.0 por pieza son los de la primera medición con este
 arnés, ya con el patrón de fecha compilado una vez; con el arnés viejo, que
@@ -123,8 +126,16 @@ retenía los 300.000 resultados, `Campo.leer` fecha daba 5,3 µs.)
    despachos por campo (`anidado?`, `relleno?`) más una tupla intermedia,
    ahora un solo despacho por el módulo del campo.
 
-Lo que queda: `escribir/3` sigue un 30 % por encima de la 0.3.1 (los
-diagnósticos sensibles de #91 y el valor canónico de #92 se pagan por campo
-al escribir), y `Campo.leer` de un `:texto` paga `revisar_doble_codificacion/3`
+6. **El escritor pagaba por campo lo que no usaba** (issue #125). El valor
+   canónico de #92 se calculaba antes de las reglas aunque el campo no
+   tuviera ninguna (para un `:decimal`, llevar el valor a unidades y
+   volver); `con_signo/5` contaba grafemas sobre dígitos ASCII y armaba la
+   descripción de lo esperado en cada llamada, también cuando cabía;
+   `Patron.escribir/3` y la fecha completaban con `String.pad_*`. Ahora el
+   canónico se calcula solo con reglas, los dígitos se miden y completan
+   por bytes, la descripción se arma solo si no cabe, y el escritor quedó
+   un 30 % por debajo de la 0.3.1.
+
+Lo que queda: `Campo.leer` de un `:texto` paga `revisar_doble_codificacion/3`
 y las reglas por campo que la 0.3.1 no tenía: un 25 % sobre un campo de
 0,4 µs.

@@ -341,7 +341,11 @@ defmodule AnchoFijo.Tipo.Patron do
     end
   end
 
-  defp digitos(numero, ancho), do: numero |> Integer.to_string() |> String.pad_leading(ancho, "0")
+  # Dígitos ASCII: se completan con ceros por bytes, sin pasar por grafemas.
+  defp digitos(numero, ancho) do
+    texto = Integer.to_string(numero)
+    :binary.copy("0", max(ancho - byte_size(texto), 0)) <> texto
+  end
 
   @doc "El nombre de una parte, para los mensajes."
   @spec describir(parte()) :: String.t()
