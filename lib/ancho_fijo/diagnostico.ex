@@ -203,6 +203,20 @@ defmodule AnchoFijo.Diagnostico do
     %__MODULE__{diagnostico | sensible: true, redactado: diagnostico.recibido}
   end
 
+  # El texto de un valor para describir su forma: al escribir, el valor viene
+  # en el tipo del mapa (un entero, una fecha, un `{unidades, precision}`), no
+  # como el texto del archivo. Lo que no tiene `String.Chars` se inspecciona.
+  @doc false
+  @spec texto_de(term()) :: String.t() | nil
+  def texto_de(nil), do: nil
+  def texto_de(valor) when is_binary(valor), do: valor
+
+  def texto_de(valor) do
+    to_string(valor)
+  rescue
+    Protocol.UndefinedError -> inspect(valor)
+  end
+
   @doc """
   Describe la forma de un valor sin revelarlo: cuántos caracteres y de qué
   clase, en el orden en que aparecen.

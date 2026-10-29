@@ -947,9 +947,11 @@ en la posición 14`) is not personal data and is the whole diagnostic of an
 encoding problem; the measure of a short line is a number; and the
 observations of `detectar/2` quote at most one byte and one delimiter, never a
 field's content. Inputs that are not binaries are described by type ("a list
-of 3 elements") instead of printed. A test walks every field type and every
-possible failure and verifies the absence of the value in every
-representation.
+of 3 elements") instead of printed. The same when writing: a value that does
+not fit, a RUT with a bad check digit or a truncated text are reported with
+the shape of the value, not the value. A test walks every field type and
+every possible failure, reading and writing, and verifies the absence of the
+value in every representation.
 
 ## Traceability: from the record to the byte, and the batch fingerprint
 

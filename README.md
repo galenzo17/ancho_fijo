@@ -925,9 +925,11 @@ en la posición 14`) no es un dato personal y es el diagnóstico entero de un
 problema de encoding; la medida de una línea corta es un número; y las
 observaciones de `detectar/2` citan a lo sumo un byte y un delimitador, nunca
 el contenido de un campo. Las entradas que no son binarios se describen por
-tipo ("una lista de 3 elementos") en vez de imprimirse. Hay un test que
-recorre cada tipo de campo y cada falla posible y verifica la ausencia del
-valor en cada representación.
+tipo ("una lista de 3 elementos") en vez de imprimirse. Lo mismo al
+escribir: un valor que no cabe, un RUT con el DV malo o un texto truncado
+se reportan con la forma del valor, no con el valor. Hay un test que recorre
+cada tipo de campo y cada falla posible, al leer y al escribir, y verifica la
+ausencia del valor en cada representación.
 
 ## Trazabilidad: del registro al byte, y la huella del lote
 

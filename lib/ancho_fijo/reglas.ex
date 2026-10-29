@@ -403,13 +403,9 @@ defmodule AnchoFijo.Reglas do
       )
 
     if campo.sensible,
-      do: Diagnostico.marcar_sensible(diagnostico, texto_de(valor)),
+      do: Diagnostico.marcar_sensible(diagnostico, Diagnostico.texto_de(valor)),
       else: diagnostico
   end
-
-  defp texto_de(nil), do: nil
-  defp texto_de(valor) when is_binary(valor), do: valor
-  defp texto_de(valor), do: to_string(valor)
 
   defp falla(%{nombre: nombre}, esperado, recibido) do
     Diagnostico.nuevo(

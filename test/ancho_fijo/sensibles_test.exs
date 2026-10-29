@@ -8,6 +8,7 @@ defmodule AnchoFijo.SensiblesTest do
   alias AnchoFijo.Campo
   alias AnchoFijo.Diagnostico
   alias AnchoFijo.Layout
+  alias AnchoFijo.Monto
 
   # Un valor que no aparece por casualidad en ningún mensaje.
   @centinela "QZX7"
@@ -45,9 +46,38 @@ defmodule AnchoFijo.SensiblesTest do
       reporte: Diagnostico.reporte([diagnostico]),
       to_string: to_string(diagnostico),
       inspect: inspect(diagnostico),
-      inspect_lista: inspect([diagnostico], pretty: true)
+      inspect_lista: inspect([diagnostico], pretty: true),
+      a_mapa: inspect(Diagnostico.a_mapa(diagnostico)),
+      json: Jason.encode!(diagnostico)
     ]
   end
+
+  # Al escribir, el valor viene en el tipo del mapa: cada caso es definición
+  # del campo, valor que lo hace fallar, qué parte no debe filtrarse y el
+  # contexto de escritura.
+  @casos_escritura [
+    {"texto que no cabe", [nombre: :c, largo: 4], "JUAN #{@centinela}", @centinela, %{}},
+    {"entero que no cabe", [nombre: :c, largo: 4, tipo: :entero], 7_712_345, "7712345", %{}},
+    {"entero con un valor de otro tipo", [nombre: :c, largo: 8, tipo: :entero], @centinela,
+     @centinela, %{}},
+    {"decimal con otra precisión", [nombre: :c, largo: 10, tipo: :decimal, precision: 2],
+     {7_712_345, 3}, "7712345", %{}},
+    {"monto de otra moneda", [nombre: :c, largo: 10, tipo: :decimal, precision: 2, moneda: :usd],
+     Monto.nuevo(7_712_345, 0, :clp), "7.712.345", %{}},
+    {"fecha con un valor de otro tipo", [nombre: :c, largo: 8, tipo: :fecha, formato: :aaaammdd],
+     @centinela, @centinela, %{}},
+    {"rut con dígito verificador malo", [nombre: :c, largo: 10, tipo: :rut], "12345678-9",
+     "12345678", %{}},
+    {"carácter que latin-1 no tiene", [nombre: :c, largo: 8], "Ω#{@centinela}", "Ω",
+     %{encoding: :latin1}},
+    {"relleno con valor", [nombre: :c, largo: 4, tipo: :relleno], @centinela, @centinela, %{}},
+    {"constante con otro literal", [nombre: :c, largo: 4, tipo: :constante, valor: "ABCD"],
+     @centinela, @centinela, %{}},
+    {"regla de rango", [nombre: :c, largo: 8, tipo: :entero, rango: {0, 10}], 7_712_345, "7712345",
+     %{}},
+    {"regla de catálogo", [nombre: :c, largo: 8, en: ["ABC"]], @centinela, @centinela, %{}},
+    {"regla de patrón", [nombre: :c, largo: 8, patron: ~r/^[a-z]+$/], @centinela, @centinela, %{}}
+  ]
 
   describe "ningún mensaje de un campo sensible contiene el valor" do
     for {nombre, definicion, linea, secreto} <- @casos do
@@ -114,6 +144,102 @@ defmodule AnchoFijo.SensiblesTest do
 
       assert diagnostico.sensible
       assert Diagnostico.mensaje(diagnostico) =~ "llegaron 2"
+    end
+  end
+
+  describe "ningún diagnóstico de escritura de un campo sensible contiene el valor" do
+    for {nombre, definicion, valor, secreto, contexto} <- @casos_escritura do
+      test nombre do
+        campo = campo_sensible(unquote(Macro.escape(definicion)))
+
+        assert {:error, diagnostico} =
+                 Campo.formatear(
+                   campo,
+                   unquote(Macro.escape(valor)),
+                   unquote(Macro.escape(contexto))
+                 )
+
+        assert diagnostico.sensible
+
+        for {representacion, texto} <- representaciones(diagnostico) do
+          refute texto =~ unquote(secreto), "#{representacion} filtra el valor: #{texto}"
+        end
+
+        assert Diagnostico.mensaje(diagnostico, revelar: true) =~ unquote(secreto)
+        assert Diagnostico.reporte([diagnostico], revelar: true) =~ unquote(secreto)
+      end
+    end
+
+    test "con el mismo campo sin sensible el valor sí aparece" do
+      campo = Campo.nuevo!(nombre: :c, posicion: 1, largo: 4)
+      assert {:error, diagnostico} = Campo.formatear(campo, "JUAN #{@centinela}", %{})
+
+      refute diagnostico.sensible
+      assert Diagnostico.mensaje(diagnostico) =~ @centinela
+    end
+
+    test "el RUT con el DV malo no viaja al log: el mensaje muestra la forma" do
+      assert {:error, [d]} =
+               AnchoFijo.escribir([campos: [[nombre: :rut, largo: 10, tipo: :rut]]], [
+                 %{rut: "12345678-9"}
+               ])
+
+      assert d.sensible
+      assert Diagnostico.mensaje(d) =~ ~s(<10 caracteres: 8 dígitos, "-", 1 dígito>)
+      refute Diagnostico.mensaje(d) =~ "12345678"
+      assert Diagnostico.mensaje(d, revelar: true) =~ "12345678-9"
+    end
+
+    test "un nil sin opcional sigue diciendo nil, que no es un dato" do
+      campo = campo_sensible(nombre: :c, largo: 4, tipo: :entero)
+      assert {:error, diagnostico} = Campo.formatear(campo, nil, %{})
+
+      assert diagnostico.sensible
+      assert Diagnostico.mensaje(diagnostico) =~ "llegaron nil"
+    end
+
+    test "la advertencia de un texto truncado sale marcada y sin el valor" do
+      campo = campo_sensible(nombre: :c, largo: 4)
+
+      assert {:ok, "JUAN", [advertencia]} =
+               Campo.formatear(campo, "JUAN #{@centinela}", %{truncar: true})
+
+      assert %Diagnostico{tipo: :campo_truncado, sensible: true} = advertencia
+
+      for {representacion, texto} <- representaciones(advertencia) do
+        refute texto =~ @centinela, "#{representacion} filtra el valor: #{texto}"
+      end
+
+      assert Diagnostico.mensaje(advertencia, revelar: true) =~ @centinela
+    end
+
+    test "los campos internos sensibles de un grupo y de una variante también" do
+      layout =
+        Layout.nuevo!(
+          campos: [
+            [nombre: :tipo, largo: 1],
+            [nombre: :g, tipo: :grupo, campos: [[nombre: :rut, largo: 10, tipo: :rut]]],
+            [
+              nombre: :v,
+              tipo: :variante,
+              segun: :tipo,
+              variantes: %{"A" => [[nombre: :nombre, largo: 4, sensible: true]]}
+            ]
+          ]
+        )
+
+      assert {:error, diagnosticos} =
+               AnchoFijo.escribir(layout, [
+                 %{tipo: "A", g: [%{rut: "12345678-9"}], v: %{nombre: "JUAN #{@centinela}"}}
+               ])
+
+      assert [%{campo: "g[1].rut", sensible: true}, %{campo: "v.nombre", sensible: true}] =
+               diagnosticos
+
+      reporte = Diagnostico.reporte(diagnosticos)
+      refute reporte =~ "12345678"
+      refute reporte =~ @centinela
+      assert Diagnostico.reporte(diagnosticos, revelar: true) =~ "12345678-9"
     end
   end
 

@@ -25,6 +25,16 @@ Este proyecto sigue [Versionado Semántico](https://semver.org/lang/es/).
   un nombre de campo que no es átomo en un grupo o variante, un
   `:variantes` cuyo valor no es una lista, un control con `:en` que no es
   átomo y un nombre con bytes que no son UTF-8 (#90).
+- Al escribir, los diagnósticos de un campo `sensible: true` (y `:rut` lo
+  es por default) salen marcados con la forma del valor, como al leer: un
+  texto que no cabe, un RUT con el DV malo, un entero donde iba una fecha,
+  un monto de otra moneda, un carácter que latin-1 no tiene, una regla que
+  no se cumple y la advertencia de un texto truncado ya no muestran el valor
+  en `mensaje/1`, `reporte/1`, `inspect/1`, `a_mapa/1` ni en JSON; con
+  `revelar: true` sí. Cubre los campos internos sensibles de un grupo o una
+  variante. Un decimal sensible fuera de rango levantaba
+  `Protocol.UndefinedError` al describir la tupla; ya no. La matriz de
+  `sensibles_test.exs` recorre también la escritura (#91).
 
 ## [0.4.0] — 2026-10-23
 
